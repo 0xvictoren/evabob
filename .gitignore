@@ -1,0 +1,61 @@
+# dependencies
+node_modules/
+**/node_modules/
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+server/dist/
+
+# Flutter / Android builds & packages
+*.apk
+*.aab
+*.ipa
+mobile/build/
+mobile/android/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins-dependencies
+mobile/*.log.err
+mobile/*.log.out
+mobile/**/Generated.xcconfig
+mobile/**/flutter_export_environment.sh
+**/intermediates/
+**/.gradle/
+
+# Foundry
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+
+# misc
+.DS_Store
+*.pem
+*.log
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env / secrets
+.env*.local
+.env
+**/.env
+**/.env.testnet
+**/.env.production
+server/data/
+/data/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Evabob · Secure confirm</title>
+  <style>
+    /* Never style Circle PIN inputs — text-security breaks W3S (red glyphs). */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      max-width: 100vw;
+      overflow-x: hidden;
+      background: #F6F1E8;
+      color: #0F1B2D;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    .shell {
+      max-width: 420px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 20px 16px 32px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 8px 30px rgba(15, 27, 45, 0.08);
+      overflow: hidden;
+    }
+    h1 { font-size: 1.15rem; margin: 0 0 8px; }
+    p { color: #4A5568; font-size: 0.9rem; line-height: 1.45; margin: 0; word-break: break-word; }
+    #status {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #ECFDF5;
+      color: #059669;
+      font-size: 0.85rem;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      max-height: 6.5em;
+      overflow: hidden;
+    }
+    #status.err { background: #FEF2F2; color: #DC2626; }
+    #run {
+      width: 100%;
+      margin-top: 16px;
+      padding: 14px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #34D399, #059669);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1rem;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <h1>Confirm with PIN</h1>
+      <p>Enter your Circle wallet PIN when the secure keypad appears. Approve every step to finish the transfer.</p>
+      <div id="status">Preparing secure session…</div>
+      <button id="run" type="button">Continue</button>
+    </div>
+  </div>
+  <script type="module">
+    import { W3SSdk } from 'https://cdn.jsdelivr.net/npm/@circle-fin/w3s-pw-web-sdk@1.1.11/+esm';
+
+    const statusEl = document.getElementById('status');
+    const runBtn = document.getElementById('run');
+
+    function shortMsg(msg) {
+      const t = String(msg == null ? '' : msg).replace(/\s+/g, ' ').trim();
+      if (t.length <= 200) return t;
+      return t.slice(0, 140) + '…' + t.slice(-40);
+    }
+
+    function setStatus(msg, err) {
+      statusEl.textContent = shortMsg(msg);
+      statusEl.className = err ? 'err' : '';
+    }
+
+    function post(type, payload) {
+      const msg = JSON.stringify({ type, ...payload });
+      try {
+        if (window.EvabobBridge && window.EvabobBridge.postMessage) {
+          window.EvabobBridge.postMessage(msg);
+        }
+      } catch (_) {}
+      try {
+        window.parent && window.parent.postMessage(msg, '*');
+      } catch (_) {}
+    }
+
+    function b64UrlToUtf8(s) {
+      try {
+        let b64 = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4) b64 += '=';
+        return decodeURIComponent(
+          Array.prototype.map
+            .call(atob(b64), (c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join(''),
+        );
+      } catch (_) {
+        return '';
+      }
+    }
+
+    /** Prefer Flutter-injected payload; fall back to ?cfg= base64url JSON. */
+    function readAuth() {
+      let inj =
+        (typeof window.__EVABOB_CHALLENGE__ === 'object' && window.__EVABOB_CHALLENGE__) ||
+        null;
+      if (!inj || !inj.userToken) {
+        try {
+          const cfg = new URLSearchParams(location.search).get('cfg');
+          if (cfg) {
+            const raw = b64UrlToUtf8(cfg);
+            if (raw) inj = JSON.parse(raw);
+          }
+        } catch (_) {}
+      }
+      inj = inj || {};
+      const appId = inj.appId || '';
+      const userToken = inj.userToken || '';
+      const encryptionKey = inj.encryptionKey || '';
+      let ids = [];
+      if (Array.isArray(inj.challengeIds) && inj.challengeIds.length) {
+        ids = inj.challengeIds.map(String).filter(Boolean);
+      } else if (inj.challengeId) {
+        ids = [String(inj.challengeId)];
+      }
+      // de-dupe while preserving order
+      const seen = new Set();
+      ids = ids.filter((id) => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      return { appId, userToken, encryptionKey, ids };
+    }
+
+    async function waitAuth(maxMs) {
+      const start = Date.now();
+      while (Date.now() - start < maxMs) {
+        const a = readAuth();
+        if (a.appId && a.userToken && a.encryptionKey && a.ids.length) return a;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return readAuth();
+    }
+
+    function errText(err) {
+      if (!err) return 'PIN failed';
+      if (typeof err === 'string') return err;
+      return (
+        err.message ||
+        err.reason ||
+        err.errorMessage ||
+        (err.code != null ? 'Error ' + err.code : '') ||
+        String(err)
+      );
+    }
+
+    /**
+     * True only when the user deliberately backed out of the PIN sheet.
+     *
+     * This matters more than it looks. A soft cancel stops the batch and tells
+     * Flutter "no funds moved", which discards the activity row — and losing
+     * that row is what previously lost the receipt for USDC that had already
+     * been burnt.
+     *
+     * The old test was /cancel|dismiss|close|abort/ against the error text.
+     * "close" and "abort" are ordinary failure words, not user intent:
+     * a network drop ("connection closed"), a timeout ("the operation was
+     * aborted", which is exactly what AbortSignal produces) or an SDK teardown
+     * all match. Those were being recorded as deliberate cancellations, which
+     * both hid real failures and risked discarding a receipt for a payment
+     * that may have landed.
+     *
+     * Circle's own cancellation codes are authoritative. Beyond those, only
+     * wording that names the user is trusted, and anything that looks like a
+     * timeout or a network fault is explicitly never a cancel.
+     */
+    function isSoftCancel(err, message) {
+      if (err?.code === 155114 || err?.code === 155115) return true;
+
+      var text = String(message || '');
+      // Never mistake an infrastructure failure for a decision.
+      if (/timeout|timed out|network|connection|socket|offline|unreachable|fetch failed/i.test(text)) {
+        return false;
+      }
+      // Require wording that actually implies the person chose to stop.
+      return /\b(cancell?ed|canceled by|user cancell?ed|dismissed|declined|rejected by user)\b/i.test(
+        text,
+      );
+    }
+
+    /**
+     * Circle docs: without a successful getDeviceId() session, execute() can
+     * silently fail and leave challenges PENDING forever.
+     */
+    async function ensureDeviceId(sdk) {
+      let lastErr = null;
+      // Circle W3S: without device id, execute() can leave challenges PENDING.
+      for (let attempt = 1; attempt <= 12; attempt++) {
+        try {
+          if (typeof sdk.getDeviceId !== 'function') {
+            // Some SDK builds expose device session via init only.
+            post('progress', { message: 'Device id API missing — continuing' });
+            return 'unknown';
+          }
+          const id = await Promise.race([
+            sdk.getDeviceId(),
+            new Promise((_, rej) =>
+              setTimeout(() => rej(new Error('getDeviceId timeout')), 8000),
+            ),
+          ]);
+          if (id) {
+            post('progress', {
+              message: 'Secure device session ready',
+              deviceId: String(id).slice(0, 12),
+            });
+            return String(id);
+          }
+          lastErr = new Error('empty device id');
+        } catch (e) {
+          lastErr = e;
+          console.warn('getDeviceId attempt ' + attempt, e);
+          post('progress', {
+            message: 'Linking device… attempt ' + attempt + '/12',
+          });
+        }
+        await new Promise((r) => setTimeout(r, Math.min(400 * attempt, 2500)));
+      }
+      throw lastErr || new Error('Could not establish Circle device session');
+    }
+
+    const TERMINAL_BAD = ['FAILED', 'EXPIRED', 'CANCELLED', 'CANCELED', 'DENIED'];
+
+    /**
+     * Run one challenge to completion.
+     *
+     * The W3S SDK may invoke the callback more than once for a single
+     * execute() — first when the PIN UI hands off (status IN_PROGRESS), then
+     * again when Circle has finalized. Resolving on the first call and moving
+     * on tore the iframe down mid-flush, which is how a challenge ends up
+     * stuck at PENDING even though the user entered the correct PIN. Wait for
+     * a terminal callback, and give the SDK a settle window before resolving.
+     */
+    function executeOne(sdk, challengeId) {
+      return new Promise((resolve, reject) => {
+        let done = false;
+        let lastResult = null;
+        let lastStatus = '';
+
+        const finish = (fn, arg) => {
+          if (done) return;
+          done = true;
+          clearTimeout(hardTimer);
+          clearTimeout(settleTimer);
+          fn(arg);
+        };
+
+        const hardTimer = setTimeout(() => {
+          finish(
+            reject,
+            new Error('PIN timed out for challenge ' + String(challengeId).slice(0, 8)),
+          );
+        }, 180000);
+
+        // If the SDK only ever reports a non-terminal status, accept it after a
+        // grace period rather than hanging — the server then confirms via the
+        // correlated transaction. Never resolve instantly on IN_PROGRESS.
+        let settleTimer = null;
+        const armSettle = () => {
+          clearTimeout(settleTimer);
+          settleTimer = setTimeout(() => {
+            finish(resolve, lastResult || { status: lastStatus || 'IN_PROGRESS' });
+          }, 6000);
+        };
+
+        try {
+          sdk.execute(challengeId, (error, result) => {
+            if (done) return;
+            if (error) {
+              finish(reject, error);
+              return;
+            }
+            lastResult = result || lastResult;
+            const status = String(
+              (result && (result.status || result.challengeStatus || result.state)) || '',
+            ).toUpperCase();
+            lastStatus = status || lastStatus;
+
+            if (TERMINAL_BAD.indexOf(status) !== -1) {
+              finish(reject, new Error('Challenge ' + status));
+              return;
+            }
+            // Older SDK builds omit status on success — treat empty as complete.
+            if (!status || status === 'COMPLETE' || status === 'COMPLETED' ||
+                status === 'SUCCESS' || status === 'OK') {
+              finish(resolve, result || { status: status || 'COMPLETE' });
+              return;
+            }
+            // PENDING / IN_PROGRESS: Circle is still finalizing. Hold the
+            // WebView open and wait for a terminal callback.
+            post('progress', {
+              message: 'Finalizing step…',
+              challengeId,
+              resultStatus: status,
+              settling: true,
+            });
+            armSettle();
+          });
+        } catch (e) {
+          finish(reject, e);
+        }
+      });
+    }
+
+    /** Typed-data challenges return the signature only to this client. */
+    function signatureOf(result) {
+      if (!result || typeof result !== 'object') return null;
+      const sig =
+        (result.data && result.data.signature) ||
+        result.signature ||
+        (result.result && result.result.signature) ||
+        null;
+      return typeof sig === 'string' && /^0x[0-9a-fA-F]+$/.test(sig) ? sig : null;
+    }
+
+    async function runAll(a) {
+      setStatus('Opening secure PIN…');
+      post('progress', {
+        message: 'Starting Circle SDK',
+        challengeIds: a.ids,
+        count: a.ids.length,
+      });
+
+      let sdk;
+      try {
+        sdk = new W3SSdk({ appSettings: { appId: a.appId } });
+      } catch (e) {
+        // Fallback older constructor style
+        try {
+          sdk = new W3SSdk();
+          if (sdk.setAppSettings) sdk.setAppSettings({ appId: a.appId });
+        } catch (e2) {
+          const message = shortMsg(errText(e2 || e));
+          setStatus('SDK init failed: ' + message, true);
+          post('error', { message });
+          return false;
+        }
+      }
+
+      try {
+        setStatus('Linking secure device…');
+        await ensureDeviceId(sdk);
+      } catch (e) {
+        const message =
+          'Device session failed — check network, then retry. ' + shortMsg(errText(e));
+        setStatus(message, true);
+        post('error', { message, code: 'DEVICE_ID' });
+        return false;
+      }
+
+      try {
+        sdk.setAuthentication({
+          userToken: a.userToken,
+          encryptionKey: a.encryptionKey,
+        });
+      } catch (e) {
+        setStatus('Auth setup failed: ' + shortMsg(errText(e)), true);
+        post('error', { message: errText(e) });
+        return false;
+      }
+
+      const completed = [];
+      const failed = [];
+      for (let i = 0; i < a.ids.length; i++) {
+        const step = i + 1;
+        const total = a.ids.length;
+        const cid = a.ids[i];
+        setStatus(
+          total > 1
+            ? 'Step ' + step + ' of ' + total + ' — enter PIN if prompted'
+            : 'Enter your PIN when prompted',
+        );
+        post('progress', {
+          message: statusEl.textContent,
+          step,
+          total,
+          challengeId: cid,
+        });
+        try {
+          const result = await executeOne(sdk, cid);
+          const signature = signatureOf(result);
+          completed.push({
+            challengeId: cid,
+            status: (result && result.status) || 'COMPLETE',
+            signature,
+          });
+          post('progress', {
+            message: 'Step ' + step + ' approved',
+            step,
+            total,
+            challengeId: cid,
+            resultStatus: (result && result.status) || 'COMPLETE',
+            signature,
+            completedIds: completed.map((c) => c.challengeId),
+          });
+        } catch (err) {
+          const message = shortMsg(errText(err));
+          const soft = isSoftCancel(err, message);
+          failed.push({ challengeId: cid, error: message, cancelled: soft });
+          post('progress', {
+            message: (soft ? 'Cancelled step ' : 'Step failed ') + step,
+            step,
+            total,
+            challengeId: cid,
+            failed: true,
+          });
+          // Hard cancel stops the batch; otherwise attempt remaining IDs so
+          // Flutter can re-open only the still-PENDING ones after verify.
+          if (soft) {
+            setStatus('Cancelled: ' + message, true);
+            post('error', {
+              message,
+              cancelled: true,
+              step,
+              challengeId: cid,
+              completedIds: completed.map((c) => c.challengeId),
+              failedIds: failed.map((f) => f.challengeId),
+              completed,
+              failed,
+            });
+            return false;
+          }
+          // Non-cancel error: continue to next challenge id.
+          setStatus(
+            'Step ' + step + ' issue — continuing remaining… ' + message,
+            true,
+          );
+        }
+      }
+
+      if (failed.length && completed.length === 0) {
+        setStatus('PIN failed for all steps', true);
+        post('error', {
+          message: failed[0].error || 'PIN failed',
+          cancelled: false,
+          completedIds: [],
+          failedIds: failed.map((f) => f.challengeId),
+          completed,
+          failed,
+        });
+        return false;
+      }
+
+      if (failed.length) {
+        // Partial: Flutter must verify COMPLETE vs PENDING and re-run remainder.
+        setStatus(
+          'Completed ' + completed.length + '/' + a.ids.length +
+            ' — verifying remaining…',
+        );
+        post('partial', {
+          message: 'Partial challenge completion',
+          challengeIds: a.ids,
+          completedIds: completed.map((c) => c.challengeId),
+          failedIds: failed.map((f) => f.challengeId),
+          completed,
+          failed,
+        });
+        return 'partial';
+      }
+
+      setStatus(a.ids.length > 1 ? 'All steps approved' : 'Approved');
+      post('success', {
+        result: { steps: a.ids.length, completed },
+        challengeIds: a.ids,
+        completedIds: a.ids,
+        // Typed-data signatures must be relayed to the server; they are not
+        // readable from Circle's challenge record afterwards.
+        signatures: completed
+          .filter((c) => c.signature)
+          .map((c) => ({ challengeId: c.challengeId, signature: c.signature })),
+      });
+      return true;
+    }
+
+    async function boot() {
+      // Flutter embeds __EVABOB_CHALLENGE__ in HTML before scripts, or injects after load.
+      const a = await waitAuth(10000);
+      if (!a.appId || !a.userToken || !a.encryptionKey || !a.ids.length) {
+        const miss = [];
+        if (!a.appId) miss.push('appId');
+        if (!a.userToken) miss.push('userToken');
+        if (!a.encryptionKey) miss.push('encryptionKey');
+        if (!a.ids.length) miss.push('challengeId');
+        setStatus('Missing session: ' + miss.join(', ') + '. Close and try again.', true);
+        post('error', { message: 'Missing challenge parameters: ' + miss.join(', ') });
+        return;
+      }
+      if (a.encryptionKey.includes(' ') || a.encryptionKey.length < 16) {
+        setStatus('Invalid encryption key. Close and reopen wallet.', true);
+        post('error', { message: 'Invalid encryption key' });
+        return;
+      }
+
+      post('progress', {
+        message: 'Auth ready',
+        count: a.ids.length,
+        challengeIds: a.ids.map((id) => String(id).slice(0, 8)),
+        tokenLen: a.userToken.length,
+        keyLen: a.encryptionKey.length,
+      });
+
+      setStatus(
+        a.ids.length > 1
+          ? 'Ready — ' + a.ids.length + ' steps need PIN approval'
+          : 'Ready — continue to enter PIN',
+      );
+      runBtn.style.display = 'block';
+      let running = false;
+      const go = async () => {
+        if (running) return;
+        running = true;
+        runBtn.disabled = true;
+        const ok = await runAll(a);
+        // true = full success (Flutter pops); partial/false = allow retry button
+        if (ok !== true) {
+          running = false;
+          runBtn.disabled = false;
+          runBtn.style.display = 'block';
+          runBtn.textContent = ok === 'partial' ? 'Retry remaining' : 'Try again';
+        }
+      };
+      runBtn.onclick = go;
+      // Auto-start so user sees PIN promptly (button remains for retry).
+      setTimeout(go, 350);
+    }
+
+    boot().catch((e) => {
+      setStatus('Boot failed: ' + shortMsg(errText(e)), true);
+      post('error', { message: String(errText(e)) });
+    });
+  </script>
+</body>
+</html>

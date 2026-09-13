@@ -1,0 +1,425 @@
+/**
+ * Chat invoices + payment-request links.
+ *
+ * Line items live on the invoice. Escrow jobs are linked separately
+ * (`escrowJobId`) — this module never releases funds.
+ */
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { writeJsonAtomic } from "../utils/write-json-atomic.js";
+import { dirname } from "node:path";
+import { config } from "../config.js";
+import { dataPath } from "../utils/data-path.js";
+import { markPrimaryStoreDirty } from "./primary-store.js";
+
+export type InvoiceItem = {
+  id: string;
+  description: string;
+  amount: number;
+};
+
+/** How the receiver is allowed / chooses to pay. */
+export type InvoicePaymentStructure = "full" | "split" | "escrow";
+
+export type InvoiceStatus =
+  | "open"
+  | "paid"
+  | "partial"
+  | "escrow"
+  | "released"
+  | "refunded"
+  | "cancelled"
+  | "expired";
+
+export type PaymentRequest = {
+  id: string;
+  /** Issuer (who created the invoice). */
+  userId: string;
+  senderId?: string;
+  receiverId?: string;
+  receiverHandle?: string;
+  threadId?: string;
+  items: InvoiceItem[];
+  subtotal: number;
+  /** Always equals subtotal today (no tax/fees). */
+  total: number;
+  amount: number;
+  token: string;
+  description: string;
+  note?: string;
+  allowedStructures: InvoicePaymentStructure[];
+  chosenStructure?: InvoicePaymentStructure;
+  status: InvoiceStatus;
+  escrowJobId?: string;
+  instantPaidUsdc?: number;
+  escrowLockedUsdc?: number;
+  /**
+   * Who settled it, when, and the transaction that did it.
+   *
+   * Without these an invoice could say "paid" and nothing else — no payer,
+   * no date, nothing to check against the chain. A receipt that cannot be
+   * verified is decoration.
+   */
+  paidBy?: string;
+  paidByLabel?: string;
+  paidTxHash?: string;
+  escrowTxHash?: string;
+  link: string;
+  shareUrl: string;
+  createdAt: string;
+  paidAt?: string;
+  expiresAt?: string;
+};
+
+export type Invoice = PaymentRequest;
+
+const DATA_PATH = dataPath("payment-requests.json");
+
+function load(): PaymentRequest[] {
+  try {
+    if (!existsSync(DATA_PATH)) return [];
+    const raw = JSON.parse(readFileSync(DATA_PATH, "utf8")) as PaymentRequest[];
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function save(rows: PaymentRequest[]) {
+  // Settlement hashes are replay records. Dropping old invoices makes an old
+  // payment proof reusable, so retention must be handled by archival storage.
+  writeJsonAtomic(DATA_PATH, rows);
+  markPrimaryStoreDirty();
+}
+
+function publicBase(): string {
+  // Payment recipients belong on the public web app, never the API origin.
+  const base = config.appPublicUrl || process.env.PUBLIC_URL || "https://evabob.app";
+  return base.replace(/\/$/, "");
+}
+
+function normalizeItems(
+  items: Array<{ description?: string; amount?: number }> | undefined,
+  fallbackAmount: number,
+  fallbackDescription: string,
+): InvoiceItem[] {
+  const cleaned = (items || [])
+    .map((it) => ({
+      id: randomUUID(),
+      description: String(it.description || "").trim() || "Item",
+      amount: Number(it.amount),
+    }))
+    .filter((it) => Number.isFinite(it.amount) && it.amount > 0);
+  if (cleaned.length > 0) return cleaned;
+  if (fallbackAmount > 0) {
+    return [
+      {
+        id: randomUUID(),
+        description: fallbackDescription || "Invoice",
+        amount: fallbackAmount,
+      },
+    ];
+  }
+  return [];
+}
+
+function hydrate(row: PaymentRequest): PaymentRequest {
+  const items =
+    Array.isArray(row.items) && row.items.length > 0
+      ? row.items
+      : normalizeItems(undefined, row.amount || 0, row.description || "");
+  const subtotal = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  return {
+    ...row,
+    items,
+    subtotal: row.subtotal ?? subtotal,
+    total: row.total ?? row.amount ?? subtotal,
+    amount: row.amount ?? subtotal,
+    senderId: row.senderId || row.userId,
+    allowedStructures:
+      row.allowedStructures && row.allowedStructures.length > 0
+        ? row.allowedStructures
+        : (["full", "split", "escrow"] as InvoicePaymentStructure[]),
+  };
+}
+
+function loadHydrated(): PaymentRequest[] {
+  return load().map(hydrate);
+}
+
+export function createInvoice(input: {
+  userId: string;
+  items?: Array<{ description?: string; amount?: number }>;
+  amount?: number;
+  token?: string;
+  description?: string;
+  note?: string;
+  threadId?: string;
+  receiverId?: string;
+  receiverHandle?: string;
+  allowedStructures?: InvoicePaymentStructure[];
+  expiresInMs?: number;
+}): PaymentRequest {
+  const description = input.description?.trim() || input.note?.trim() || "";
+  const items = normalizeItems(input.items, input.amount || 0, description);
+  const total = items.reduce((s, it) => s + it.amount, 0);
+  if (!(total > 0)) throw new Error("Invoice needs at least one priced item");
+
+  const allowed =
+    input.allowedStructures && input.allowedStructures.length > 0
+      ? input.allowedStructures
+      : (["full", "split", "escrow"] as InvoicePaymentStructure[]);
+
+  const id = randomUUID();
+  const token = (input.token || "USDC").toUpperCase();
+  const now = Date.now();
+  const row: PaymentRequest = {
+    id,
+    userId: input.userId,
+    senderId: input.userId,
+    receiverId: input.receiverId,
+    receiverHandle: input.receiverHandle,
+    threadId: input.threadId,
+    items,
+    subtotal: total,
+    total,
+    amount: total,
+    token,
+    description: description || items.map((i) => i.description).join(", "),
+    note: input.note?.trim() || "",
+    allowedStructures: allowed,
+    status: "open",
+    link: `evabob://pay/${id}`,
+    shareUrl: `${publicBase()}/pay/${id}`,
+    createdAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + (input.expiresInMs ?? 7 * 24 * 60 * 60 * 1000)).toISOString(),
+  };
+  const all = loadHydrated();
+  all.unshift(row);
+  save(all);
+  return row;
+}
+
+/** Legacy single-amount payment request (one line item). */
+export function createPaymentRequest(input: {
+  userId: string;
+  amount: number;
+  items?: Array<{ description?: string; amount?: number }>;
+  token?: string;
+  description?: string;
+  note?: string;
+  threadId?: string;
+  receiverId?: string;
+  receiverHandle?: string;
+}): PaymentRequest {
+  return createInvoice(input);
+}
+
+export function listPaymentRequests(userId: string): PaymentRequest[] {
+  return listInvoicesForUser(userId)
+    .filter((r) => r.role === "sent")
+    .map((r) => r.invoice);
+}
+
+export function listInvoicesForUser(userId: string): Array<{
+  invoice: PaymentRequest;
+  role: "sent" | "received";
+}> {
+  const uid = userId.toLowerCase();
+  return loadHydrated()
+    .filter((r) => {
+      const sender = (r.senderId || r.userId || "").toLowerCase();
+      const receiver = (r.receiverId || "").toLowerCase();
+      return sender === uid || receiver === uid;
+    })
+    .map((invoice) => ({
+      invoice,
+      role:
+        (invoice.senderId || invoice.userId || "").toLowerCase() === uid
+          ? ("sent" as const)
+          : ("received" as const),
+    }));
+}
+
+export function getPaymentRequest(id: string): PaymentRequest | undefined {
+  const row = load().find((r) => r.id === id);
+  return row ? hydrate(row) : undefined;
+}
+
+const TERMINAL: InvoiceStatus[] = [
+  "paid",
+  "released",
+  "refunded",
+  "cancelled",
+  "expired",
+];
+
+/** Raised when someone tries to change an invoice that is not theirs to change. */
+export class InvoicePermissionError extends Error {
+  readonly code = "INVOICE_FORBIDDEN";
+  constructor(message: string) {
+    super(message);
+    this.name = "InvoicePermissionError";
+  }
+}
+
+/**
+ * Who may move an invoice to `status`.
+ *
+ * The actor used to be accepted and ignored — the parameter was named
+ * `_userId`. Any signed-in caller could mark a stranger's invoice paid, and
+ * the route then rewrites the chat bubble to "Request · paid", so the creator
+ * is told they were paid when nothing moved. Marking `cancelled` was an
+ * equally free way to kill someone else's request.
+ *
+ * Cancelling is the creator's decision alone. Paying is the payer's, so it is
+ * allowed for the creator or the named receiver — and, when an invoice names
+ * no receiver, for anyone holding the link, because that is what a payment
+ * link is for.
+ */
+function assertMayMark(
+  invoice: PaymentRequest,
+  status: PaymentRequest["status"],
+  actorId: string | undefined,
+): void {
+  const owner = invoice.senderId || invoice.userId;
+  const isOwner = Boolean(actorId && actorId === owner);
+
+  if (status === "cancelled") {
+    if (!isOwner) {
+      throw new InvoicePermissionError(
+        "Only the person who created this request can cancel it.",
+      );
+    }
+    return;
+  }
+
+  if (status === "open") {
+    if (!isOwner) {
+      throw new InvoicePermissionError(
+        "Only the person who created this request can reopen it.",
+      );
+    }
+    return;
+  }
+
+  if (status === "paid" || status === "escrow" || status === "partial") {
+    // An invoice with no named receiver is a shareable link: whoever holds it
+    // may pay. One addressed to somebody is only theirs (or the creator's).
+    if (!invoice.receiverId) return;
+    const isReceiver = Boolean(actorId && actorId === invoice.receiverId);
+    if (!isOwner && !isReceiver) {
+      throw new InvoicePermissionError(
+        "This request was addressed to someone else.",
+      );
+    }
+  }
+}
+
+export function markPaymentRequest(
+  id: string,
+  status: PaymentRequest["status"],
+  actorId?: string,
+  extra?: Partial<
+    Pick<
+      PaymentRequest,
+      | "chosenStructure"
+      | "escrowJobId"
+      | "instantPaidUsdc"
+      | "escrowLockedUsdc"
+      | "paidBy"
+      | "paidByLabel"
+      | "paidAt"
+      | "paidTxHash"
+      | "escrowTxHash"
+    >
+  >,
+): PaymentRequest | null {
+  const all = load();
+  const i = all.findIndex((r) => r.id === id);
+  if (i < 0) return null;
+  const current = hydrate(all[i]);
+  assertMayMark(current, status, actorId);
+  for (const hash of [extra?.paidTxHash, extra?.escrowTxHash]) {
+    if (!hash) continue;
+    const needle = hash.toLowerCase();
+    const used = all.some((request, index) => index !== i &&
+      [request.paidTxHash, request.escrowTxHash]
+        .some(existing => existing?.toLowerCase() === needle));
+    if (used) throw new Error("Transaction is already attached to another invoice");
+  }
+  if (TERMINAL.includes(current.status) && status === "open") {
+    throw new Error(`Invoice is already ${current.status} — cannot reopen it`);
+  }
+  if (
+    TERMINAL.includes(current.status) &&
+    (status === "paid" || status === "escrow" || status === "partial")
+  ) {
+    return current;
+  }
+  if (status === "paid" || status === "escrow" || status === "partial") {
+    if (current.status !== "open" && current.status !== status && current.status !== "partial") {
+      throw new Error(
+        `Invoice is already ${current.status} — cannot mark ${status}`,
+      );
+    }
+  }
+  all[i] = hydrate({
+    ...current,
+    ...extra,
+    status,
+    paidAt:
+      status === "paid" || status === "escrow" || status === "partial"
+        ? new Date().toISOString()
+        : current.paidAt,
+  });
+  save(all);
+  return all[i];
+}
+
+/** Chat card payload — keep this shape stable. */
+export function invoiceChatMeta(inv: PaymentRequest): Record<string, unknown> {
+  return {
+    type: "invoice",
+    kind: "invoice",
+    invoiceId: inv.id,
+    requestId: inv.id,
+    items: inv.items,
+    subtotal: inv.subtotal,
+    total: inv.total,
+    amount: inv.total,
+    amountUsdc: inv.token === "USDC" ? inv.total : null,
+    token: inv.token,
+    description: inv.description,
+    note: inv.note || "",
+    allowedStructures: inv.allowedStructures,
+    status: inv.status,
+    senderId: inv.senderId || inv.userId,
+    sender: inv.senderId || inv.userId,
+    receiver: inv.receiverHandle || inv.receiverId || null,
+    threadId: inv.threadId || null,
+    escrowJobId: inv.escrowJobId || null,
+    chosenStructure: inv.chosenStructure || null,
+    paidTxHash: inv.paidTxHash || null,
+    escrowTxHash: inv.escrowTxHash || null,
+    paidBy: inv.paidBy || null,
+    paidByLabel: inv.paidByLabel || null,
+    paidAt: inv.paidAt || null,
+    expiresAt: inv.expiresAt || null,
+    link: inv.link,
+  };
+}
+
+export function expireOpenInvoices(now = Date.now()): PaymentRequest[] {
+  const all = loadHydrated();
+  const expired: PaymentRequest[] = [];
+  for (let i = 0; i < all.length; i++) {
+    const row = all[i];
+    if (row.status !== "open" || !row.expiresAt) continue;
+    if (new Date(row.expiresAt).getTime() > now) continue;
+    all[i] = { ...row, status: "expired" };
+    expired.push(all[i]);
+  }
+  if (expired.length) save(all);
+  return expired;
+}

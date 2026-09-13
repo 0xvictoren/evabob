@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "fluid": true,
+  "crons": [
+    {
+      "path": "/internal/cron/escrow-refunds",
+      "schedule": "5 * * * *"
+    }
+  ]
+}

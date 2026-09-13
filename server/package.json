@@ -1,0 +1,42 @@
+{
+  "name": "evabob-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start:prod": "node dist/index.js",
+    "keys:roles": "tsx src/scripts/generate-role-keys.ts",
+    "keys:apply-roles": "tsx src/scripts/apply-role-separation.ts",
+    "safe:admin": "tsx src/scripts/safe-admin.ts",
+    "migrate:identities": "tsx src/scripts/migrate-identities.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@circle-fin/adapter-circle-wallets": "^1.5.0",
+    "@circle-fin/adapter-viem-v2": "^1.14.1",
+    "@circle-fin/app-kit": "^1.11.0",
+    "@circle-fin/developer-controlled-wallets": "^10.8.0",
+    "@circle-fin/user-controlled-wallets": "^10.8.0",
+    "@circle-fin/x402-batching": "^3.4.0",
+    "@hono/node-server": "^1.19.17",
+    "dotenv": "^16.5.0",
+    "hono": "^4.13.7",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.2.0",
+    "mongodb": "^7.5.0",
+    "nodemailer": "^9.1.1",
+    "viem": "^2.30.0",
+    "zod": "^3.25.28"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.15.21",
+    "@types/nodemailer": "^8.0.1",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

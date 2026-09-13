@@ -1,0 +1,55 @@
+name: evabob_mobile
+description: Evabob — send money like a message. Local currency feel, USDC settlement on Arc.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_animate: ^4.5.2
+  intl: ^0.20.2
+  http: ^1.2.2
+  provider: ^6.1.2
+  shared_preferences: ^2.3.3
+  flutter_svg: ^2.0.10+1
+  webview_flutter: ^4.14.1
+  webview_flutter_android: ^4.13.0
+  pusher_channels_flutter: ^2.6.0
+  flutter_local_notifications: ^19.4.2
+  image_picker: ^1.1.2
+  path_provider: ^2.1.5
+  path: ^1.9.1
+  share_plus: ^12.0.2
+  dynamic_sdk: ^1.17.0
+  flutter_contacts: ^2.3.0
+  permission_handler: ^12.0.3
+  mobile_scanner: ^7.0.1
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  local_auth: ^3.0.2
+  flutter_secure_storage: ^10.3.1
+  crypto: ^3.0.7
+  app_links: ^6.4.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/challenge.html
+    - assets/dp-pic-asset/
+    - assets/icons/
+    - assets/icons-png/
+    - assets/logo.png
+  fonts:
+    - family: Numans
+      fonts:
+        - asset: assets/Numans/Numans-Regular.ttf
+          weight: 400

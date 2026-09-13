@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0a0a12;
+  --navy-surface: #161a2e;
+  --violet: #7b6ef6;
+  --violet-soft: #9b8cff;
+  --chalk: #e8e6f2;
+  --chalk-muted: #9b98b0;
+  --ease-sleek: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  color: var(--chalk);
+  background: var(--background);
+  font-family: var(--font-numans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* App shell ambient mesh */
+.app-shell {
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -10%, rgba(123, 110, 246, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 100% 40%, rgba(91, 79, 219, 0.18) 0%, transparent 50%),
+    radial-gradient(ellipse 45% 35% at 0% 70%, rgba(108, 92, 231, 0.14) 0%, transparent 45%),
+    linear-gradient(180deg, #0a0a12 0%, #0f1224 50%, #0a0a12 100%);
+}
+
+.font-display {
+  font-family: var(--font-numans), system-ui, sans-serif;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* Transaction amounts: mono + fixed digit width */
+.font-mono.tabular-nums,
+.font-mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* Glass surfaces */
+.glass {
+  background: rgba(22, 26, 46, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 8px 32px rgba(10, 10, 18, 0.4);
+}
+
+.glass-heavy {
+  background: rgba(22, 26, 46, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(32px) saturate(1.35);
+  -webkit-backdrop-filter: blur(32px) saturate(1.35);
+  box-shadow:
+    0 12px 40px rgba(10, 10, 18, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.glass-flat {
+  background: #161a2e;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-chip {
+  background: rgba(28, 33, 64, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Gradient rim for pills */
+.gradient-rim {
+  position: relative;
+  isolation: isolate;
+}
+
+.gradient-rim::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(
+    135deg,
+    rgba(155, 140, 255, 0.85),
+    rgba(91, 79, 219, 0.35),
+    rgba(155, 140, 255, 0.7)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.btn-press {
+  transition:
+    transform 0.35s var(--ease-sleek),
+    box-shadow 0.35s var(--ease-sleek);
+}
+
+.btn-press:active {
+  transform: scale(0.97);
+  box-shadow: 0 8px 28px rgba(123, 110, 246, 0.35);
+}
+
+/* Soft scrollbar */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

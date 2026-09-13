@@ -1,0 +1,31 @@
+{
+    "network": "arc-testnet",
+    "chainId": 5042002,
+    "rpc": "https://rpc.testnet.arc.network",
+    "explorer": "https://testnet.arcscan.app",
+    "usdc": "0x3600000000000000000000000000000000000000",
+    "eurc": "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+    "identityRegistry": "0xb14355288fcE19811cccaF1589ea85e3791320a0",
+    "paymentEscrow": "0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805",
+    "adminSafe": "0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2",
+    "safeThreshold": 2,
+    "safeOwners": [
+        "0xd72d85f18188EeE1ED8725721b3e54316F462cf7",
+        "0xF4Aa77A3cA4d8E5985ddf0Bbfa9dA3DA6a54111a",
+        "0xf7527C9929C420d6F6D0e0EF01b41E01c2E7a7d2"
+    ],
+    "opsSigner": "0x164d01fDa39aB22662bB2852231d0fB5DDF6A971",
+    "identityLinker": "0xDCE03B19533adBed83F4c75273A0ccef33a68832",
+    "claimAttestor": "0x90447ca0c057120332DC141e4a68A7a684aEb8C2",
+    "deployer": "0xa354e21b61d94781F15a15c1f23F7502bf72aF77",
+    "deployedAt": "2026-09-12",
+    "safeDeployTx": "0x4d553c23fe75f541c43dfff64fd742388efd1e5a118780abf1eca598323cdb74",
+    "identityRegistryDeployTx": "0x83ebd2eb1900dc90a80b6874393f9116c82919358afec8aeab60cdb232d65759",
+    "paymentEscrowV2": "0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805",
+    "paymentEscrowV2DeployedAt": "2026-09-12",
+    "paymentEscrowV2DeployTx": "0x34d0a91c8189f4bc18d649351b0388716afca1d2829b4b0856845d2f6dea6b09",
+    "previousIdentityRegistry": "0x279489fA4c1e7fcaE050727F4FC580956B3Ae4aD",
+    "previousPaymentEscrowV2": "0xdEd2FDE0f6cb83d749D2BBfdfe34Fdac2A6635e3",
+    "paymentEscrowV1Retired": "0xfb89b95e706fb656d8190935337b23c337f71d60",
+    "note": "2-of-3 Safe owns both admin roles. Separate hot wallets handle ops, verified identity linking, and escrow attestation. Six identities migrated without conflicts; the previous escrow held 0 USDC."
+}

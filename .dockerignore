@@ -1,0 +1,14 @@
+.git
+.next
+node_modules
+**/node_modules
+server
+contracts
+mobile
+.claude
+.github
+docs
+*.jpg
+.env
+.env.*
+*.log
