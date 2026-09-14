@@ -1,5 +1,5 @@
 {
-  "API_BASE_URL": "http://10.0.2.2:8787",
+  "API_BASE_URL": "https://evabob-api-testnet.onrender.com",
   "IDENTITY_REGISTRY": "0xb14355288fcE19811cccaF1589ea85e3791320a0",
   "PUSHER_KEY": "287b409f71966a2c4d7b",
   "PUSHER_CLUSTER": "mt1",
@@ -8,5 +8,5 @@
   "PAYMENT_ESCROW": "0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805",
   "CIRCLE_WALLETS_APP_ID": "9aed57be-b4be-52a2-a9ce-610af36e6055",
   "DYNAMIC_ENVIRONMENT_ID": "6b48d938-66fa-4259-bacc-1142403886f6",
-  "DYNAMIC_APP_ORIGIN": "https://evabob.app"
+  "DYNAMIC_APP_ORIGIN": "https://evabob-web-testnet.onrender.com"
 }

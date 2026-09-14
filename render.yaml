@@ -1,0 +1,209 @@
+# Evabob hosted Arc testnet on Render.
+# Secret values are entered in the Render Dashboard during the first Blueprint
+# sync. Never copy values from server/.env into this file.
+services:
+  - type: web
+    name: evabob-api-testnet
+    runtime: node
+    region: frankfurt
+    plan: 0.5c-512mb
+    rootDir: server
+    numInstances: 1
+    buildCommand: npm ci --legacy-peer-deps && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /health/ready
+    autoDeployTrigger: commit
+    disk:
+      name: evabob-api-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: EVABOB_ENV
+        value: testnet
+      - key: ENABLE_PRODUCTION_LAUNCH
+        value: "false"
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /var/data/evabob
+      - key: APP_NAME
+        value: evabob
+      - key: ALLOW_HEADER_AUTH
+        value: "false"
+      - key: RUN_INTERNAL_REFUND_JOB
+        value: "false"
+      - key: API_PUBLIC_URL
+        fromService:
+          type: web
+          name: evabob-api-testnet
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: APP_PUBLIC_URL
+        fromService:
+          type: web
+          name: evabob-web-testnet
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: evabob-web-testnet
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: CRON_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: evabob_testnet
+      - key: DYNAMIC_ENVIRONMENT_ID
+        sync: false
+      - key: DYNAMIC_API_TOKEN
+        sync: false
+      - key: CIRCLE_WALLETS_APP_ID
+        sync: false
+      - key: CIRCLE_API_KEY
+        sync: false
+      - key: CIRCLE_ENTITY_SECRET
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: IDENTITY_LINKER_PRIVATE_KEY
+        sync: false
+      - key: ESCROW_ATTESTOR_PRIVATE_KEY
+        sync: false
+      - key: OPERATOR_USER_IDS
+        sync: false
+      - key: ARC_RPC_URL
+        value: https://rpc.testnet.arc.network
+      - key: ARC_CHAIN_ID
+        value: "5042002"
+      - key: GATEWAY_API_BASE
+        value: https://gateway-api-testnet.circle.com/v1
+      - key: ADMIN_SAFE_ADDRESS
+        value: 0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2
+      - key: IDENTITY_REGISTRY
+        value: 0xb14355288fcE19811cccaF1589ea85e3791320a0
+      - key: PAYMENT_ESCROW
+        value: 0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805
+      - key: USE_APP_KIT
+        value: "true"
+      - key: APP_KIT_ADAPTER
+        value: circle-wallets
+      - key: APP_KIT_KEEP_LEGACY
+        value: "true"
+      - key: APP_KIT_DC_WALLET
+        sync: false
+      - key: KIT_KEY
+        sync: false
+      # Evabob platform fee: 0.05% on top of every payment, gas excluded.
+      # Leave the address empty to charge nothing.
+      - key: PLATFORM_FEE_ADDRESS
+        sync: false
+      - key: PLATFORM_FEE_BPS
+        value: "5"
+      - key: FEATURE_DIRECT_SEND
+        value: "false"
+      - key: FEATURE_PROTECTED_SEND
+        value: "false"
+      - key: FEATURE_REQUESTS
+        value: "false"
+      - key: FEATURE_GATEWAY
+        value: "false"
+      - key: FEATURE_CONVERSION
+        value: "false"
+      - key: FEATURE_BRIDGE_ROUTES
+        value: ""
+      - key: FEATURE_AGENT_WALLETS
+        value: "false"
+      - key: FEATURE_X402_EXECUTION
+        value: "false"
+      - key: FEATURE_AGENT_BATCH_SEND
+        value: "false"
+      - key: AGENT_MAX_DAILY_LIMIT_USDC
+        value: "100"
+      - key: AGENT_MAX_USER_DAILY_SPEND_USDC
+        value: "250"
+      - key: AGENT_RESOURCE_ORIGINS
+        value: ""
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_API_KEY
+        sync: false
+      - key: EXCHANGE_RATE_API_KEY
+        sync: false
+      - key: SYNTHRA_API_KEY
+        sync: false
+      - key: PUSHER_APP_ID
+        sync: false
+      - key: PUSHER_KEY
+        sync: false
+      - key: PUSHER_SECRET
+        sync: false
+      - key: PUSHER_CLUSTER
+        value: mt1
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "2525"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_SECURE
+        value: "false"
+
+  - type: web
+    name: evabob-web-testnet
+    runtime: node
+    region: frankfurt
+    plan: 0.5c-512mb
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: EVABOB_API_BASE_URL
+        fromService:
+          type: web
+          name: evabob-api-testnet
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXT_PUBLIC_API_BASE_URL
+        fromService:
+          type: web
+          name: evabob-api-testnet
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: NEXT_PUBLIC_ANDROID_APP_URL
+        value: ""
+      - key: NEXT_PUBLIC_IOS_APP_URL
+        value: ""
+
+  - type: cron
+    name: evabob-refunds-testnet
+    runtime: node
+    region: frankfurt
+    plan: 0.5c-512mb
+    rootDir: server
+    schedule: "5 * * * *"
+    buildCommand: npm ci --legacy-peer-deps
+    startCommand: npm run cron:escrow-refunds
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: API_PUBLIC_URL
+        fromService:
+          type: web
+          name: evabob-api-testnet
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: CRON_SECRET
+        fromService:
+          type: web
+          name: evabob-api-testnet
+          envVarKey: CRON_SECRET

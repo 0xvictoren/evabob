@@ -17,6 +17,7 @@ class IncomeCard extends StatelessWidget {
     final total = series.fold<double>(0, (sum, value) => sum + value);
     final count = activity.items.where((entry) {
       return entry.positive &&
+          _isDollars(entry) &&
           DateTime.now().difference(entry.createdAt).inDays < 7;
     }).length;
 
@@ -83,12 +84,19 @@ class IncomeCard extends StatelessWidget {
     final now = DateTime.now();
     final buckets = List<double>.filled(7, 0);
     for (final entry in items) {
-      if (!entry.positive || entry.isPending) continue;
+      if (!entry.positive || entry.isPending || !_isDollars(entry)) continue;
       final days = now.difference(entry.createdAt).inDays;
       if (days < 0 || days >= 7) continue;
       buckets[6 - days] += entry.displayAmount;
     }
     return buckets;
+  }
+
+  /// The card is labelled in dollars, so euro (and any other token) receipts
+  /// must not be summed into it at face value.
+  static bool _isDollars(ActivityEntry entry) {
+    final token = entry.displayToken.toUpperCase();
+    return token.isEmpty || token == 'USDC' || token == 'USD';
   }
 }
 

@@ -14,6 +14,7 @@
 import { AppKit } from "@circle-fin/app-kit";
 import { createCircleWalletsAdapter } from "@circle-fin/adapter-circle-wallets";
 import { createViemAdapterFromPrivateKey } from "@circle-fin/adapter-viem-v2";
+import { formatUnits, parseUnits } from "viem";
 import { config } from "../config.js";
 
 /** Product-supported App Kit chains only. */
@@ -294,10 +295,12 @@ export function buildBridgeFee(amountHuman: string):
   }
   const amt = Number(amountHuman);
   if (!Number.isFinite(amt) || amt <= 0) return undefined;
-  const fee = (amt * config.appKit.feeBps) / 10_000;
-  const value = fee < 0.000001 ? "0.000001" : fee.toFixed(6);
+  // No minimum fee: an amount too small to produce a whole USDC micro-unit
+  // of fee is charged nothing, rather than rounded up.
+  const units = (parseUnits(amt.toFixed(6), 6) * BigInt(config.appKit.feeBps)) / 10_000n;
+  if (units <= 0n) return undefined;
   return {
-    value,
+    value: formatUnits(units, 6),
     recipientAddress: config.appKit.feeRecipient,
   };
 }

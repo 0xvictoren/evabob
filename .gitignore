@@ -52,6 +52,7 @@ yarn-error.log*
 **/.env
 **/.env.testnet
 **/.env.production
+mobile/dart_defines.testnet.json
 server/data/
 /data/
 

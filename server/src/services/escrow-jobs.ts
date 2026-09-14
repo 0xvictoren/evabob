@@ -79,6 +79,8 @@ export function trackProtectedEscrow(
   input: Omit<ProtectedEscrowRecord, "id" | "status" | "createdAt" | "expiresAt"> & {
     id?: string;
     expiresInMs?: number;
+    /** Platform fee charged in the same batch as the lock (USDC). */
+    platformFee?: number;
   },
 ): ProtectedEscrowRecord & { activityId: string } {
   const now = Date.now();
@@ -110,6 +112,9 @@ export function trackProtectedEscrow(
     txHash: input.createTx,
     mode: "escrow",
     status: "pending",
+    ...(input.platformFee && input.platformFee > 0
+      ? { platformFee: input.platformFee, platformFeeToken: "USDC" }
+      : {}),
   });
 
   return { ...row, activityId: activity.id };

@@ -9,6 +9,7 @@ class EvabobUser {
     this.phone,
     this.phoneLinked = false,
     this.phoneLinkedAt,
+    this.onboardingRequired,
   });
 
   factory EvabobUser.demo(String email, {String? displayName, String? handle}) {
@@ -81,6 +82,9 @@ class EvabobUser {
   final bool phoneLinked;
   final String? phoneLinkedAt;
 
+  /// Null until the server has checked whether this is a new account.
+  final bool? onboardingRequired;
+
   String get handleOrFallback => (handle != null && handle!.isNotEmpty)
       ? handle!
       : defaultHandleFromEmail(email);
@@ -95,6 +99,7 @@ class EvabobUser {
     String? phone,
     bool? phoneLinked,
     String? phoneLinkedAt,
+    bool? onboardingRequired,
     bool clearPhone = false,
     bool clearHandle = false,
   }) =>
@@ -109,5 +114,6 @@ class EvabobUser {
         phoneLinked: phoneLinked ?? this.phoneLinked,
         phoneLinkedAt:
             clearPhone ? null : (phoneLinkedAt ?? this.phoneLinkedAt),
+        onboardingRequired: onboardingRequired ?? this.onboardingRequired,
       );
 }

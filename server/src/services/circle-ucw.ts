@@ -3,8 +3,51 @@ import {
   Blockchain,
 } from "@circle-fin/user-controlled-wallets";
 import { randomUUID } from "node:crypto";
-import { maxUint256, parseUnits, type Address } from "viem";
+import {
+  encodeFunctionData,
+  erc20Abi,
+  maxUint256,
+  parseUnits,
+  type Address,
+} from "viem";
 import { config } from "../config.js";
+import {
+  encodeWalletBatch,
+  feeTransferCall,
+  quotePlatformFee,
+  type WalletCall,
+} from "./platformFee.js";
+
+const CCTP_DEPOSIT_FOR_BURN_ABI = [
+  {
+    type: "function",
+    name: "depositForBurn",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "amount", type: "uint256" },
+      { name: "destinationDomain", type: "uint32" },
+      { name: "mintRecipient", type: "bytes32" },
+      { name: "burnToken", type: "address" },
+      { name: "destinationCaller", type: "bytes32" },
+      { name: "maxFee", type: "uint256" },
+      { name: "minFinalityThreshold", type: "uint32" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+const GATEWAY_DEPOSIT_ABI = [
+  {
+    type: "function",
+    name: "deposit",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "value", type: "uint256" },
+    ],
+    outputs: [],
+  },
+] as const;
 import { rememberUcwSession } from "./ucw-sessions.js";
 
 /** Circle GET challenge returns `{ challenge: {...} }`; some SDK paths flatten it. */
@@ -435,6 +478,45 @@ export async function createCalldataChallenge(input: {
 }
 
 /**
+ * Several calls, one PIN. Evabob wallets are Circle smart contract accounts:
+ * the calls are wrapped in the wallet's own `executeBatch` and submitted as a
+ * single contract-execution challenge targeting the wallet itself — the same
+ * encoding Circle's App Kit adapter uses. The batch is atomic: a payment and
+ * its platform fee either both land or neither does.
+ */
+export async function createWalletBatchChallenge(input: {
+  userToken: string;
+  walletId: string;
+  /** The wallet's own address; looked up from Circle when omitted. */
+  walletAddress?: string;
+  calls: WalletCall[];
+}) {
+  if (input.calls.length === 1) {
+    const [call] = input.calls;
+    return createCalldataChallenge({
+      userToken: input.userToken,
+      walletId: input.walletId,
+      contractAddress: call!.to,
+      callData: call!.data,
+    });
+  }
+  let address = input.walletAddress;
+  if (!address) {
+    const wallets = await listUserWallets(input.userToken);
+    address = wallets.find((w) => w.id === input.walletId)?.address;
+  }
+  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    throw new Error("Could not find this wallet's address to confirm the payment");
+  }
+  return createCalldataChallenge({
+    userToken: input.userToken,
+    walletId: input.walletId,
+    contractAddress: address,
+    callData: encodeWalletBatch(input.calls),
+  });
+}
+
+/**
  * Synthra ERC20-mode swap: approve router → execute swap calldata.
  * Plan comes from synthraSwap() (approvalMode: erc20).
  */
@@ -446,6 +528,8 @@ export async function createSynthraSwapChallenges(input: {
   swapTo: string;
   swapData: `0x${string}`;
   swapValue?: string;
+  /** Platform fee leg, batched with the swap so both land or neither does. */
+  feeCall?: WalletCall | null;
 }) {
   const approve = await createCalldataChallenge({
     userToken: input.userToken,
@@ -453,13 +537,27 @@ export async function createSynthraSwapChallenges(input: {
     contractAddress: input.approveTo,
     callData: input.approveData,
   });
-  const swap = await createCalldataChallenge({
-    userToken: input.userToken,
-    walletId: input.walletId,
-    contractAddress: input.swapTo,
-    callData: input.swapData,
-    amount: input.swapValue && input.swapValue !== "0" ? input.swapValue : undefined,
-  });
+  const nativeValue =
+    input.swapValue && input.swapValue !== "0" ? input.swapValue : undefined;
+  // A native-value swap cannot ride in executeBatch through Circle's
+  // contract-execution amount field, so only ERC-20 swaps are batched.
+  const swap =
+    input.feeCall && !nativeValue
+      ? await createWalletBatchChallenge({
+          userToken: input.userToken,
+          walletId: input.walletId,
+          calls: [
+            { to: input.swapTo as Address, data: input.swapData },
+            input.feeCall,
+          ],
+        })
+      : await createCalldataChallenge({
+          userToken: input.userToken,
+          walletId: input.walletId,
+          contractAddress: input.swapTo,
+          callData: input.swapData,
+          amount: nativeValue,
+        });
   return {
     appId: circleAppId(),
     challenges: [
@@ -475,6 +573,8 @@ export async function createSynthraSwapChallenges(input: {
       },
     ].filter((c) => c.challengeId),
     singlePinHint: true,
+    /** True when the platform fee rides in the swap's batch. */
+    feeBatched: Boolean(input.feeCall && !nativeValue),
   };
 }
 
@@ -542,6 +642,55 @@ export async function createGatewayDepositChallenges(input: {
   const walletId = chainWallet?.id || input.walletId;
   const amount = parseUnits(String(input.amountUsdc), 6).toString();
   const maxApprove = maxUint256.toString();
+  const chainName = meta.GATEWAY_DOMAIN_NAME[domain] || "Arc Testnet";
+
+  // Platform fee on: approve, deposit and fee in ONE wallet batch. One PIN,
+  // and a top-up can no longer stop between approve and deposit.
+  const feeQuote = quotePlatformFee(input.amountUsdc, 6);
+  if (feeQuote.feeUnits > 0n) {
+    const usdcAddress = usdc as Address;
+    const gatewayWallet = config.arc.gatewayWallet as Address;
+    const batch = await createWalletBatchChallenge({
+      userToken: input.userToken,
+      walletId,
+      walletAddress: chainWallet?.address,
+      calls: [
+        {
+          to: usdcAddress,
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: "approve",
+            args: [gatewayWallet, feeQuote.amountUnits],
+          }),
+        },
+        {
+          to: gatewayWallet,
+          data: encodeFunctionData({
+            abi: GATEWAY_DEPOSIT_ABI,
+            functionName: "deposit",
+            args: [usdcAddress, feeQuote.amountUnits],
+          }),
+        },
+        feeTransferCall(usdcAddress, feeQuote)!,
+      ],
+    });
+    return {
+      appId: circleAppId(),
+      domain,
+      chain: chainName,
+      walletId,
+      platformFee: feeQuote.fee,
+      challenges: [
+        {
+          step: "deposit",
+          challengeId: batch.challengeId,
+          description: `Add USDC to your GA on ${chainName}`,
+        },
+      ].filter((c) => c.challengeId),
+      singlePinHint: true,
+    };
+  }
+
   const approve = await createContractChallenge({
     userToken: input.userToken,
     walletId,
@@ -556,7 +705,6 @@ export async function createGatewayDepositChallenges(input: {
     abiFunctionSignature: "deposit(address,uint256)",
     abiParameters: [usdc, amount],
   });
-  const chainName = meta.GATEWAY_DOMAIN_NAME[domain] || "Arc Testnet";
   return {
     appId: circleAppId(),
     domain,
@@ -818,22 +966,49 @@ export async function createCctpBurnOnlyChallenge(input: {
   const zeroBytes32 =
     "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-  const burn = await createContractChallenge({
-    userToken,
-    walletId,
-    contractAddress: CCTP_TOKEN_MESSENGER,
-    abiFunctionSignature:
-      "depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)",
-    abiParameters: [
-      amount,
-      destinationDomain,
-      mintRecipientBytes32,
-      config.arc.usdc,
-      zeroBytes32,
-      "0",
-      1000,
-    ],
-  });
+  // Platform fee on: the burn and the fee in ONE wallet batch, so the fee is
+  // only ever taken together with a burn that actually happened. The approve
+  // step before this covers the burn amount only; the fee is a plain transfer.
+  const feeQuote = quotePlatformFee(amountUsdc, 6);
+  const burnCall = {
+    to: CCTP_TOKEN_MESSENGER as Address,
+    data: encodeFunctionData({
+      abi: CCTP_DEPOSIT_FOR_BURN_ABI,
+      functionName: "depositForBurn",
+      args: [
+        feeQuote.amountUnits,
+        destinationDomain,
+        mintRecipientBytes32 as `0x${string}`,
+        config.arc.usdc as Address,
+        zeroBytes32 as `0x${string}`,
+        0n,
+        1000,
+      ],
+    }),
+  };
+  const feeCall = feeTransferCall(config.arc.usdc as Address, feeQuote);
+  const burn = feeCall
+    ? await createWalletBatchChallenge({
+        userToken,
+        walletId,
+        calls: [burnCall, feeCall],
+      })
+    : await createContractChallenge({
+        userToken,
+        walletId,
+        contractAddress: CCTP_TOKEN_MESSENGER,
+        abiFunctionSignature:
+          "depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)",
+        abiParameters: [
+          amount,
+          destinationDomain,
+          mintRecipientBytes32,
+          config.arc.usdc,
+          zeroBytes32,
+          "0",
+          1000,
+        ],
+      });
   if (input.intentId) pendingCctpBurns.delete(input.intentId);
   return {
     appId: circleAppId(),

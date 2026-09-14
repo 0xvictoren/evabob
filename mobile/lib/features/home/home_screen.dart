@@ -76,6 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _refresh() async {
     final circle = context.read<CircleWalletService>();
     await Future.wait([
+      context.read<AppFeatures>().refresh(),
       context.read<WalletService>().refreshBalances(
             addressOverride: circle.address,
             force: true,
@@ -155,7 +156,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 8),
                   _MoneyCard(wallet: wallet, jobs: circle.openJobs),
-                  const IncompleteJobsBanner(),
                   const SizedBox(height: 24),
                   IncomeCard(activity: activity),
                   const SizedBox(height: 24),
@@ -281,8 +281,7 @@ class _Hero extends StatelessWidget {
                       ],
                     ),
                   ),
-                  _HeroIcon(
-                      icon: Icons.more_horiz, label: 'More', onTap: onMore),
+                  _MenuButton(onTap: onMore),
                   const SizedBox(width: 8),
                   _HeroIcon(
                     icon: Icons.notifications_none_rounded,
@@ -336,6 +335,60 @@ class _Hero extends StatelessWidget {
   }
 }
 
+/// Figma "menu icon" (`67:3158`): a 44×44 circle of white at 18% holding a
+/// 2×2 grid of 10px `#F0FAFF` dots, 3px apart across and 2px down (the
+/// Figma geometry). Static — no animation.
+class _MenuButton extends StatelessWidget {
+  const _MenuButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  static const _dot = SizedBox(
+    width: 10,
+    height: 10,
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: EvabobColors.pageBg,
+        shape: BoxShape.circle,
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'More',
+      child: PressScale(
+        onTap: onTap,
+        child: Container(
+          width: 44,
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: EvabobColors.white.withValues(alpha: .18),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [_dot, SizedBox(width: 3), _dot],
+              ),
+              SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [_dot, SizedBox(width: 3), _dot],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _HeroIcon extends StatelessWidget {
   const _HeroIcon(
       {required this.icon, required this.label, required this.onTap});
@@ -366,65 +419,170 @@ class _HeroIcon extends StatelessWidget {
   }
 }
 
+/// "Your money": every bridge or GA top-up that has not finished, each with
+/// where it stands and a tap to continue. "All clear" only when none are.
 class _MoneyCard extends StatelessWidget {
   const _MoneyCard({required this.wallet, required this.jobs});
 
   final WalletService wallet;
   final List<Map<String, dynamic>> jobs;
 
+  static String _network(String? chain) {
+    final c = (chain ?? '').toLowerCase();
+    if (c.startsWith('arc')) return 'Arc';
+    if (c.startsWith('base')) return 'Base';
+    if (c.startsWith('eth')) return 'Ethereum';
+    return chain ?? '';
+  }
+
+  static double _amount(Map<String, dynamic> job) {
+    final meta = job['meta'];
+    final raw = meta is Map ? meta['amount'] : null;
+    return double.tryParse(raw?.toString() ?? '') ?? 0;
+  }
+
+  static String _title(Map<String, dynamic> job) {
+    final meta = job['meta'] is Map ? job['meta'] as Map : const {};
+    final amount = formatMoney(_amount(job));
+    switch (job['op']?.toString()) {
+      case 'bridge':
+        return 'Moving $amount · ${_network(meta['fromChain']?.toString())}'
+            ' → ${_network(meta['toChain']?.toString())}';
+      case 'deposit':
+        return 'Adding $amount to your GA';
+      case 'swap':
+        return 'Converting $amount';
+      case 'send':
+        return 'Sending $amount';
+      default:
+        return 'Payment of $amount';
+    }
+  }
+
+  static String _stage(Map<String, dynamic> job) {
+    switch (job['stage']?.toString()) {
+      case 'sent':
+        return 'On its way · tap to finish';
+      case 'confirming':
+        return 'Confirming on the network';
+      default:
+        return 'Waiting for your PIN · tap to continue';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    var held = 0.0;
-    for (final job in jobs) {
-      held += (job['amountUsdc'] as num?)?.toDouble() ?? 0;
+    final pendingTopUp = wallet.gatewayPendingUsdc;
+    final clear = jobs.isEmpty && pendingTopUp <= 0;
+
+    Widget row({
+      required String title,
+      required String subtitle,
+      required IconData icon,
+      String? trailing,
+      VoidCallback? onTap,
+    }) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: 72,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: EvabobColors.pageBg,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, size: 20, color: EvabobColors.blue),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Type.body,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            Type.label.copyWith(color: EvabobColors.inkMuted),
+                      ),
+                    ],
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const SizedBox(width: 8),
+                  Text(trailing, style: Type.amount),
+                ] else if (onTap != null)
+                  const Icon(Icons.chevron_right_rounded, size: 20),
+              ],
+            ),
+          ),
+        ),
+      );
     }
-    final amount = held > 0 ? held : wallet.gatewayPendingUsdc;
-    final waiting = jobs.isNotEmpty || wallet.gatewayPendingUsdc > 0;
+
+    final rows = <Widget>[
+      if (clear)
+        row(
+          title: 'All clear',
+          subtitle: 'No payments are waiting',
+          icon: Icons.check_rounded,
+          trailing: formatMoney(0),
+        ),
+      for (final job in jobs)
+        row(
+          title: _title(job),
+          subtitle: _stage(job),
+          icon: job['op']?.toString() == 'deposit'
+              ? Icons.account_balance_wallet_outlined
+              : Icons.alt_route_rounded,
+          onTap: job['stage']?.toString() == 'confirming'
+              ? null
+              : () {
+                  final id = job['jobId']?.toString();
+                  if (id == null || id.isEmpty) return;
+                  IncompleteJobsBanner.continueJob(context, id);
+                },
+        ),
+      if (pendingTopUp > 0)
+        row(
+          title: 'Adding ${formatMoney(pendingTopUp)} to your GA',
+          subtitle: 'Confirming on the network',
+          icon: Icons.account_balance_wallet_outlined,
+        ),
+    ];
 
     return Container(
-      height: 88,
-      padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(
         color: EvabobColors.white,
         borderRadius: BorderRadius.all(Radius.circular(12)),
         boxShadow: Shadows.card,
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: EvabobColors.pageBg,
-              shape: BoxShape.circle,
-            ),
-            child: Text(
-              waiting ? 'AM' : '✓',
-              style: Type.body.copyWith(color: EvabobColors.blue),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(waiting ? 'On hold' : 'All clear', style: Type.body),
-                const SizedBox(height: 2),
-                Text(
-                  waiting
-                      ? 'Waiting for a payment to finish'
-                      : 'No payments are waiting',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Type.label.copyWith(color: EvabobColors.inkMuted),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(formatMoney(amount), style: Type.amount),
+          for (var i = 0; i < rows.length; i++) ...[
+            rows[i],
+            if (i != rows.length - 1)
+              const Padding(
+                padding: EdgeInsets.only(left: 68),
+                child: Divider(),
+              ),
+          ],
         ],
       ),
     );
@@ -543,12 +701,17 @@ class _ActivityRow extends StatelessWidget {
                   ],
                 ),
               ),
+              // Nothing has left the wallet while a payment is on hold, so
+              // don't show it as money already taken.
               Text(
-                '${entry.positive ? '+' : ''}$amount',
-                style: Type.amount.copyWith(
-                  color:
-                      entry.positive ? EvabobColors.moneyIn : EvabobColors.ink,
-                ),
+                entry.isPending ? 'On hold' : '${entry.positive ? '+' : ''}$amount',
+                style: entry.isPending
+                    ? Type.label.copyWith(color: EvabobColors.inkMuted)
+                    : Type.amount.copyWith(
+                        color: entry.positive
+                            ? EvabobColors.moneyIn
+                            : EvabobColors.ink,
+                      ),
               ),
             ],
           ),

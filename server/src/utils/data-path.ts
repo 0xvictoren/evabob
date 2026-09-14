@@ -11,7 +11,7 @@ export const dataDir = process.env.DATA_DIR?.trim()
   ? resolve(process.env.DATA_DIR.trim())
   : process.env.VERCEL
     ? resolve("/tmp", "evabob")
-  : resolve(process.cwd(), "data");
+    : resolve(process.cwd(), "data");
 
 export function dataPath(...segments: string[]): string {
   return resolve(dataDir, ...segments);

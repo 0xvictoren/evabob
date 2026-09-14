@@ -38,7 +38,9 @@ class IncompleteJobsBanner extends StatelessWidget {
     } catch (_) {}
     if (!context.mounted) return;
     final ok = res['ok'] == true;
-    final paused = res['stage']?.toString() == 'paused';
+    final stage = res['stage']?.toString();
+    final paused = stage == 'paused';
+    final moving = stage == 'sent' || stage == 'confirming';
     final fundsIntact = res['fundsIntact'] == true;
     final notice = circle.takeFundsIntactNotice();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -50,12 +52,14 @@ class IncompleteJobsBanner extends StatelessWidget {
                   'PIN expired. Your funds were not moved.')
               : ok
                   ? 'Transfer finished'
-                  : paused
-                      ? 'Paused — open Activity to Continue'
-                      : friendlyError(
-                          res['error'] ?? notice,
-                          fallback: 'That transfer did not finish.',
-                        ),
+                  : moving
+                      ? 'Your money is on its way. It is confirming on the network.'
+                      : paused
+                          ? 'Paused — tap it on Home to continue'
+                          : friendlyError(
+                              res['error'] ?? notice,
+                              fallback: 'That transfer did not finish.',
+                            ),
         ),
         behavior: SnackBarBehavior.floating,
       ),

@@ -36,19 +36,19 @@ and other public testnets. Do not read "live" below as "in production" — it me
 | Item | State | Evidence / remaining work |
 |------|-------|---------------------------|
 | Flutter build recovery | **Built** | Bundled Numans/assets are registered, the application graph is injectable, `flutter analyze` reports no issues, and all 23 Flutter tests pass. iOS source is maintained but an iOS archive still requires Xcode/macOS. |
-| Hosted testnet | **Prepared, not deployed** | Two Vercel projects are configured (Hono API rooted at `server/`, Next.js public app at the repository root), with Atlas, exact CORS, cron, environment separation and smoke-check instructions in `docs/HOSTED_ENVIRONMENTS.md`. Real Vercel projects, domains and secrets still have to be supplied. |
+| Hosted testnet | **Prepared for Render, not deployed** | `render.yaml` defines a one-instance Hono API with persistent uploads, the Next.js public app and an hourly authenticated refund cron. Atlas, exact CORS, health checks and environment separation are documented in `docs/HOSTED_ENVIRONMENTS.md`. The Blueprint still has to be synced and verified in the Render Dashboard. |
 | Authentication hardening | **Built; live validation remains** | Header impersonation defaults off, demo auth is compiled out of release builds, and public routes are narrowly limited. Dynamic origin/session renewal, logout, account switching and expiry still need the hosted acceptance run. |
 | Public payment pages | **Built; live validation remains** | `/pay/{requestId}` and `/claim` render sanitized server state and hand off with `evabob://` deep links. The mobile invoice handoff verifies an on-chain receipt before settlement. App-store URLs and hosted-device testing remain. |
-| Server feature flags | **Built** | `/v1/config/public` advertises capabilities and intersects money flags with provider prerequisites. Flutter fails closed and hides unavailable entry points. Only direct send, protected send and requests are enabled in the testnet template. |
+| Server feature flags | **Built** | `/v1/config/public` advertises capabilities and intersects money flags with provider prerequisites. Flutter fails closed and hides unavailable entry points. Every hosted testnet flag starts off and is enabled only after its acceptance run passes. |
 | Optional send memo | **Partial** | The field is directly below the quick amount selectors and is carried into review/activity; protected sends store it in `PaymentEscrowV2`. Direct human sends do **not** emit Arc's standard `Memo` event because Evabob UCWs are SCAs and Arc's documented wrapper is EOA-only. |
 | Evabob agent PFP + send | **Built** | Chat uses the application logo. A single-recipient send produces an exact confirmation card and moves money only after the existing PIN flow. |
 | Arc atomic batch send | **Not enabled** | The documented `Multicall3From.aggregate3` route needs direct USDC in the Circle-controlled agent EOA, preflight simulation, bytecode validation, a successful receipt and one matching Transfer log per recipient. Agent funding currently deposits the credited amount into Gateway, leaving no direct balance for this contract call. The old non-atomic loop is blocked to prevent partial success. |
 
 ### Hosted testnet risks still open
 
-- The API snapshot writer and financial-writer lease are process-global. Vercel may run concurrent function instances, so low-traffic testing is acceptable only while Mongo remains authoritative and finance writes are migrated to normalized, atomic Mongo operations.
-- Profile photos currently use local filesystem storage. Vercel's filesystem is ephemeral; cross-device avatars need object storage before they are reliable.
-- Scheduled refund sweeping is wired to Vercel Cron, but it is not proven until the deployed cron has run against a real expired hold.
+- The API snapshot writer and financial-writer lease are process-global. Render is pinned to one instance with a persistent disk, so low-traffic testing is acceptable only while Mongo remains authoritative and finance writes are migrated to normalized, atomic Mongo operations.
+- Profile photos use the API's Render persistent disk for testnet. Moving them to object storage is still required before horizontal scaling.
+- Scheduled refund sweeping is wired to a Render hourly cron, but it is not proven until the deployed cron has run against a real expired hold.
 - Gateway, conversion, bridge, agent-wallet, x402 and atomic-batch flags stay off until their respective acceptance runs pass.
 
 ---

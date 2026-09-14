@@ -174,6 +174,78 @@ export function decideExpiredJobAbandon(
   return { abandon: false, fundsIntact, reason: "keep" };
 }
 
+/** Where a money job stands, in the words the app shows. */
+export type JobStage = "waiting_pin" | "sent" | "confirming" | "arrived";
+
+export type RunnerFailureInput = {
+  op: string;
+  /** Circle's attestation service already has a CCTP message for a job tx. */
+  burnFound: boolean;
+  /** At least one job transaction was broadcast. */
+  anyTxHash: boolean;
+  balanceBefore?: number | null;
+  balanceNow?: number | null;
+  amount?: number | null;
+};
+
+export type RunnerFailureDecision = {
+  outcome: "failed" | "keep_running" | "succeeded";
+  stage?: JobStage;
+  reason: string;
+};
+
+/**
+ * Money left the source wallet. Half the requested amount is the bar so a
+ * protocol or platform fee never hides a real movement, while an incoming
+ * payment landing at the same time cannot fake one.
+ */
+export function sourceFundsMoved(input: {
+  balanceBefore?: number | null;
+  balanceNow?: number | null;
+  amount?: number | null;
+}): boolean | null {
+  const snap = snapshotPair(input.balanceBefore, input.balanceNow);
+  if (!snap) return null;
+  const amount =
+    typeof input.amount === "number" && Number.isFinite(input.amount)
+      ? input.amount
+      : 0;
+  return snap.before - snap.now >= Math.max(BALANCE_DUST, amount * 0.5);
+}
+
+/**
+ * The App Kit runner threw — usually because a PIN was left unanswered.
+ *
+ * A job used to become "failed" here unconditionally, which removed its
+ * Continue button even when the burn had already landed and the money was
+ * sitting between chains. A job may only fail when nothing moved.
+ *
+ * - Bridge: once burned, it stays running so Continue can finish the mint.
+ * - Single-transaction ops (send, deposit, swap): money leaving the source
+ *   wallet means the one money-moving transaction landed, so it succeeded.
+ * - Unknown (balance unreadable but a transaction was broadcast): keep it
+ *   running so a later pass can decide. Never guess "failed" over money.
+ */
+export function decideRunnerFailure(
+  input: RunnerFailureInput,
+): RunnerFailureDecision {
+  const moved = sourceFundsMoved(input);
+  if (input.op === "bridge") {
+    if (input.burnFound) {
+      return { outcome: "keep_running", stage: "sent", reason: "burn landed; mint pending" };
+    }
+    if (moved === true) {
+      return { outcome: "keep_running", stage: "sent", reason: "source balance dropped" };
+    }
+  } else if (moved === true) {
+    return { outcome: "succeeded", stage: "arrived", reason: "source balance dropped" };
+  }
+  if (moved === null && input.anyTxHash) {
+    return { outcome: "keep_running", stage: "sent", reason: "cannot verify; transaction broadcast" };
+  }
+  return { outcome: "failed", reason: "nothing moved" };
+}
+
 export function fundsIntactMessage(
   input?:
     | number

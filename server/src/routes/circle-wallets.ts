@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { formatUnits } from "viem";
 import { z } from "zod";
 import { config } from "../config.js";
 import {
@@ -11,6 +12,7 @@ import {
   createSession,
   createSynthraSwapChallenges,
   createTransferChallenge,
+  createWalletBatchChallenge,
   ensureUser,
   getWalletBalances,
   listUserWallets,
@@ -24,6 +26,12 @@ import {
   cctpMintDomainName,
   isCctpMintSupported,
 } from "../services/cctp.js";
+import {
+  erc20TransferCall,
+  feeActivityFields,
+  feeTransferCall,
+  quotePlatformFee,
+} from "../services/platformFee.js";
 import { store } from "../store/db.js";
 import { getUserId } from "../middleware/auth.js";
 import { clientError } from "../utils/http-error.js";
@@ -357,6 +365,8 @@ circleWallets.post("/send", async (c) => {
 
   try {
       const sendToken = body.token ?? "USDC";
+      const sendDecimals = tokenDecimals(sendToken);
+      const feeQuote = quotePlatformFee(body.amountUsdc, sendDecimals);
       const senderLabel =
         fromUser?.handle
           ? `@${fromUser.handle}`
@@ -385,9 +395,57 @@ circleWallets.post("/send", async (c) => {
         receiver: receiverLabel,
         token: sendToken,
         amountToken: body.amountUsdc,
+        ...feeActivityFields(feeQuote, sendToken, sendDecimals),
         mode: mode === "direct_evm" ? "direct" : "direct_user",
         status: "pending",
       });
+
+      const sendResponse = (extra: Record<string, unknown>) => ({
+        mode,
+        destinationAddress: destAddress,
+        recipientHasAccount: mode === "direct_user",
+        activityId: sendActivity.id,
+        peerUserId: peer?.id,
+        sender: senderLabel,
+        receiver: receiverLabel,
+        token: sendToken,
+        amount: body.amountUsdc,
+        platformFee: feeQuote.fee,
+        amountNgn: body.amountNgn,
+        memo: body.memo,
+        notify: { emailSent: false, detail: "not required for direct send" },
+        appId: circleAppId(),
+        promptSave,
+        ...extra,
+      });
+
+      // Platform fee on: the payment and the fee go in ONE wallet batch — one
+      // PIN, and neither lands without the other. App Kit's send has no fee
+      // option, so this path takes priority whenever a fee applies.
+      if (feeQuote.feeUnits > 0n) {
+        const tokenAddress = tokenFor(sendToken) as `0x${string}`;
+        const batch = await createWalletBatchChallenge({
+          userToken: body.userToken,
+          walletId: body.walletId,
+          calls: [
+            erc20TransferCall(
+              tokenAddress,
+              destAddress as `0x${string}`,
+              feeQuote.amountUnits,
+            ),
+            feeTransferCall(tokenAddress, feeQuote)!,
+          ],
+        });
+        return c.json(
+          sendResponse({
+            rail: "ucw-batch",
+            challenges: batch.challengeId
+              ? [{ step: "transfer", challengeId: batch.challengeId }]
+              : [],
+            message: "Direct transfer — confirm with PIN",
+          }),
+        );
+      }
 
       // Prefer App Kit UCW for same-chain USDC/EURC (PIN via existing WebView).
       if (config.appKit.enabled && (sendToken === "USDC" || sendToken === "EURC")) {
@@ -511,6 +569,9 @@ circleWallets.post("/gateway/deposit", async (c) => {
       title: `Gateway deposit · ${result.chain || "Arc"}`,
       description: `UCW deposit ${body.amountUsdc} USDC`,
       amountUsdc: body.amountUsdc,
+      ...("platformFee" in result && Number(result.platformFee) > 0
+        ? { platformFee: Number(result.platformFee), platformFeeToken: "USDC" }
+        : {}),
     });
     return c.json(result);
   } catch (e) {
@@ -573,9 +634,16 @@ circleWallets.post("/gateway/pay", async (c) => {
     }
 
     const delegate = getGatewayPayDelegateAddress();
+    // The platform fee rides in the same Gateway transfer as its own burn
+    // intent, so the sources are planned to cover amount + fee.
+    const feeQuote = quotePlatformFee(body.amountUsdc, 6);
+    const platformFee =
+      feeQuote.feeUnits > 0n && feeQuote.recipient
+        ? { units: feeQuote.feeUnits, recipient: feeQuote.recipient }
+        : undefined;
     const plan = await planGatewayPay({
       depositor,
-      amountUsdc: body.amountUsdc,
+      amountUsdc: Number(formatUnits(feeQuote.totalUnits, 6)),
       destinationDomain: body.destinationDomain,
       sourceDomain: body.sourceDomain,
       delegate,
@@ -643,7 +711,9 @@ circleWallets.post("/gateway/pay", async (c) => {
       sourceDomain: body.sourceDomain,
       enableForwarder: body.enableForwarder ?? true,
       slices: plan.slices,
+      platformFee,
     });
+    const feeFields = feeActivityFields(feeQuote, "USDC");
 
     if (result.status === "complete" && result.mintTx) {
       // success path below
@@ -661,6 +731,7 @@ circleWallets.post("/gateway/pay", async (c) => {
         txHash: result.transferId,
         status: "pending",
         receiver: body.destinationAddress,
+        ...feeFields,
       });
       return c.json(
         jsonSafe({
@@ -701,6 +772,7 @@ circleWallets.post("/gateway/pay", async (c) => {
       txHash: result.mintTx || result.transferId,
       status: "completed",
       receiver: body.destinationAddress,
+      ...feeFields,
     });
 
     // Keep user profile linked to SCA for balance queries
@@ -1118,6 +1190,45 @@ circleWallets.post("/escrow/hold", async (c) => {
       expirySeconds: body.expirySeconds,
     });
 
+    const planSummary = {
+      recipientId: plan.recipientId,
+      recipientKind: plan.recipientKind,
+      amountUsdc: plan.amountUsdc,
+      expiresAt: plan.expiresAt,
+      purpose: plan.purpose,
+    };
+
+    // Platform fee on: approve, lock and fee go in ONE wallet batch — a
+    // single PIN, and the fee is never taken for a hold that did not lock.
+    // The batch receipt still carries TransferCreated, so the same challenge
+    // is the "create" the app reads the transfer id from.
+    const feeQuote = quotePlatformFee(body.amountUsdc, 6);
+    if (feeQuote.feeUnits > 0n) {
+      const usdc = config.arc.usdc as `0x${string}`;
+      const batch = await createWalletBatchChallenge({
+        userToken: body.userToken,
+        walletId: body.walletId,
+        calls: [
+          { to: plan.steps[0]!.to as `0x${string}`, data: plan.steps[0]!.data },
+          { to: plan.steps[1]!.to as `0x${string}`, data: plan.steps[1]!.data },
+          feeTransferCall(usdc, feeQuote)!,
+        ],
+      });
+      return c.json({
+        appId: batch.appId,
+        challenges: [
+          {
+            step: "create",
+            challengeId: batch.challengeId,
+            description: "Lock the funds",
+          },
+        ],
+        createChallengeId: batch.challengeId,
+        platformFee: feeQuote.fee,
+        plan: planSummary,
+      });
+    }
+
     const approve = await createCalldataChallenge({
       userToken: body.userToken,
       walletId: body.walletId,
@@ -1146,13 +1257,7 @@ circleWallets.post("/escrow/hold", async (c) => {
         },
       ],
       createChallengeId: create.challengeId,
-      plan: {
-        recipientId: plan.recipientId,
-        recipientKind: plan.recipientKind,
-        amountUsdc: plan.amountUsdc,
-        expiresAt: plan.expiresAt,
-        purpose: plan.purpose,
-      },
+      plan: planSummary,
     });
   } catch (e) {
     if (e instanceof EscrowError) return c.json({ error: e.message }, 400);
@@ -1247,6 +1352,16 @@ circleWallets.post("/swap", async (c) => {
       );
     }
 
+    const fromSymbol = body.from.toUpperCase();
+    const fromAddress = (/^0x[a-fA-F0-9]{40}$/.test(body.from)
+      ? body.from
+      : tokenFor(
+          (["USDC", "EURC", "CIRBTC"].includes(fromSymbol)
+            ? fromSymbol
+            : "USDC") as "USDC" | "EURC" | "CIRBTC",
+        )) as `0x${string}`;
+    const fromDecimals = body.fromDecimals ?? tokenDecimals(fromSymbol);
+    const feeQuote = quotePlatformFee(body.amountIn, fromDecimals);
     const challenges = await createSynthraSwapChallenges({
       userToken: body.userToken,
       walletId: body.walletId,
@@ -1255,6 +1370,7 @@ circleWallets.post("/swap", async (c) => {
       swapTo: plan.transaction.to,
       swapData: plan.transaction.data as `0x${string}`,
       swapValue: plan.transaction.value,
+      feeCall: feeTransferCall(fromAddress, feeQuote),
     });
 
     const act = store.addActivity({
@@ -1270,6 +1386,9 @@ circleWallets.post("/swap", async (c) => {
             : 0,
       token: body.from,
       amountToken: body.amountIn,
+      ...(challenges.feeBatched
+        ? feeActivityFields(feeQuote, fromSymbol, fromDecimals)
+        : {}),
       mode: "synthra",
       status: "pending",
     });
@@ -1300,6 +1419,11 @@ function tokenFor(sym: "USDC" | "EURC" | "CIRBTC") {
   if (sym === "EURC") return config.arc.eurc;
   if (sym === "CIRBTC") return config.arc.cirbtc;
   return config.arc.usdc;
+}
+
+/** USDC and EURC use 6 decimals; cirBTC uses 8. */
+function tokenDecimals(sym: string) {
+  return sym.toUpperCase() === "CIRBTC" ? 8 : 6;
 }
 
 /**

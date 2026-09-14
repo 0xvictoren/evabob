@@ -8,6 +8,8 @@ import {
   STALE_JOB_MS,
   classifyChallenge,
   decideExpiredJobAbandon,
+  decideRunnerFailure,
+  sourceFundsMoved,
   fundsIntactFromSnapshot,
   fundsIntactMessage,
   isTokenMessengerAddress,
@@ -145,4 +147,85 @@ test("PENDING challenge whose tx already has a hash is settled", () => {
 test("FAILED and EXPIRED challenges are dead", () => {
   assert.equal(classifyChallenge({ status: "EXPIRED" }).dead, true);
   assert.equal(classifyChallenge({ status: "FAILED" }).dead, true);
+});
+
+test("runner failure: burned bridge stays running so Continue can mint", () => {
+  const d = decideRunnerFailure({
+    op: "bridge",
+    burnFound: true,
+    anyTxHash: true,
+    balanceBefore: 20,
+    balanceNow: 20,
+    amount: 5,
+  });
+  assert.equal(d.outcome, "keep_running");
+  assert.equal(d.stage, "sent");
+});
+
+test("runner failure: bridge whose source balance dropped is never failed", () => {
+  const d = decideRunnerFailure({
+    op: "bridge",
+    burnFound: false,
+    anyTxHash: true,
+    balanceBefore: 20,
+    balanceNow: 15,
+    amount: 5,
+  });
+  assert.equal(d.outcome, "keep_running");
+});
+
+test("runner failure: approve-only bridge with unchanged balance fails", () => {
+  const d = decideRunnerFailure({
+    op: "bridge",
+    burnFound: false,
+    anyTxHash: true,
+    balanceBefore: 20,
+    balanceNow: 20,
+    amount: 5,
+  });
+  assert.equal(d.outcome, "failed");
+});
+
+test("runner failure: deposit that moved money succeeded", () => {
+  const d = decideRunnerFailure({
+    op: "deposit",
+    burnFound: false,
+    anyTxHash: true,
+    balanceBefore: 20,
+    balanceNow: 10,
+    amount: 10,
+  });
+  assert.equal(d.outcome, "succeeded");
+  assert.equal(d.stage, "arrived");
+});
+
+test("runner failure: unreadable balance after a broadcast keeps the job", () => {
+  const d = decideRunnerFailure({
+    op: "deposit",
+    burnFound: false,
+    anyTxHash: true,
+    balanceBefore: null,
+    balanceNow: null,
+    amount: 10,
+  });
+  assert.equal(d.outcome, "keep_running");
+});
+
+test("runner failure: nothing signed and nothing moved fails", () => {
+  const d = decideRunnerFailure({
+    op: "send",
+    burnFound: false,
+    anyTxHash: false,
+    balanceBefore: null,
+    balanceNow: null,
+    amount: 10,
+  });
+  assert.equal(d.outcome, "failed");
+});
+
+test("source funds moved: an incoming payment cannot fake a movement", () => {
+  assert.equal(sourceFundsMoved({ balanceBefore: 20, balanceNow: 25, amount: 5 }), false);
+  assert.equal(sourceFundsMoved({ balanceBefore: 20, balanceNow: 19.99, amount: 5 }), false);
+  assert.equal(sourceFundsMoved({ balanceBefore: 20, balanceNow: 17, amount: 5 }), true);
+  assert.equal(sourceFundsMoved({ balanceBefore: null, balanceNow: 17, amount: 5 }), null);
 });

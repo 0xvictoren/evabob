@@ -28,9 +28,8 @@ import {
 import { assertProductionSafety } from "./services/production-safety.js";
 
 export const app = new Hono();
-// Vercel's native Hono framework adapter discovers this default export from
-// src/index.ts. Local Node development continues to use `serve` at the end of
-// this file when VERCEL is absent.
+// Serverless adapters can use the default Hono export. Render and local Node
+// run the long-lived HTTP server at the end of this file.
 export default app;
 
 assertProductionSafety({
@@ -260,13 +259,22 @@ app.onError((err, c) => {
   );
 });
 
+// One PIN host page for the app bundle and this route. It used to be copied
+// into server/public by hand, and the two drifted (the copy kept the old
+// cream-and-green theme). The server now reads the mobile asset directly.
+const CHALLENGE_PAGE_CANDIDATES = [
+  resolve(process.cwd(), "../mobile/assets/challenge.html"),
+  resolve(process.cwd(), "mobile/assets/challenge.html"),
+];
+
 app.get("/challenge", (c) => {
-  const html = readFileSync(resolve(process.cwd(), "public/challenge.html"), "utf8");
-  return c.html(html);
+  const path = CHALLENGE_PAGE_CANDIDATES.find((p) => existsSync(p));
+  if (!path) return c.text("Challenge page unavailable", 503);
+  return c.html(readFileSync(path, "utf8"));
 });
 
-// Vercel does not keep background timers alive. Its hourly Cron invokes this
-// route with CRON_SECRET; the ordinary Node deployment still uses the timer.
+// Hosted schedulers invoke this route with CRON_SECRET. A local Node process
+// can still run the in-process timer when RUN_INTERNAL_REFUND_JOB is not false.
 app.get("/internal/cron/escrow-refunds", async (c) => {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return c.json({ error: "cron_not_configured" }, 503);
@@ -318,7 +326,9 @@ if (!process.env.VERCEL) {
         .finally(() => process.exit(0));
     });
   }
-  startEscrowRefundJob();
+  if (process.env.RUN_INTERNAL_REFUND_JOB !== "false") {
+    startEscrowRefundJob();
+  }
 }
 
 console.log(`Evabob API → http://${config.host}:${config.port}`);

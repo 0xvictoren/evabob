@@ -196,14 +196,20 @@ class _ActivityScreenState extends State<ActivityScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                entry.resumable ? 'Continue' : entry.amountLine,
+                entry.resumable
+                    ? 'Continue'
+                    : entry.isPending
+                        ? 'On hold'
+                        : entry.amountLine,
                 style: TextStyle(
                   fontSize: 14,
                   color: entry.resumable
                       ? EvabobColors.blue
-                      : positive
-                          ? EvabobColors.moneyIn
-                          : EvabobColors.ink,
+                      : entry.isPending
+                          ? EvabobColors.inkMuted
+                          : positive
+                              ? EvabobColors.moneyIn
+                              : EvabobColors.ink,
                 ),
               ),
             ],

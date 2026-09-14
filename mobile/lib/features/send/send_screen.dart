@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/activity/activity_service.dart';
 import '../../core/calc/calculator.dart';
+import '../../core/config/app_features.dart';
 import '../../core/contacts/contacts_service.dart';
 import '../../core/fx/fx_service.dart';
 import '../../core/theme/evabob_colors.dart';
@@ -18,6 +19,7 @@ import '../../core/widgets/confirm_payment_sheet.dart';
 import '../../core/widgets/contact_picker_sheet.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
+import '../../core/widgets/platform_fee_note.dart';
 import 'amount_keypad.dart';
 
 /// Send flow: amount in real tokens (USDC / EURC), plus token toggle.
@@ -150,6 +152,11 @@ class _SendScreenState extends State<SendScreen> {
               'If they do not claim it within a week, it comes back to you '
               'automatically.',
               style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+            ),
+            PlatformFeeNote(
+              amount: amount,
+              token: token,
+              padding: const EdgeInsets.only(top: 12),
             ),
           ],
         ),
@@ -445,13 +452,23 @@ class _SendScreenState extends State<SendScreen> {
                                 // "Max" meaning the literal whole balance is a
                                 // send that cannot pay for itself. Bridge already
                                 // holds this much back; Send did not.
-                                final maxVal = _token == 'EURC'
+                                final available = _token == 'EURC'
                                     ? (wallet.eurcWallet > 0
                                         ? wallet.eurcWallet
                                         : 0.0)
                                     : (wallet.usdcWallet > _arcUsdcGasReserve
                                         ? wallet.usdcWallet - _arcUsdcGasReserve
                                         : 0.0);
+                                // The Evabob fee is added on top, so "all of
+                                // it" is the largest amount that still leaves
+                                // room for its fee — rounded down, never up.
+                                final feeBps =
+                                    context.read<AppFeatures>().platformFeeBps;
+                                final maxVal = ((available /
+                                                (1 + feeBps / 10000)) *
+                                            100)
+                                        .floorToDouble() /
+                                    100;
                                 final s = maxVal == maxVal.roundToDouble()
                                     ? maxVal.toStringAsFixed(0)
                                     : maxVal.toStringAsFixed(2);

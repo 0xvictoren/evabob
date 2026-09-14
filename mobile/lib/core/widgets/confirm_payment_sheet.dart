@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../config/app_features.dart';
 import '../theme/evabob_colors.dart';
 import '../theme/evabob_tokens.dart';
 import '../utils/money_format.dart';
@@ -26,7 +28,15 @@ class PaymentReview {
     this.note,
     this.warning = irreversible,
     this.payeeLabel = 'To',
+    this.feeOnTop = true,
+    this.tokenDecimals = 6,
   });
+
+  /// How the Evabob fee is taken. True: added on top, so the total is shown.
+  /// False (a conversion): taken inside the rate, so only the fee is shown.
+  final bool feeOnTop;
+
+  final int tokenDecimals;
 
   /// True of a straight payment: it lands and there is no way back.
   static const irreversible =
@@ -155,6 +165,8 @@ class _ConfirmPaymentSheetState extends State<_ConfirmPaymentSheet> {
                 ),
               ),
 
+              _FeeLines(review: r),
+
               const SizedBox(height: Space.lg),
               _Consequence(text: r.warning),
 
@@ -222,6 +234,69 @@ class _ConfirmPaymentSheetState extends State<_ConfirmPaymentSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The Evabob fee, said before the PIN — never discovered afterwards on a
+/// balance that dropped by more than the amount typed.
+class _FeeLines extends StatelessWidget {
+  const _FeeLines({required this.review});
+
+  final PaymentReview review;
+
+  @override
+  Widget build(BuildContext context) {
+    final features = context.watch<AppFeatures>();
+    final fee = features.platformFeeFor(
+      review.amount,
+      decimals: review.tokenDecimals,
+    );
+    if (fee <= 0) return const SizedBox.shrink();
+    final percent = (features.platformFeeBps / 100)
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+
+    Widget line(String label, String value, {bool strong = false}) {
+      return Padding(
+        padding: const EdgeInsets.only(top: Space.sm),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: Type.caption.copyWith(color: EvabobColors.navyMuted),
+              ),
+            ),
+            Text(
+              value,
+              style: (strong ? Type.body : Type.caption)
+                  .copyWith(color: EvabobColors.nearBlack),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.sm),
+      child: Column(
+        children: [
+          line(
+            review.feeOnTop
+                ? 'Evabob fee ($percent%)'
+                : 'Evabob fee ($percent%, taken from the conversion)',
+            formatMoney(fee, review.token),
+          ),
+          if (review.feeOnTop)
+            line(
+              'You pay in total',
+              formatMoney(review.amount + fee, review.token),
+              strong: true,
+            ),
+        ],
       ),
     );
   }

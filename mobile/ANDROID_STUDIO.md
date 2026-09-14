@@ -50,7 +50,7 @@ Emulator reaches the host API at `http://10.0.2.2:8787` automatically.
 
 Configured in `dart_defines.json` (used by the **Evabob Android** run config):
 
-- `DYNAMIC_ENVIRONMENT_ID=5be16cc5-2968-4265-a14b-86caf3963a72`  
+- `DYNAMIC_ENVIRONMENT_ID=6b48d938-66fa-4259-bacc-1142403886f6`  
 - `AUTO_DEMO=false`  
 
 API token stays on **server only** (`server/.env` → `DYNAMIC_API_TOKEN`).

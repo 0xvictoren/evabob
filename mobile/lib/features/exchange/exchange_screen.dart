@@ -230,6 +230,9 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         token: _fromPreset == 'CUSTOM' ? 'USDC' : _fromPreset,
         action: 'Convert',
         warning: PaymentReview.rateMayMove,
+        // App Kit takes a conversion fee out of the swap itself.
+        feeOnTop: false,
+        tokenDecimals: _fromPreset == 'CIRBTC' ? 8 : 6,
         note: _quotedOut == null
             ? null
             : 'About ${_quotedOut!.toStringAsFixed(_toPreset == 'CIRBTC' ? 6 : 2)} '

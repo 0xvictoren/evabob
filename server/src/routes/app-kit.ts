@@ -31,6 +31,7 @@ import {
   appKitSwap,
   getAppKitJob,
   isJobLive,
+  jobStage,
   listAppKitJobsForUser,
   quoteAppKitBridge,
   reconcileStaleAppKitJobs,
@@ -366,6 +367,8 @@ function jobResponse(job: ReturnType<typeof getAppKitJob>) {
     status: job.status,
     live,
     resumable: job.status === "running",
+    /** waiting_pin · sent · confirming · arrived · failed */
+    stage: jobStage(job),
     challenges: job.challenges.map((ch) => ({
       step: job.op,
       challengeId: ch.challengeId,

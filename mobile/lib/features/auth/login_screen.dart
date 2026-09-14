@@ -8,7 +8,6 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/evabob_ui.dart';
-import '../wallet/circle_onboard_sheet.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -53,7 +52,6 @@ class _LoginScreenState extends State<LoginScreen> {
         if (auth.needsNewOtp) _code.clear();
         return;
       }
-      await openCircleWalletOnboarding(context, silent: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/config/app_features.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/utils/money_format.dart';
@@ -170,11 +171,18 @@ class _GatewayScreenState extends State<GatewayScreen> {
     if (amt == null || amt <= 0 || _busy) return;
     final circle = context.read<CircleWalletService>();
     final wallet = context.read<WalletService>();
-    if (_sourceDomain == 26 && amt > wallet.usdcWallet + 1e-9) {
+    final features = context.read<AppFeatures>();
+    // The Evabob fee is added on top of the top-up.
+    final platformFee = features.platformFeeFor(amt);
+    if (_sourceDomain == 26 && amt + platformFee > wallet.usdcWallet + 1e-9) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Not enough on Arc — you have ${formatUsdc(wallet.usdcWallet)}',
+            platformFee > 0
+                ? 'Not enough on Arc for ${formatUsdc(amt)} plus the '
+                    '${formatUsdc(platformFee)} Evabob fee — you have '
+                    '${formatUsdc(wallet.usdcWallet)}'
+                : 'Not enough on Arc — you have ${formatUsdc(wallet.usdcWallet)}',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -182,8 +190,9 @@ class _GatewayScreenState extends State<GatewayScreen> {
       return;
     }
     // Topping up keeps the money yours, so this does not claim to be
-    // irreversible — but it takes two confirmations and, off Arc, can take
-    // hours. Both are worth knowing before starting rather than during.
+    // irreversible — but off Arc it can take hours, which is worth knowing
+    // before starting rather than during. With the fee on, the approval,
+    // deposit and fee are one batched confirmation.
     final confirmed = await confirmPayment(
       context,
       PaymentReview(
@@ -191,8 +200,11 @@ class _GatewayScreenState extends State<GatewayScreen> {
         payee: _sourceChainName,
         amount: amt,
         action: 'Top up',
-        warning: 'The money stays yours the whole time. You will be asked to '
-            'confirm twice.',
+        warning: features.platformFeeBps > 0
+            ? 'The money stays yours the whole time. You will be asked to '
+                'confirm once.'
+            : 'The money stays yours the whole time. You will be asked to '
+                'confirm twice.',
         note: _settlementHint(_sourceDomain),
       ),
     );
@@ -279,12 +291,14 @@ class _GatewayScreenState extends State<GatewayScreen> {
     final spendable = wallet.gatewayConfirmedUsdc > 0
         ? wallet.gatewayConfirmedUsdc
         : wallet.gatewayUsdc;
-    if (amt > spendable + 1e-9) {
+    final need = amt + context.read<AppFeatures>().platformFeeFor(amt);
+    if (need > spendable + 1e-9) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             'Your GA has ${formatUsdc(spendable)} ready — you need '
-            '${formatUsdc(amt)}. Money still arriving cannot be spent yet.',
+            '${formatUsdc(need)} including the Evabob fee. Money still '
+            'arriving cannot be spent yet.',
           ),
           behavior: SnackBarBehavior.floating,
         ),

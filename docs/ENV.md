@@ -15,7 +15,7 @@ testnet checklist. Production is deliberately locked by
 |----------|---------|
 | `APP_NAME` | Display name (default `evabob`) |
 | `EVABOB_ENV` | `local`, `testnet`, or `production` deployment boundary |
-| `DATA_DIR` | Writable local mirror; `/tmp/evabob` on Vercel (Mongo remains authoritative) |
+| `DATA_DIR` | Writable local mirror; `/var/data/evabob` on the Render persistent disk (Mongo remains authoritative) |
 | `GROQ_API_KEY` | Server-only LLM for the evabob Agent |
 | `GROQ_MODEL` | default `openai/gpt-oss-120b` |
 | `DYNAMIC_ENVIRONMENT_ID` | Dynamic Labs login |
@@ -31,7 +31,8 @@ testnet checklist. Production is deliberately locked by
 | `OPERATOR_USER_IDS` | Comma-separated Dynamic user ids allowed to use treasury and maintenance routes; empty fails closed |
 | `AGENT_RESOURCE_ORIGINS` | Exact HTTPS origins permitted for agent resource discovery; empty blocks outbound resource calls |
 | `API_PUBLIC_URL` | Exact external HTTPS API origin; required when `NODE_ENV=production` |
-| `CRON_SECRET` | Vercel Cron bearer secret for the hourly held-payment refund sweep |
+| `CRON_SECRET` | Render-generated bearer secret shared only with the hourly refund cron |
+| `RUN_INTERNAL_REFUND_JOB` | Set `false` on Render so only the external cron runs refunds; local Node defaults to its timer |
 
 Feature variables are server-authoritative: `FEATURE_DIRECT_SEND`,
 `FEATURE_PROTECTED_SEND`, `FEATURE_REQUESTS`, `FEATURE_GATEWAY`,
@@ -113,9 +114,34 @@ Without these, WhatsApp notify is stubbed (logged only). Email still uses SMTP.
 | `KIT_KEY` / `CIRCLE_KIT_KEY` | Optional Circle Console kit key for Swap (avoids rate limits) |
 | `APP_KIT_ADAPTER` | `circle-wallets` (default) or `viem-ops` (server `PRIVATE_KEY`) |
 | `APP_KIT_DC_WALLET` / `CIRCLE_DC_WALLET` | Default developer-controlled wallet `0x…` (used when `fromAddress` omitted) |
-| `APP_KIT_FEE_RECIPIENT` | `0x…` address for platform fees on bridge/swap |
-| `APP_KIT_FEE_BPS` | Fee in basis points (100 = 1%). `0` disables |
 | `APP_KIT_KEEP_LEGACY` | Keep `/v1/cctp` + `/v1/gateway` mounted (default `true`) |
+
+## Platform fee
+
+Evabob charges 0.05% on top of every send, protected send, request payment,
+bridge, convert, GA top-up, GA payment and agent-wallet funding. Gas is not
+included. There is no minimum: a fee that rounds below one token unit is zero.
+
+| Variable | Purpose |
+|----------|---------|
+| `PLATFORM_FEE_ADDRESS` | `0x…` wallet that receives the fee. Empty or malformed turns the fee off everywhere |
+| `PLATFORM_FEE_BPS` | Basis points, default `5` (0.05%) |
+
+`APP_KIT_FEE_RECIPIENT` / `APP_KIT_FEE_BPS` are still read as a fallback when
+the `PLATFORM_FEE_*` names are unset.
+
+How it is collected, without a second PIN:
+
+- **Sends, protected sends, GA top-ups, legacy bridge burns and legacy Synthra
+  swaps**: the payment and the fee transfer are wrapped in the wallet's own
+  `executeBatch` and approved as one Circle challenge. Both land or neither does.
+- **Bridges and converts through App Kit**: App Kit's `customFee`. Circle keeps
+  10% of every App Kit custom fee, so the fee wallet receives 90% on these.
+- **GA payments**: an extra burn intent to the fee wallet inside the same
+  Gateway transfer, signed by the platform delegate. It mints on the payment's
+  destination chain, and Gateway charges its per-intent gas fee for it.
+- App Kit `send`, unified-balance `deposit`/`spend` and composed spends cannot
+  carry a fee, so those routes refuse while a fee is configured.
 
 App Kit endpoints: `GET/POST /v1/app-kit/*` (send, bridge, swap, deposit, spend, compose, UCW jobs).
 

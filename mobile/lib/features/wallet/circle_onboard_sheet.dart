@@ -29,7 +29,7 @@ Future<bool> openCircleWalletOnboarding(
                 ? 'Wallet ready: ${circle.address!.substring(0, 10)}…'
                 : ok
                     ? 'Wallet session ready'
-                    : 'Wallet setup incomplete — open Profile to finish',
+                    : 'Wallet setup incomplete — try again',
           ),
           behavior: SnackBarBehavior.floating,
         ),

@@ -4,8 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Evabob · Secure confirm</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Numans&display=swap" rel="stylesheet" />
   <style>
     /* Never style Circle PIN inputs — text-security breaks W3S (red glyphs). */
+    /* Evabob tokens — keep in step with mobile/lib/core/theme/evabob_colors.dart */
+    :root {
+      --eb-blue: #00B5FF;
+      --eb-blue-deep: #007EA8;
+      --eb-page: #F0FAFF;
+      --eb-ink: #0B1620;
+      --eb-muted: #5A6B78;
+      --eb-alert: #CF3345;
+    }
     *, *::before, *::after { box-sizing: border-box; }
     html, body {
       margin: 0;
@@ -13,58 +25,60 @@
       min-height: 100%;
       max-width: 100vw;
       overflow-x: hidden;
-      background: #F6F1E8;
-      color: #0F1B2D;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--eb-page);
+      color: var(--eb-ink);
+      font-family: 'Numans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       -webkit-text-size-adjust: 100%;
     }
     .shell {
       max-width: 420px;
       width: 100%;
       margin: 0 auto;
-      padding: 20px 16px 32px;
+      padding: 20px 20px 32px;
     }
     .card {
       background: #fff;
-      border-radius: 16px;
+      border-radius: 12px;
       padding: 20px;
-      box-shadow: 0 8px 30px rgba(15, 27, 45, 0.08);
+      box-shadow: 0 8px 24px rgba(11, 22, 32, 0.06);
       overflow: hidden;
     }
-    h1 { font-size: 1.15rem; margin: 0 0 8px; }
-    p { color: #4A5568; font-size: 0.9rem; line-height: 1.45; margin: 0; word-break: break-word; }
+    h1 { font-size: 24px; font-weight: 400; line-height: 1.25; margin: 0 0 8px; }
+    p { color: var(--eb-muted); font-size: 14px; line-height: 1.45; margin: 0; word-break: break-word; }
     #status {
-      margin-top: 14px;
-      padding: 12px;
-      border-radius: 10px;
-      background: #ECFDF5;
-      color: #059669;
-      font-size: 0.85rem;
+      margin-top: 16px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(0, 181, 255, 0.08);
+      color: var(--eb-blue-deep);
+      font-size: 13px;
       word-break: break-word;
       overflow-wrap: anywhere;
       max-height: 6.5em;
       overflow: hidden;
     }
-    #status.err { background: #FEF2F2; color: #DC2626; }
+    #status.err { background: rgba(207, 51, 69, 0.08); color: var(--eb-alert); }
     #run {
       width: 100%;
+      min-height: 56px;
       margin-top: 16px;
       padding: 14px;
       border: 0;
       border-radius: 999px;
-      background: linear-gradient(135deg, #34D399, #059669);
+      background: var(--eb-blue);
       color: #fff;
-      font-weight: 700;
-      font-size: 1rem;
+      font-family: inherit;
+      font-size: 16px;
       display: none;
     }
+    #run:disabled { opacity: 0.6; }
   </style>
 </head>
 <body>
   <div class="shell">
     <div class="card">
-      <h1>Confirm with PIN</h1>
-      <p>Enter your Circle wallet PIN when the secure keypad appears. Approve every step to finish the transfer.</p>
+      <h1>Confirm with your PIN</h1>
+      <p>Your secure keypad opens in a moment. Enter your PIN to approve this payment.</p>
       <div id="status">Preparing secure session…</div>
       <button id="run" type="button">Continue</button>
     </div>
@@ -242,6 +256,95 @@
       throw lastErr || new Error('Could not establish Circle device session');
     }
 
+    /**
+     * Evabob branding for Circle's PIN sheet. Circle allows colours, font,
+     * icons and wording only — the layout of the dots and keypad is fixed.
+     * Every call is guarded: an SDK build without one of these methods must
+     * still run the challenge rather than fail the payment over styling.
+     */
+    function applyBranding(sdk) {
+      const BLUE = '#00B5FF';
+      const INK = '#0B1620';
+      const MUTED = '#5A6B78';
+      const call = (name, arg) => {
+        try {
+          if (typeof sdk[name] === 'function') sdk[name](arg);
+        } catch (e) {
+          console.warn('W3S ' + name, e);
+        }
+      };
+      call('setThemeColor', {
+        backdrop: INK,
+        backdropOpacity: 0.4,
+        divider: '#E6EBEF',
+        bg: '#FFFFFF',
+        success: BLUE,
+        error: '#CF3345',
+        textMain: INK,
+        textMain2: INK,
+        textAuxiliary: MUTED,
+        textAuxiliary2: MUTED,
+        textSummary: INK,
+        textSummaryHighlight: BLUE,
+        textPlaceholder: '#64727E',
+        pinDotBase: '#FFFFFF',
+        pinDotBaseBorder: '#ACE3FF',
+        pinDotActivated: BLUE,
+        enteredPinText: INK,
+        inputText: INK,
+        inputBg: '#F0FAFF',
+        inputBgDisabled: '#F0FAFF',
+        inputBorderFocused: BLUE,
+        inputBorderFocusedError: '#CF3345',
+        dropdownBg: '#FFFFFF',
+        dropdownBorderIsOpen: BLUE,
+        dropdownBorderError: '#CF3345',
+        mainBtnText: '#FFFFFF',
+        mainBtnTextDisabled: '#FFFFFF',
+        mainBtnTextOnHover: '#FFFFFF',
+        mainBtnBg: BLUE,
+        mainBtnBgOnHover: '#007EA8',
+        mainBtnBgDisabled: '#ACE3FF',
+        secondBtnText: BLUE,
+        secondBtnTextDisabled: '#ACE3FF',
+        secondBtnTextOnHover: '#007EA8',
+        secondBtnBorder: BLUE,
+        secondBtnBorderOnHover: '#007EA8',
+        secondBtnBgOnHover: '#F0FAFF',
+        secondBtnBorderDisabled: '#ACE3FF',
+        plainBtnText: BLUE,
+        plainBtnTextDisabled: '#ACE3FF',
+        plainBtnTextOnHover: '#007EA8',
+        plainBtnBg: '#FFFFFF',
+        plainBtnBgOnHover: '#F0FAFF',
+        recoverPinHintTitle: INK,
+        recoverPinHintTitleBg: '#F0FAFF',
+        recoverPinHint: MUTED,
+        titleGradients: [BLUE, BLUE],
+        tooltipText: INK,
+        tooltipBg: '#FFFFFF',
+        textInteractive: INK,
+        interactiveBg: '#F0FAFF',
+      });
+      const resources = {
+        // Circle's docs spell the key `URL`; accept either spelling.
+        fontFamily: {
+          name: 'Numans',
+          URL: 'https://fonts.googleapis.com/css2?family=Numans&display=swap',
+          url: 'https://fonts.googleapis.com/css2?family=Numans&display=swap',
+        },
+      };
+      call('setResources', resources);
+      call('setResource', resources);
+      call('setLocalizations', {
+        enterPincode: {
+          headline: 'Enter your {{pin}}',
+          headline2: 'PIN',
+          subhead: 'Approve this with the PIN only you know.',
+        },
+      });
+    }
+
     const TERMINAL_BAD = ['FAILED', 'EXPIRED', 'CANCELLED', 'CANCELED', 'DENIED'];
 
     /**
@@ -359,6 +462,8 @@
           return false;
         }
       }
+
+      applyBranding(sdk);
 
       try {
         setStatus('Linking secure device…');

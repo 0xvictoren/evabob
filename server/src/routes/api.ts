@@ -359,8 +359,18 @@ api.get("/config/public", (c) =>
       explorer: "https://testnet.arcscan.app",
     },
     appName: config.appName,
+    dynamic: {
+      // Public client identifier. Serving it here keeps installed clients on
+      // the same Dynamic project the API uses after an environment rotation.
+      environmentId: config.dynamic.environmentId || null,
+    },
     circleWalletsAppId: config.circle.walletsAppId,
     environment: config.deploymentEnv,
+    /** Shown on review screens before the PIN; added on top, gas excluded. */
+    platformFee: {
+      enabled: Boolean(config.platformFee.recipient) && config.platformFee.bps > 0,
+      bps: config.platformFee.recipient ? config.platformFee.bps : 0,
+    },
     features: {
       ...config.features,
       // Routes cannot become available from a flag alone. The minimum
@@ -459,16 +469,26 @@ api.post("/users/session", async (c) => {
     return c.json({ error: "Session identity does not match the authenticated user." }, 403);
   }
   const { createSession, listUserWallets, pickPrimaryArcWallet } = await import("../services/circle-ucw.js");
-  // Read the wallet from Circle, never from a request or another email row.
-  const session = await createSession(auth.userId);
-  const wallets = await listUserWallets(session.userToken);
-  const primary = pickPrimaryArcWallet(wallets.filter(w => w.blockchain === "ARC-TESTNET"));
-  const user = store.upsertUser({
+  // Persist the app account before looking up Circle. A first-time Dynamic
+  // user does not have a Circle user yet, and that expected miss must not
+  // prevent the client from learning that onboarding is required.
+  let user = store.upsertUser({
     id: auth.userId,
     email: auth.email.trim().toLowerCase(),
     displayName: body.displayName,
   });
-  store.bindVerifiedWallet(user.id, primary?.address || "");
+  try {
+    // Read the wallet from Circle, never from a request or another email row.
+    const session = await createSession(auth.userId);
+    const wallets = await listUserWallets(session.userToken);
+    const primary = pickPrimaryArcWallet(wallets.filter(w => w.blockchain === "ARC-TESTNET"));
+    user = store.bindVerifiedWallet(user.id, primary?.address || "");
+  } catch (error) {
+    console.info(
+      "[users/session] Circle wallet not ready",
+      error instanceof Error ? error.message : error,
+    );
+  }
 
   // Identity writes are one-shot per process. Awaiting them on every session
   // (Home fires dozens in parallel) blocked /wallet/balances for 10–20s.
@@ -500,6 +520,7 @@ api.post("/users/session", async (c) => {
       handle: user.handle ?? null,
       evmAddress: user.evmAddress,
       avatarUrl: user.avatarUrl ?? null,
+      onboardingRequired: user.onboardingCompletedAt === null,
     },
     identity,
   });
@@ -762,6 +783,7 @@ api.post("/escrow/protected/record", async (c) => {
       return c.json({ error: "That hold was funded by another wallet" }, 403);
     }
 
+    const { quotePlatformFee } = await import("../services/platformFee.js");
     const record = trackProtectedEscrow({
       onChainTransferId: onChain.transferId,
       fromUserId: uid,
@@ -770,6 +792,8 @@ api.post("/escrow/protected/record", async (c) => {
       amountUsdc: onChain.amountUsdc,
       memo: body.memo,
       createTx: body.createTx,
+      // The hold route adds the fee to the same batch whenever it applies.
+      platformFee: Number(quotePlatformFee(onChain.amountUsdc, 6).fee),
       expiresInMs: Math.max(
         0,
         new Date(onChain.expiresAt).getTime() - Date.now(),
@@ -1760,6 +1784,29 @@ api.post("/users/handle", async (c) => {
     }
   }
   return c.json({ user, message: "Handle updated" });
+});
+
+api.post("/users/onboarding/complete", (c) => {
+  const uid = userId(c);
+  const user = store.getUser(uid);
+  if (!user) {
+    return c.json({ error: "unknown user — POST /users/session first" }, 404);
+  }
+  if (!user.evmAddress || !/^0x[a-fA-F0-9]{40}$/.test(user.evmAddress)) {
+    return c.json({ error: "Finish wallet setup before continuing." }, 409);
+  }
+  // A generated email-prefix handle is only a suggestion. At least one
+  // successful handle submission proves the person explicitly chose it.
+  if (!user.handle || (user.handleChangeCount ?? 0) < 1) {
+    return c.json({ error: "Choose your preferred handle before continuing." }, 409);
+  }
+  const completed = store.completeOnboarding(uid)!;
+  return c.json({
+    user: {
+      ...completed,
+      onboardingRequired: false,
+    },
+  });
 });
 
 // ─── Synthra quote / swap / bridge ─────────────────────────────────────────

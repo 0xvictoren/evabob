@@ -33,10 +33,13 @@ import { readChainTokenBalance } from "./arc-balances.js";
 import { flushPrimaryStore } from "./primary-store.js";
 import {
   decideExpiredJobAbandon,
+  decideRunnerFailure,
   fundsIntactMessage,
   isTokenMessengerAddress,
   parseBalance,
+  sourceFundsMoved,
   type ChallengeExpiryState,
+  type JobStage,
 } from "./appKitJobExpiry.js";
 import {
   assertMintRecipient,
@@ -45,7 +48,8 @@ import {
   planBridgeHop,
 } from "./appKitBridgeRoute.js";
 import { circleAppId, readChallengeSettlement } from "./circle-ucw.js";
-import { cctpCompleteBridge } from "./cctp.js";
+import { cctpCompleteBridge, fetchCctpAttestation } from "./cctp.js";
+import { platformFeeEnabled } from "./platformFee.js";
 
 // ─── Job store (UCW challenge relay for long-running kit ops) ──────────────
 
@@ -81,6 +85,14 @@ export type AppKitJobMeta = {
   /** True when an expired PIN was dropped because funds never left. */
   abandoned?: boolean;
   fundsIntact?: boolean;
+  /** Every transaction the job broadcast, in order (approve, burn, mint…). */
+  txHashes?: string[];
+  /** The source-chain burn Circle's attestation service recognised. */
+  burnTxHash?: string;
+  /** Last stage recorded for the app; see jobStage() for the live value. */
+  stage?: JobStage;
+  /** A failed bridge was re-checked for a stranded burn (checked once). */
+  reviveCheckedAt?: string;
 };
 
 export type AppKitJob = {
@@ -329,6 +341,18 @@ function cancelJobWaiters(jobId: string, reason: string) {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * App Kit's send and unified-balance deposit/spend take no custom fee, so
+ * with the platform fee on they would move money fee-free. Refuse, pointing
+ * at the route that batches the fee into the same PIN.
+ */
+function assertNoUncollectableFee(what: string, route: string) {
+  if (!platformFeeEnabled()) return;
+  throw new Error(
+    `This ${what} route cannot collect the Evabob fee. Use ${route}.`,
+  );
+}
+
 function amountStr(n: string | number): string {
   if (typeof n === "number") {
     if (!Number.isFinite(n) || n <= 0) throw new Error("Amount must be positive");
@@ -507,9 +531,15 @@ async function ucwAdapter(input: UcwAdapterInput) {
         (progress.txHash ? ` tx=${progress.txHash.slice(0, 12)}…` : ""),
     );
     if (progress.txHash && /^0x[a-fA-F0-9]{64}$/i.test(progress.txHash)) {
+      // Keep every hash, not just the latest: recovery has to find the burn,
+      // and the last hash is often the approve or the destination mint.
+      const seen = jobs.get(input.jobId)?.meta?.txHashes ?? [];
       patchJobMeta(input.jobId, {
         txHash: progress.txHash,
         lastTxHash: progress.txHash,
+        txHashes: seen.includes(progress.txHash)
+          ? seen
+          : [...seen, progress.txHash],
       });
     }
   };
@@ -1173,7 +1203,7 @@ function startJob(
     challenges: [],
     createdAt: now,
     updatedAt: now,
-    meta: { ...meta, activityId: activity.id },
+    meta: { ...meta, activityId: activity.id, stage: "waiting_pin" },
   };
   upsertJob(job);
 
@@ -1213,6 +1243,7 @@ function startJob(
         status: "succeeded",
         result: serialized,
       });
+      patchJobMeta(id, { stage: "arrived" });
       const done = jobs.get(id);
       if (done) {
         finishJobActivity(
@@ -1225,13 +1256,60 @@ function startJob(
     } catch (e) {
       if (jobs.get(id)?.meta?.abandoned) return;
       const err = e instanceof Error ? e.message : String(e);
-      touchJob(id, {
-        status: "failed",
-        error: err,
-      });
-      const failed = jobs.get(id);
-      if (failed) {
-        finishJobActivity(failed, "failed", failed.meta?.lastTxHash, err);
+      const current = jobs.get(id);
+      const decision = current
+        ? await decideAfterRunnerError(current).catch((inner) => {
+            console.warn(
+              `[app-kit ${id.slice(0, 8)}] failure check:`,
+              inner instanceof Error ? inner.message : inner,
+            );
+            // Unable to check: never declare failure over possibly-moved money.
+            return current.meta?.txHashes?.length
+              ? ({ outcome: "keep_running", stage: "sent", reason: "check failed" } as const)
+              : ({ outcome: "failed", reason: "check failed" } as const);
+          })
+        : ({ outcome: "failed", reason: "job missing" } as const);
+
+      if (decision.outcome === "keep_running") {
+        console.warn(
+          `[app-kit ${id.slice(0, 8)}] runner stopped (${err}); kept open: ${decision.reason}`,
+        );
+        touchJob(id, { error: err });
+        patchJobMeta(id, {
+          stage: decision.stage,
+          recoverHint:
+            op === "bridge"
+              ? "Your money has left and is on its way. Tap Continue to finish it."
+              : "This payment may have gone through. Tap Continue to check.",
+        });
+        const activityId = jobs.get(id)?.meta?.activityId;
+        if (activityId) {
+          store.updateActivity(activityId, {
+            status: "pending",
+            description: "On hold · tap Continue to finish",
+          });
+        }
+      } else if (decision.outcome === "succeeded") {
+        touchJob(id, { status: "succeeded" });
+        patchJobMeta(id, { stage: "arrived" });
+        const done = jobs.get(id);
+        if (done) {
+          finishJobActivity(
+            done,
+            "completed",
+            done.meta?.lastTxHash,
+            `${op} complete`,
+          );
+        }
+      } else {
+        touchJob(id, {
+          status: "failed",
+          error: err,
+        });
+        const failed = jobs.get(id);
+        if (failed) {
+          finishJobActivity(failed, "failed", failed.meta?.lastTxHash, err);
+        }
       }
     } finally {
       liveRunners.delete(id);
@@ -1272,6 +1350,234 @@ async function currentSourceBalance(job: AppKitJob): Promise<number | null> {
       e instanceof Error ? e.message : e,
     );
     return null;
+  }
+}
+
+const TX_HASH = /^0x[a-fA-F0-9]{64}$/;
+
+function jobTxHashes(job: AppKitJob): string[] {
+  const set = new Set<string>();
+  for (const h of [
+    job.meta?.burnTxHash,
+    ...(job.meta?.txHashes ?? []),
+    job.meta?.txHash,
+    job.meta?.lastTxHash,
+  ]) {
+    if (h && TX_HASH.test(h)) set.add(h);
+  }
+  return [...set];
+}
+
+type BurnLookup = {
+  hash: string;
+  status: string;
+  destinationCaller?: string;
+};
+
+/**
+ * Ask Circle's attestation service which of the job's transactions was the
+ * CCTP burn. An approve or a mint hash simply has no message.
+ */
+async function findBurnMessage(job: AppKitJob): Promise<BurnLookup | null> {
+  const sourceDomain = job.meta?.fromChain
+    ? APPKIT_CHAIN_TO_DOMAIN[job.meta.fromChain]
+    : undefined;
+  if (sourceDomain == null) return null;
+  for (const hash of jobTxHashes(job)) {
+    try {
+      const data = (await fetchCctpAttestation(sourceDomain, hash)) as {
+        messages?: Array<{
+          status?: string;
+          decodedMessage?: { destinationCaller?: string };
+        }>;
+      };
+      const msg = data?.messages?.[0];
+      if (!msg) continue;
+      if (job.meta?.burnTxHash !== hash) {
+        patchJobMeta(job.id, { burnTxHash: hash });
+      }
+      return {
+        hash,
+        status: msg.status || "pending",
+        destinationCaller: msg.decodedMessage?.destinationCaller,
+      };
+    } catch (e) {
+      console.warn(
+        `[app-kit ${job.id.slice(0, 8)}] burn lookup ${hash.slice(0, 10)}…:`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+  return null;
+}
+
+async function decideAfterRunnerError(job: AppKitJob) {
+  const burn = job.op === "bridge" ? await findBurnMessage(job) : null;
+  const balanceNow = await currentSourceBalance(job);
+  if (balanceNow != null) {
+    patchJobMeta(job.id, { balanceNow: String(balanceNow) });
+  }
+  return decideRunnerFailure({
+    op: job.op,
+    burnFound: Boolean(burn),
+    anyTxHash: jobTxHashes(job).length > 0,
+    balanceBefore: parseBalance(job.meta?.balanceBefore),
+    balanceNow,
+    amount: parseBalance(job.meta?.amount),
+  });
+}
+
+/** Bridges whose destination mint the server is currently finishing. */
+const bridgeCompletions = new Map<string, Promise<void>>();
+
+/** The stage the app shows for a job right now. */
+export function jobStage(job: AppKitJob): JobStage | "failed" {
+  if (job.status === "succeeded") return "arrived";
+  if (job.status === "failed") return "failed";
+  if (bridgeCompletions.has(job.id)) return "confirming";
+  if (liveRunners.has(job.id)) {
+    return job.meta?.stage === "sent" ? "sent" : "waiting_pin";
+  }
+  const recorded = job.meta?.stage;
+  return recorded && recorded !== "confirming" && recorded !== "arrived"
+    ? recorded
+    : "waiting_pin";
+}
+
+const ZERO_BYTES32 = /^0x0{64}$/i;
+
+/**
+ * Finish a burned bridge from the server: wait for Circle's attestation, then
+ * submit the destination mint from the ops wallet. Anyone may submit a CCTP
+ * mint when the burn set no destination caller, and the USDC still goes to
+ * the recipient fixed at burn time.
+ *
+ * Runs in the background because a Standard attestation from Base or Ethereum
+ * takes about 15–19 minutes; the app polls the job for the result.
+ */
+function startBridgeCompletion(input: {
+  jobId: string;
+  burnTxHash: string;
+  sourceDomain?: number;
+  destinationDomain: number;
+}): Promise<void> {
+  const existing = bridgeCompletions.get(input.jobId);
+  if (existing) return existing;
+  patchJobMeta(input.jobId, { stage: "confirming" });
+  const run = (async () => {
+    try {
+      const mint = await cctpCompleteBridge({
+        burnTxHash: input.burnTxHash,
+        destinationDomain: input.destinationDomain,
+        sourceDomain: input.sourceDomain,
+        timeoutMs: 45 * 60 * 1000,
+        pollMs: 10_000,
+      });
+      // The user (or a previous attempt) already minted it: it has arrived.
+      const alreadyMinted =
+        !mint.ok && /nonce already used|already (been )?(used|received)/i.test(mint.error || "");
+      if (mint.ok || alreadyMinted) {
+        touchJob(input.jobId, { status: "succeeded", result: mint });
+        patchJobMeta(input.jobId, {
+          stage: "arrived",
+          recoverHint: undefined,
+          ...(mint.ok ? { lastTxHash: mint.mintTx } : {}),
+        });
+        const live = getAppKitJob(input.jobId);
+        if (live) {
+          finishJobActivity(
+            live,
+            "completed",
+            mint.ok ? mint.mintTx : input.burnTxHash,
+            mint.ok
+              ? `Arrived on ${mint.chain}`
+              : "Arrived",
+          );
+        }
+        return;
+      }
+      patchJobMeta(input.jobId, {
+        stage: "sent",
+        recoverHint:
+          mint.status === "pending" || /not complete/i.test(mint.error || "")
+            ? "Still confirming on the network. Tap Continue again in a few minutes."
+            : "We couldn't finish this yet. Tap Continue to try again.",
+      });
+      console.warn(
+        `[app-kit ${input.jobId.slice(0, 8)}] server mint not finished: ${mint.error}`,
+      );
+    } catch (e) {
+      patchJobMeta(input.jobId, {
+        stage: "sent",
+        recoverHint: "We couldn't finish this yet. Tap Continue to try again.",
+      });
+      console.error(
+        `[app-kit ${input.jobId.slice(0, 8)}] server mint:`,
+        e instanceof Error ? e.message : e,
+      );
+    } finally {
+      bridgeCompletions.delete(input.jobId);
+      await flushPrimaryStore().catch(() => undefined);
+    }
+  })();
+  bridgeCompletions.set(input.jobId, run);
+  return run;
+}
+
+/**
+ * Deposits, swaps and spends move money in a single transaction; once the
+ * source balance has dropped by the job's amount, that transaction landed.
+ */
+async function closeIfSourceMoved(job: AppKitJob): Promise<boolean> {
+  if (job.op === "bridge" || job.op === "send") return false;
+  if (liveRunners.has(job.id)) return false;
+  const balanceNow = await currentSourceBalance(job);
+  const moved = sourceFundsMoved({
+    balanceBefore: parseBalance(job.meta?.balanceBefore),
+    balanceNow,
+    amount: parseBalance(job.meta?.amount),
+  });
+  if (moved !== true) return false;
+  touchJob(job.id, { status: "succeeded" });
+  patchJobMeta(job.id, { stage: "arrived", balanceNow: String(balanceNow) });
+  const done = jobs.get(job.id);
+  if (done) {
+    finishJobActivity(done, "completed", done.meta?.lastTxHash, `${job.op} complete`);
+  }
+  return true;
+}
+
+/**
+ * Bridges that failed before this fix could have burned without minting —
+ * money stranded between chains with no Continue button. Re-check each
+ * failed bridge once; if Circle has its burn, reopen it.
+ */
+async function reviveStrandedBridges(userId: string): Promise<void> {
+  const candidates = listAppKitJobsForUser(userId).filter(
+    (j) =>
+      j.op === "bridge" &&
+      j.status === "failed" &&
+      !j.meta?.abandoned &&
+      !j.meta?.reviveCheckedAt &&
+      jobTxHashes(j).length > 0,
+  );
+  for (const job of candidates) {
+    patchJobMeta(job.id, { reviveCheckedAt: new Date().toISOString() });
+    const burn = await findBurnMessage(job);
+    if (!burn) continue;
+    touchJob(job.id, { status: "running" });
+    patchJobMeta(job.id, {
+      stage: "sent",
+      recoverHint: "Your money has left and is on its way. Tap Continue to finish it.",
+    });
+    const activityId = job.meta?.activityId;
+    if (activityId) {
+      store.updateActivity(activityId, {
+        status: "pending",
+        description: "On hold · tap Continue to finish",
+      });
+    }
+    console.log(`[app-kit] reopened stranded bridge ${job.id} (burn ${burn.hash.slice(0, 12)}…)`);
   }
 }
 
@@ -1402,6 +1708,10 @@ export async function maybeAbandonExpiredJob(
  * The chain is the authority here, not the worker's own bookkeeping.
  */
 async function closeIfSettledOnChain(job: AppKitJob): Promise<boolean> {
+  // Only a send is one transaction. For a bridge a settled hash can be the
+  // approve or the burn — the money has not arrived until the mint — and for
+  // a deposit or swap it can be the approve alone.
+  if (job.op !== "send") return false;
   const hash = job.meta?.txHash || job.meta?.lastTxHash;
   if (!hash || !/^0x[a-fA-F0-9]{64}$/.test(hash)) return false;
   try {
@@ -1428,6 +1738,9 @@ export async function reconcileStaleAppKitJobs(input: {
   userToken?: string;
   jobId?: string;
 }): Promise<{ jobs: AppKitJob[]; dismissed: DismissedAppKitJob[] }> {
+  await reviveStrandedBridges(input.userId).catch((e) =>
+    console.warn("[app-kit] revive stranded bridges:", e instanceof Error ? e.message : e),
+  );
   const running = listAppKitJobsForUser(input.userId).filter((j) => {
     if (j.status !== "running") return false;
     if (input.jobId) return j.id === input.jobId;
@@ -1437,6 +1750,7 @@ export async function reconcileStaleAppKitJobs(input: {
   for (const job of running) {
     // Settled work is finished work, whatever the worker managed to record.
     if (await closeIfSettledOnChain(job)) continue;
+    if (await closeIfSourceMoved(job)) continue;
     const dropped = await maybeAbandonExpiredJob(job, {
       userToken: input.userToken,
     });
@@ -1478,8 +1792,9 @@ export async function recoverAppKitJob(
       hint: "PIN still required — open Continue to finish signing",
     };
   }
-  let hash = job.meta?.lastTxHash || job.meta?.txHash;
-  if (!hash && opts?.userToken && job.challenges.length > 0) {
+  // Collect every transaction hash Circle has for the job's challenges; the
+  // burn is rarely the last one.
+  if (opts?.userToken && job.challenges.length > 0) {
     const { waitForChallengeTxHash } = await import("./circle-ucw.js");
     for (const ch of job.challenges) {
       const r = await waitForChallengeTxHash({
@@ -1487,9 +1802,11 @@ export async function recoverAppKitJob(
         challengeId: ch.challengeId,
         timeoutMs: 12_000,
       });
-      if (r.ok && r.txHash) {
-        hash = r.txHash;
-        patchJobMeta(id, { lastTxHash: r.txHash, txHash: r.txHash });
+      if (r.ok && r.txHash && TX_HASH.test(r.txHash)) {
+        const seen = jobs.get(id)?.meta?.txHashes ?? [];
+        if (!seen.includes(r.txHash)) {
+          patchJobMeta(id, { txHashes: [...seen, r.txHash] });
+        }
       }
     }
   }
@@ -1499,41 +1816,60 @@ export async function recoverAppKitJob(
   const sourceDomain = job.meta?.fromChain
     ? APPKIT_CHAIN_TO_DOMAIN[job.meta.fromChain]
     : undefined;
-  if (job.op === "bridge" && hash && destDomain != null) {
-    const mint = await cctpCompleteBridge({
-      burnTxHash: hash,
-      destinationDomain: destDomain,
-      sourceDomain,
-      timeoutMs: 90_000,
-    });
-    if (mint.ok) {
-      touchJob(id, { status: "succeeded", result: mint });
-      const live = getAppKitJob(id)!;
-      finishJobActivity(
-        live,
-        "completed",
-        mint.mintTx,
-        `Minted on ${mint.chain} · burn ${hash.slice(0, 10)}…`,
-      );
+  if (job.op === "bridge" && destDomain != null) {
+    const burn = await findBurnMessage(getAppKitJob(id) ?? job);
+    if (burn) {
+      if (burn.destinationCaller && !ZERO_BYTES32.test(burn.destinationCaller)) {
+        const hint =
+          "This transfer has to be finished from your wallet. Tap Continue and enter your PIN.";
+        patchJobMeta(id, { stage: "sent", recoverHint: hint });
+        return { ok: false as const, live: false, job: getAppKitJob(id), hint };
+      }
+      if (job.status !== "running") touchJob(id, { status: "running" });
+      const completion = startBridgeCompletion({
+        jobId: id,
+        burnTxHash: burn.hash,
+        sourceDomain,
+        destinationDomain: destDomain,
+      });
+      // Arc attests in about half a second, so most bridges finish while the
+      // person is still looking. Slower sources keep confirming in the
+      // background and the app shows "Confirming".
+      await Promise.race([
+        completion,
+        new Promise((r) => setTimeout(r, 25_000)),
+      ]);
+      const latest = getAppKitJob(id);
+      if (latest?.status === "succeeded") {
+        return {
+          ok: true as const,
+          live: false,
+          recovered: "mint",
+          job: latest,
+        };
+      }
       return {
-        ok: true as const,
+        ok: false as const,
         live: false,
-        recovered: "mint",
-        job: getAppKitJob(id),
-        mint,
+        recovered: "confirming",
+        stage: latest ? jobStage(latest) : "confirming",
+        job: latest,
+        hint:
+          latest?.meta?.recoverHint ||
+          "Your money is on its way. It's confirming on the network.",
       };
     }
-    patchJobMeta(id, {
-      recoverHint:
-        mint.error ||
-        "Could not finish mint from the saved hash. If USDC left the source chain, retry Continue; if it is still in the wallet, start a new bridge.",
-    });
+    const hint =
+      "We couldn't find this transfer on the network yet. If your balance hasn't changed, nothing was sent.";
+    patchJobMeta(id, { recoverHint: hint });
+    return { ok: false as const, live: false, job: getAppKitJob(id), hint };
+  }
+  if (await closeIfSourceMoved(getAppKitJob(id) ?? job)) {
     return {
-      ok: false as const,
+      ok: true as const,
       live: false,
+      recovered: "settled",
       job: getAppKitJob(id),
-      error: mint.error,
-      hint: jobs.get(id)?.meta?.recoverHint,
     };
   }
   const hint =
@@ -1561,6 +1897,7 @@ export function startUcwSendJob(input: {
   /** An already-open pending row to fill in, instead of adding a second. */
   activityId?: string;
 }) {
+  assertNoUncollectableFee("send", "/v1/circle/send");
   const amount = amountStr(input.amount);
   const token = (input.token || "USDC").toUpperCase();
   return startJob(
@@ -1750,6 +2087,7 @@ export function startUcwDepositJob(input: {
   amount: string | number;
   chain?: string;
 }) {
+  assertNoUncollectableFee("deposit", "/v1/circle/gateway/deposit");
   return startJob(input.userId, "deposit", async (jobId) => {
     const kit = getAppKit();
     const chain = resolveAppKitChain(input.chain || "Arc_Testnet");
@@ -1786,6 +2124,7 @@ export function startUcwSpendJob(input: {
   toChain?: string;
   sourceChains?: string[];
 }) {
+  assertNoUncollectableFee("GA payment", "/v1/circle/gateway/pay");
   return startJob(input.userId, "spend", async (jobId) => {
     const kit = getAppKit();
     const toChain = resolveAppKitChain(input.toChain || "Arc_Testnet");
@@ -1837,6 +2176,9 @@ export function startUcwComposeJob(input: {
     amount?: string | number;
   };
 }) {
+  // A composed spend step carries no fee; bridge and swap steps on their own
+  // routes do. Until compose collects it end to end, keep it closed.
+  if (input.spend) assertNoUncollectableFee("composed GA payment", "/v1/circle/gateway/pay");
   return startJob(input.userId, "compose", async (jobId) => {
     const kit = getAppKit();
     const chainSet = new Set<string>(["Arc_Testnet"]);

@@ -8,6 +8,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../core/theme/evabob_colors.dart';
+import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/text_safe.dart';
 
 /// Runs one or more Circle challenges in a **single** WebView session
@@ -353,7 +354,7 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
 <!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
 <style>
-html,body{margin:0;padding:16px;background:#F6F1E8;color:#0F1B2D;font-family:system-ui,sans-serif;overflow-x:hidden;max-width:100vw;word-break:break-word}
+html,body{margin:0;padding:16px;background:#F0FAFF;color:#0B1620;font-family:system-ui,sans-serif;overflow-x:hidden;max-width:100vw;word-break:break-word}
 #s{max-height:5em;overflow:hidden}
 </style></head><body>
 <p id="s">Loading…</p>
@@ -407,42 +408,68 @@ const post = (o) => { try { window.EvabobBridge.postMessage(JSON.stringify(o)); 
     // WebView needs a bounded height → Expanded (never put inside ScrollView alone).
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: EvabobColors.cream,
+      backgroundColor: EvabobColors.pageBg,
       appBar: AppBar(
-        title: Text(widget.title),
-        backgroundColor: EvabobColors.cream,
+        title: Text(
+          widget.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Type.body.copyWith(color: EvabobColors.ink),
+        ),
+        backgroundColor: EvabobColors.pageBg,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close),
+          icon: const Icon(Icons.close_rounded, color: EvabobColors.ink),
+          tooltip: 'Close',
           onPressed: () => Navigator.of(context).pop(false),
         ),
       ),
       body: Material(
-        color: EvabobColors.cream,
+        color: EvabobColors.pageBg,
         child: SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Material(
-                color: EvabobColors.sand,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: Text(
-                    _status,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: true,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      height: 1.35,
-                      color: EvabobColors.navyMuted,
-                    ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  decoration: BoxDecoration(
+                    color: EvabobColors.blue.withValues(alpha: .08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.lock_outline_rounded,
+                        size: 16,
+                        color: EvabobColors.emeraldDeep,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _status,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: true,
+                          style: Type.label.copyWith(
+                            color: EvabobColors.emeraldDeep,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
               Expanded(
                 child: ClipRect(
                   child: _controller == null
-                      ? const Center(child: CircularProgressIndicator())
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                            color: EvabobColors.blue,
+                          ),
+                        )
                       : WebViewWidget(controller: _controller!),
                 ),
               ),

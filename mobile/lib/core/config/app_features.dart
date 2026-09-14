@@ -23,7 +23,25 @@ class AppFeatures extends ChangeNotifier {
   bool agentBatchSend = false;
   List<String> bridgeRoutes = const [];
 
+  /// Evabob platform fee in basis points (5 = 0.05%); 0 when off. Added on
+  /// top of the amount, gas excluded. The server charges it; the app only
+  /// shows it before the PIN.
+  int platformFeeBps = 0;
+
   bool get bridge => bridgeRoutes.isNotEmpty;
+
+  /// Fee for [amount], rounded down to the token's smallest unit. No minimum:
+  /// an amount too small to produce one unit of fee is charged nothing.
+  double platformFeeFor(double amount, {int decimals = 6}) {
+    if (platformFeeBps <= 0 || amount <= 0) return 0;
+    final scale = BigInt.from(10).pow(decimals);
+    // Same as the server's toFixed(decimals): the typed amount, in units.
+    final units = BigInt.parse(
+      (amount * scale.toDouble()).round().toString(),
+    );
+    final feeUnits = units * BigInt.from(platformFeeBps) ~/ BigInt.from(10000);
+    return feeUnits.toDouble() / scale.toDouble();
+  }
 
   Future<void> refresh() async {
     try {
@@ -31,6 +49,10 @@ class AppFeatures extends ChangeNotifier {
       final raw = response['features'];
       if (raw is! Map) throw const FormatException('Missing feature flags');
       final flags = Map<String, dynamic>.from(raw);
+      final fee = response['platformFee'];
+      platformFeeBps = fee is Map && fee['enabled'] == true
+          ? ((fee['bps'] as num?)?.toInt() ?? 0)
+          : 0;
       directSend = flags['directSend'] == true;
       protectedSend = flags['protectedSend'] == true;
       requests = flags['requests'] == true;
@@ -58,6 +80,7 @@ class AppFeatures extends ChangeNotifier {
       x402Execution = false;
       agentBatchSend = false;
       bridgeRoutes = const [];
+      platformFeeBps = 0;
       loaded = false;
       debugPrint('feature flags: $error');
     }

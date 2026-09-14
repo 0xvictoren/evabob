@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/activity/activity_service.dart';
 import '../../core/theme/evabob_colors.dart';
+import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/glass.dart';
 
@@ -311,6 +312,14 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                         const SizedBox(height: 8),
                         _row('Date', df.format(e.createdAt.toLocal())),
                         _row('Amount', e.amountLine),
+                        if ((e.platformFee ?? 0) > 0)
+                          _row(
+                            'Evabob fee',
+                            formatMoney(
+                              e.platformFee!,
+                              e.platformFeeToken ?? e.displayToken,
+                            ),
+                          ),
                         if (e.sender != null && e.sender!.isNotEmpty)
                           _row('Sender', e.sender!),
                         if (e.receiver != null && e.receiver!.isNotEmpty)

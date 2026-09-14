@@ -21,6 +21,8 @@ class ActivityEntry {
     this.amountToken,
     this.status,
     this.jobId,
+    this.platformFee,
+    this.platformFeeToken,
   });
 
   factory ActivityEntry.fromJson(Map<String, dynamic> j, FxService fx) {
@@ -44,6 +46,8 @@ class ActivityEntry {
       amountToken: amountToken,
       status: j['status']?.toString(),
       jobId: j['jobId']?.toString(),
+      platformFee: (j['platformFee'] as num?)?.toDouble(),
+      platformFeeToken: j['platformFeeToken']?.toString(),
     );
   }
 
@@ -62,6 +66,10 @@ class ActivityEntry {
   final double? amountToken;
   final String? status;
   final String? jobId;
+
+  /// Evabob fee charged on top of the amount, in [platformFeeToken].
+  final double? platformFee;
+  final String? platformFeeToken;
 
   bool get isPending => status == 'pending';
   bool get resumable => isPending && jobId != null && jobId!.isNotEmpty;

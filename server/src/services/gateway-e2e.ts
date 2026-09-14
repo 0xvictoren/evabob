@@ -602,6 +602,42 @@ async function estimateMaxFees(
   return fallback;
 }
 
+/**
+ * Split the platform fee off the planned sources as its own intent.
+ *
+ * The plan covers amount + fee. The fee is taken from the largest source that
+ * can hold it, so the payment still spans as few chains as possible, and a
+ * source reduced to nothing is dropped rather than signed as a zero burn.
+ */
+type BurnSlice = { domain: number; value: bigint; recipient?: string };
+
+export function carvePlatformFee(
+  slices: BurnSlice[],
+  fee: { units: bigint; recipient: string },
+): BurnSlice[] {
+  if (fee.units <= 0n) return slices;
+  const total = slices.reduce((sum, s) => sum + s.value, 0n);
+  if (total <= fee.units) {
+    throw new Error("Gateway sources do not cover the payment and its fee");
+  }
+  let index = -1;
+  for (let i = 0; i < slices.length; i++) {
+    if (slices[i]!.value < fee.units) continue;
+    if (index < 0 || slices[i]!.value > slices[index]!.value) index = i;
+  }
+  if (index < 0) {
+    throw new Error("No single Gateway source can cover the platform fee");
+  }
+  const source = slices[index]!;
+  const reduced = slices
+    .map((s, i) => (i === index ? { ...s, value: s.value - fee.units } : s))
+    .filter((s) => s.value > 0n);
+  return [
+    ...reduced,
+    { domain: source.domain, value: fee.units, recipient: fee.recipient },
+  ];
+}
+
 export async function submitGatewayBurnTransfer(input: {
   amountUsdc: number;
   destinationDomain: number;
@@ -618,6 +654,12 @@ export async function submitGatewayBurnTransfer(input: {
   enableForwarder?: boolean;
   /** @deprecated Use dest mint / forwarder poll. Kept for call-site compat. */
   mintOnArcWithOps?: boolean;
+  /**
+   * Evabob platform fee, carved out of the planned sources (which must
+   * already cover amount + fee) as its own burn intent to the fee wallet.
+   * It shares the transfer's attestation, so it mints with the payment.
+   */
+  platformFee?: { units: bigint; recipient: Address };
 }): Promise<GatewayTransferResult> {
   const signer = input.signerAccount;
   const destDomain = input.destinationDomain;
@@ -631,7 +673,7 @@ export async function submitGatewayBurnTransfer(input: {
   const destToken = DEST_USDC_BY_DOMAIN[destDomain] ?? USDC;
   const maxBlockHeight = maxUint256;
 
-  let slices: Array<{ domain: number; value: bigint }>;
+  let slices: Array<{ domain: number; value: bigint; recipient?: string }>;
   if (input.sources && input.sources.length > 0) {
     slices = input.sources.map((s) => ({
       domain: s.domain,
@@ -650,6 +692,9 @@ export async function submitGatewayBurnTransfer(input: {
     slices = [
       { domain: sourceDomain, value: parseUnits(String(input.amountUsdc), 6) },
     ];
+  }
+  if (input.platformFee && input.platformFee.units > 0n) {
+    slices = carvePlatformFee(slices, input.platformFee);
   }
   if (slices.length > 16) {
     throw new Error("Gateway allows at most 16 burn intents per transfer");
@@ -673,7 +718,10 @@ export async function submitGatewayBurnTransfer(input: {
       sourceToken: encodeGatewayBytes32(s.domain, usdcOnDomain(s.domain)),
       destinationToken: encodeGatewayBytes32(destDomain, destToken as Address),
       sourceDepositor: toBytes32(input.sourceDepositor),
-      destinationRecipient: encodeGatewayBytes32(destDomain, destRecipient),
+      destinationRecipient: encodeGatewayBytes32(
+        destDomain,
+        s.recipient ?? destRecipient,
+      ),
       sourceSigner: toBytes32(signer.address),
       destinationCaller: encodeGatewayBytes32(destDomain, destCaller),
       value: s.value.toString(),
@@ -934,6 +982,8 @@ export async function gatewayPayFromUserDepositor(input: {
   enableForwarder?: boolean;
   /** Precomputed split from {@link planGatewayPay}. */
   slices?: GatewaySourceSlice[];
+  /** Platform fee; the slices must already cover amount + fee. */
+  platformFee?: { units: bigint; recipient: Address };
 }) {
   const delegate = getDeployerAccount();
   const plan =
@@ -985,6 +1035,7 @@ export async function gatewayPayFromUserDepositor(input: {
     maxFeeUsdc: input.maxFeeUsdc,
     enableForwarder,
     mintOnArcWithOps: true,
+    platformFee: input.platformFee,
   });
 }
 

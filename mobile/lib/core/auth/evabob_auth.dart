@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/api_client.dart';
 import '../config/env.dart';
 import 'evabob_user.dart';
 import 'session_store.dart';
@@ -22,6 +23,11 @@ class EvabobAuth extends ChangeNotifier {
   /// Session record (JWT, wallet address, email) lives in secure storage.
   /// See SessionStore -- it used to be plain text in SharedPreferences.
   final SessionStore _session = SessionStore();
+
+  EvabobAuth({ApiClient? api}) : _api = api;
+
+  final ApiClient? _api;
+  String _resolvedDynamicEnvironmentId = Env.dynamicEnvironmentId;
 
   EvabobUser? _user;
   bool _ready = false;
@@ -79,11 +85,32 @@ class EvabobAuth extends ChangeNotifier {
     _loading = true;
     notifyListeners();
     try {
-      if (Env.hasDynamicCredentials) {
+      var resolvedAppName = Env.appName;
+      if (_api != null) {
+        try {
+          final publicConfig = await _api
+              .get('/v1/config/public')
+              .timeout(const Duration(seconds: 5));
+          final dynamic = publicConfig['dynamic'];
+          if (dynamic is Map) {
+            final id = dynamic['environmentId']?.toString().trim();
+            if (id != null && id.isNotEmpty) {
+              _resolvedDynamicEnvironmentId = id;
+            }
+          }
+          final serverName = publicConfig['appName']?.toString().trim();
+          if (serverName != null && serverName.isNotEmpty) {
+            resolvedAppName = serverName;
+          }
+        } catch (e) {
+          debugPrint('EvabobAuth: using bundled Dynamic config ($e)');
+        }
+      }
+      if (_resolvedDynamicEnvironmentId.isNotEmpty) {
         _sdk = DynamicSDK.init(
           props: ClientProps(
-            environmentId: Env.dynamicEnvironmentId,
-            appName: Env.appName,
+            environmentId: _resolvedDynamicEnvironmentId,
+            appName: resolvedAppName,
             appOrigin: Env.dynamicAppOrigin,
             apiBaseUrl: 'https://app.dynamicauth.com/api/v0',
             logLevel: kDebugMode ? LoggerLevel.debug : LoggerLevel.error,
@@ -134,6 +161,8 @@ class EvabobAuth extends ChangeNotifier {
               phone: live.phone ?? restored?.phone,
               phoneLinked: live.phoneLinked || (restored?.phoneLinked ?? false),
               phoneLinkedAt: live.phoneLinkedAt ?? restored?.phoneLinkedAt,
+              onboardingRequired:
+                  (sameEmail || sameId) ? restored.onboardingRequired : null,
             );
             _demoMode = false;
             await _loadAvatarForUser(live.id);
@@ -146,7 +175,12 @@ class EvabobAuth extends ChangeNotifier {
             final restored = _userFromCache(cached);
             if (restored != null &&
                 restored.authToken != null &&
-                restored.authToken!.isNotEmpty) {
+                restored.authToken!.isNotEmpty &&
+                _sessionFromToken(
+                      restored.authToken!,
+                      fallbackEmail: restored.email,
+                    ) !=
+                    null) {
               _user = restored;
               _demoMode = false;
               await _loadAvatarForUser(restored.id);
@@ -202,6 +236,7 @@ class EvabobAuth extends ChangeNotifier {
           : (session.smartAccount.isNotEmpty
               ? session.smartAccount
               : (_user?.smartAccount ?? '')),
+      onboardingRequired: switched ? null : _user?.onboardingRequired,
     );
     _demoMode = false;
     _loadAvatarForUser(_user!.id);
@@ -233,6 +268,7 @@ class EvabobAuth extends ChangeNotifier {
           : (session.smartAccount.isNotEmpty
               ? session.smartAccount
               : (_user?.smartAccount ?? '')),
+      onboardingRequired: switched ? null : _user?.onboardingRequired,
     );
     _demoMode = false;
     _loadAvatarForUser(_user!.id);
@@ -447,6 +483,15 @@ class EvabobAuth extends ChangeNotifier {
     UserProfile? profile,
     String? fallbackEmail,
   }) {
+    final tokenEnvironment = _jwtClaim(token, 'environment_id');
+    if (tokenEnvironment != null &&
+        _resolvedDynamicEnvironmentId.isNotEmpty &&
+        tokenEnvironment != _resolvedDynamicEnvironmentId) {
+      debugPrint(
+        'EvabobAuth: ignoring a session from the previous Dynamic environment',
+      );
+      return null;
+    }
     final fromJwt = _userFromJwt(token, fallbackEmail: fallbackEmail);
     if (fromJwt == null) return null;
 
@@ -624,6 +669,13 @@ class EvabobAuth extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setOnboardingRequired(bool required) async {
+    if (_user == null) return;
+    _user = _user!.copyWith(onboardingRequired: required);
+    await _persist();
+    notifyListeners();
+  }
+
   EvabobUser _mapProfile(UserProfile profile, {String? token}) {
     var email = profile.email?.trim() ?? '';
     if (email.isEmpty) {
@@ -722,6 +774,8 @@ class EvabobAuth extends ChangeNotifier {
           : EvabobUser.defaultHandleFromEmail(email),
       phoneLinked: phoneLinked,
       phoneLinkedAt: phoneLinkedAt,
+      onboardingRequired:
+          parts.length > 9 && parts[9].isNotEmpty ? parts[9] == '1' : null,
     );
   }
 
@@ -735,6 +789,7 @@ class EvabobAuth extends ChangeNotifier {
     final handle = user['handle']?.toString();
     final display = user['displayName']?.toString();
     final evm = user['evmAddress']?.toString();
+    final onboardingRequired = user['onboardingRequired'];
     final nextSmart = (evm != null && evm.startsWith('0x') && evm.length == 42)
         ? evm
         : _user!.smartAccount;
@@ -744,12 +799,16 @@ class EvabobAuth extends ChangeNotifier {
     final nextPhone = phone?.isNotEmpty == true ? phone : _user!.phone;
     final nextLinked = linked || _user!.phoneLinked;
     final nextLinkedAt = linkedAt ?? _user!.phoneLinkedAt;
+    final nextOnboardingRequired = onboardingRequired is bool
+        ? onboardingRequired
+        : _user!.onboardingRequired;
     final unchanged = nextSmart == _user!.smartAccount &&
         nextHandle == _user!.handle &&
         nextDisplay == _user!.displayName &&
         nextPhone == _user!.phone &&
         nextLinked == _user!.phoneLinked &&
-        nextLinkedAt == _user!.phoneLinkedAt;
+        nextLinkedAt == _user!.phoneLinkedAt &&
+        nextOnboardingRequired == _user!.onboardingRequired;
     if (unchanged) return;
     _user = _user!.copyWith(
       phone: nextPhone,
@@ -758,6 +817,7 @@ class EvabobAuth extends ChangeNotifier {
       handle: nextHandle,
       displayName: nextDisplay,
       smartAccount: nextSmart,
+      onboardingRequired: nextOnboardingRequired,
     );
     await _persist();
     notifyListeners();
@@ -833,6 +893,7 @@ class EvabobAuth extends ChangeNotifier {
         // v6: permanent phone link flags (must survive cold start)
         u.phoneLinked ? '1' : '0',
         u.phoneLinkedAt ?? '',
+        u.onboardingRequired == null ? '' : (u.onboardingRequired! ? '1' : '0'),
       ].join('\u001f'),
     );
   }

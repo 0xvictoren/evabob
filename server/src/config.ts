@@ -3,9 +3,13 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const candidates = [
-  resolve(process.cwd(), ".env"),
-  resolve(process.cwd(), "../.env"),
+  // Prefer the server-specific file even when Node is launched from the
+  // repository root. The root .env belongs to the web/tooling project and may
+  // contain older provider credentials.
   resolve(process.cwd(), "server/.env"),
+  resolve(process.cwd(), ".env"),
+  resolve(process.cwd(), "../server/.env"),
+  resolve(process.cwd(), "../.env"),
 ];
 for (const p of candidates) {
   if (existsSync(p)) {
@@ -19,6 +23,30 @@ function req(name: string, fallback = ""): string {
   const v = raw.split("#")[0]?.trim() || "";
   return v || fallback;
 }
+
+/**
+ * Evabob's platform fee: 0.05% (5 bps) on every money-moving action, gas
+ * excluded, paid to one wallet. PLATFORM_FEE_* is the source of truth; the
+ * older APP_KIT_FEE_* names are read only as a fallback so an existing
+ * environment keeps charging after the rename. An unset or malformed address
+ * turns the fee off everywhere — never send fees to an empty or wrong address.
+ */
+function resolvePlatformFee(): { recipient: `0x${string}` | ""; bps: number } {
+  const recipient = req("PLATFORM_FEE_ADDRESS") || req("APP_KIT_FEE_RECIPIENT");
+  const rawBps = req("PLATFORM_FEE_BPS") || req("APP_KIT_FEE_BPS") || "5";
+  const bps = Number(rawBps);
+  if (!recipient) return { recipient: "", bps: 0 };
+  if (!/^0x[a-fA-F0-9]{40}$/.test(recipient)) {
+    console.warn("!! PLATFORM_FEE_ADDRESS is not a 0x address — platform fee disabled.");
+    return { recipient: "", bps: 0 };
+  }
+  if (!Number.isInteger(bps) || bps < 0 || bps > 10_000) {
+    throw new Error("PLATFORM_FEE_BPS must be a whole number of basis points (0-10000)");
+  }
+  return { recipient: recipient as `0x${string}`, bps };
+}
+
+const platformFee = resolvePlatformFee();
 
 function envFlag(name: string, fallback: boolean): boolean {
   const value = req(name);
@@ -44,6 +72,9 @@ export const config = {
   })() as "local" | "testnet" | "production",
   productionLaunchEnabled: req("ENABLE_PRODUCTION_LAUNCH", "false") === "true",
   appName: req("APP_NAME", "evabob"),
+
+  /** 0.05% platform fee (gas excluded). recipient "" = disabled. */
+  platformFee,
 
   /**
    * Application auth. Callers are identified by a Dynamic JWT verified
@@ -116,10 +147,10 @@ export const config = {
     dcWalletAddress: (req("APP_KIT_DC_WALLET") ||
       req("CIRCLE_DC_WALLET") ||
       "0x61e6eb8f14569ca0d0d348e8aac5f32c04e16b0c") as `0x${string}`,
-    /** Platform fee recipient (0x…) for bridge/swap monetization. */
-    feeRecipient: req("APP_KIT_FEE_RECIPIENT"),
+    /** App Kit bridge/swap custom fee — always the platform fee. */
+    feeRecipient: platformFee.recipient,
     /** Fee in basis points (100 = 1%). 0 disables custom fees. */
-    feeBps: Number(process.env.APP_KIT_FEE_BPS || 0),
+    feeBps: platformFee.bps,
     /** Keep legacy /v1/cctp, /v1/gateway, /v1/synthra routes mounted. */
     keepLegacyRoutes: req("APP_KIT_KEEP_LEGACY", "true") !== "false",
   },

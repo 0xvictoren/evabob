@@ -371,6 +371,7 @@ Fund the deployer with Arc Testnet USDC at [faucet.circle.com](https://faucet.ci
 | **[docs/STATUS.md](./docs/STATUS.md)** | **Source of truth** — what works, what is partial, what is not built, open gaps |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Data flow, security rules, network constants |
 | [docs/ENV.md](./docs/ENV.md) | Environment variables |
+| [docs/HOSTED_ENVIRONMENTS.md](./docs/HOSTED_ENVIRONMENTS.md) | Render Blueprint deployment, Atlas allowlist, domains and smoke checks |
 | [docs/DEPLOY_AND_WALLETS.md](./docs/DEPLOY_AND_WALLETS.md) | Deploy + wallet setup |
 | [docs/KEY_ROTATION.md](./docs/KEY_ROTATION.md) | Splitting the shared deployer / admin / attestor / ops key — **not yet executed** |
 

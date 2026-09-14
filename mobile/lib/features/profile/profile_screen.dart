@@ -17,7 +17,6 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/confirm_action_dialog.dart';
 import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
-import '../agents/agents_screen.dart';
 import '../auth/app_lock_screen.dart';
 // Gateway parked for later.
 // import '../gateway/gateway_screen.dart';
@@ -512,20 +511,7 @@ class ProfileScreen extends StatelessWidget {
                 //     );
                 //   },
                 // ),
-                Divider(
-                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
-                _tile(
-                  Icons.smart_toy_outlined,
-                  'Agent payments',
-                  'API wallets & spend limits',
-                  () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const AgentsScreen(),
-                      ),
-                    );
-                  },
-                ),
+                // Agent wallets live in the Home ⋯ menu only.
                 Divider(
                     height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
                 _tile(

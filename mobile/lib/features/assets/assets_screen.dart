@@ -152,7 +152,9 @@ class _AssetsScreenState extends State<AssetsScreen> {
     final wallet = context.watch<WalletService>();
     final circle = context.watch<CircleWalletService>();
     final networks = _networkRows(wallet, circle);
-    final total = wallet.totalUsdc + wallet.eurcWallet;
+    // Dollars only. Euros are a different currency and are listed on their
+    // own under Currencies; adding them 1:1 overstated the total.
+    final total = wallet.totalUsdc;
 
     return ColoredBox(
       color: EvabobColors.pageBg,
@@ -229,7 +231,7 @@ class _TotalCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Everything you hold',
+            'Your dollars',
             style: Type.label.copyWith(color: EvabobColors.lightDark),
           ),
           Text.rich(

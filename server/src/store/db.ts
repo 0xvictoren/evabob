@@ -29,6 +29,12 @@ export type UserRecord = {
   handleChangedAt?: string | null;
   /** Number of successful handle changes after the free first edit. */
   handleChangeCount?: number;
+  /**
+   * New accounts use null until wallet + preferred-handle onboarding finishes.
+   * Undefined is deliberately treated as complete for records created before
+   * the onboarding gate was introduced.
+   */
+  onboardingCompletedAt?: string | null;
   /** ISO time of last display-name change. */
   displayNameChangedAt?: string | null;
   /**
@@ -72,6 +78,9 @@ export type ActivityItem = {
   token?: string;
   /** Absolute token amount (always positive); amountUsdc keeps signed USDC ledger. */
   amountToken?: number;
+  /** Evabob platform fee charged on top of amountToken, in platformFeeToken. */
+  platformFee?: number;
+  platformFeeToken?: string;
   /**
    * Receipt lifecycle: `completed` and `pending` appear in history so the
    * user can resume an unfinished bridge/swap. Cancelled stays hidden.
@@ -332,6 +341,7 @@ export const store = {
       injectiveAddress: input.injectiveAddress,
       handleChangedAt: null,
       handleChangeCount: 0,
+      onboardingCompletedAt: null,
       displayNameChangedAt: null,
       createdAt: new Date().toISOString(),
     };
@@ -455,6 +465,15 @@ export const store = {
     user.handle = state.handle;
     user.handleChangedAt = state.handleChangedAt ?? null;
     user.handleChangeCount = state.handleChangeCount ?? 0;
+    save(db);
+    void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
+    return user;
+  },
+
+  completeOnboarding(userId: string) {
+    const user = this.getUser(userId);
+    if (!user) return null;
+    user.onboardingCompletedAt = new Date().toISOString();
     save(db);
     void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
     return user;

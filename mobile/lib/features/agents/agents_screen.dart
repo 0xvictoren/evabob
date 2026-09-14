@@ -10,6 +10,7 @@ import '../../core/notify/section_notify.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/glass.dart';
+import '../../core/widgets/platform_fee_note.dart';
 
 /// Create an agentic wallet, fund it, and copy the x402 API key.
 class AgentsScreen extends StatefulWidget {
@@ -501,6 +502,13 @@ class _AgentDetailState extends State<_AgentDetail> {
             const Text(
               'Moves money from your balance into this agent wallet.',
               style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+            ),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: amount,
+              builder: (_, value, __) => PlatformFeeNote(
+                amount: double.tryParse(value.text) ?? 0,
+                padding: const EdgeInsets.only(top: 12),
+              ),
             ),
           ],
         ),

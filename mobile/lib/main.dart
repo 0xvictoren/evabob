@@ -25,6 +25,7 @@ import 'core/wallet/circle_wallet_service.dart';
 import 'core/wallet/wallet_service.dart';
 import 'features/auth/app_lock_screen.dart';
 import 'features/auth/login_screen.dart';
+import 'features/onboarding/post_signup_onboarding.dart';
 import 'features/shell/app_shell.dart';
 
 Future<void> main() async {
@@ -71,7 +72,7 @@ class EvabobServices {
   factory EvabobServices.production() {
     final api = ApiClient(baseUrl: Env.resolveApiBaseUrl());
     final fx = FxService(apiBaseUrl: Env.resolveApiBaseUrl())..start();
-    final auth = EvabobAuth()..init();
+    final auth = EvabobAuth(api: api)..init();
     final notify = SectionNotify();
     final pusher = PusherService()..init();
     return EvabobServices(
@@ -176,6 +177,11 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused) {
       _appLock.lockNow();
     }
+    if (state == AppLifecycleState.resumed) {
+      // Startup may have raced an unreachable API; never stay fail-closed
+      // for the rest of the session once the server is back.
+      _features.refresh();
+    }
     if (state == AppLifecycleState.resumed && _auth.user != null) {
       _circle.refreshOpenJobs();
       _activity.refresh();
@@ -211,6 +217,7 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
       // Listening starts once the session can authorise the channel.
       _moneyAlerts.start(circleId);
       _wallet.syncSession().then((_) {
+        _features.refresh();
         // Prefer live Circle address once ready; fall back to the SCA the
         // server rebound for this email so Home isn't stuck at $0.
         _circle.hydrateDisplayAddress(_auth.user?.smartAccount);
@@ -345,7 +352,8 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
                 if (lock.needsUnlock) {
                   return const AppLockScreen();
                 }
-                return const AppShell();
+                if (auth.isDemoMode) return const AppShell();
+                return const PostSignupOnboarding();
               },
             ),
           );

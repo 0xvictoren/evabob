@@ -977,6 +977,14 @@ class CircleWalletService extends ChangeNotifier {
       notifyListeners();
       return true;
     }
+    // A started job may already have moved the money; a second deposit on
+    // the legacy route could take it twice. Home shows the job to continue.
+    final startedJob = kit['jobId']?.toString();
+    if (startedJob != null && startedJob.isNotEmpty) {
+      status = kit['error']?.toString() ?? 'On hold — finish it from Home';
+      notifyListeners();
+      return false;
+    }
     debugPrint('appKit deposit fallback → gateway ($chain): ${kit['error']}');
     final res = await _api.post('/v1/circle/gateway/deposit', body: {
       'userToken': userToken,
@@ -1373,6 +1381,22 @@ class CircleWalletService extends ChangeNotifier {
       }
       latest = await _api.get('/v1/app-kit/jobs/$jobId');
       final statusStr = latest['status']?.toString() ?? 'running';
+      final jobStage = latest['stage']?.toString();
+      // The PIN worker has stopped but money is moving (or the server is
+      // finishing the mint). There is nothing left to sign here — waiting in
+      // this loop would only look frozen. Hand back to Home.
+      if (statusStr == 'running' &&
+          latest['live'] != true &&
+          (jobStage == 'sent' || jobStage == 'confirming')) {
+        await refreshOpenJobs();
+        return {
+          'ok': false,
+          'error': latest['message']?.toString() ??
+              'Your money is on its way. Finish it from Home.',
+          'jobId': jobId,
+          'stage': jobStage,
+        };
+      }
       if (latest['fundsIntact'] == true || latest['abandoned'] == true) {
         final dropped = await _reconcileExpiredJob(jobId);
         return dropped ??
@@ -1890,6 +1914,22 @@ class CircleWalletService extends ChangeNotifier {
           ...kit,
           'ok': true,
           'stage': 'minted',
+          'rail': 'app-kit',
+          'fromChain': fromChain,
+          'toChain': toChain,
+        };
+      }
+      // Once an App Kit job exists, a PIN may already have burned the money.
+      // Starting the legacy bridge now could send it a second time. The job
+      // stays on Home, where Continue finishes it.
+      final startedJob = kit['jobId']?.toString();
+      if (startedJob != null && startedJob.isNotEmpty) {
+        stage(kit['stage']?.toString() ?? 'paused',
+            'On hold — finish it from Home');
+        return {
+          ...kit,
+          'ok': false,
+          'stage': kit['stage'] ?? 'paused',
           'rail': 'app-kit',
           'fromChain': fromChain,
           'toChain': toChain,

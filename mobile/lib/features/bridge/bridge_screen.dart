@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/config/app_features.dart';
 import '../../core/notify/section_notify.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/theme/evabob_colors.dart';
@@ -319,13 +320,17 @@ class _BridgeScreenState extends State<BridgeScreen> {
     final wallet = context.read<WalletService>();
     final available = _sourceBal(wallet);
     final spendable = _spendable(wallet);
-    if (amt > spendable + 1e-9) {
+    // The Evabob fee is added on top of the amount moved.
+    final platformFee = context.read<AppFeatures>().platformFeeFor(amt);
+    if (amt + platformFee > spendable + 1e-9) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _isArcUsdc && amt <= available + 1e-9
+            _isArcUsdc && amt + platformFee <= available + 1e-9
                 ? 'Leave ${formatMoney(_arcUsdcGasReserve)} on Arc to cover the fee'
-                : 'Not enough on $_sourceName (${formatTokenAmount(available, 'USDC')})',
+                : platformFee > 0 && amt <= spendable + 1e-9
+                    ? 'Not enough for the amount plus the ${formatMoney(platformFee)} Evabob fee'
+                    : 'Not enough on $_sourceName (${formatTokenAmount(available, 'USDC')})',
           ),
           behavior: SnackBarBehavior.floating,
         ),
