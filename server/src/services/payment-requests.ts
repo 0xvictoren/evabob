@@ -19,7 +19,7 @@ export type InvoiceItem = {
 };
 
 /** How the receiver is allowed / chooses to pay. */
-export type InvoicePaymentStructure = "full" | "split" | "escrow";
+export type InvoicePaymentStructure = "full" | "split" | "escrow" | "milestones";
 
 export type InvoiceStatus =
   | "open"
@@ -69,6 +69,17 @@ export type PaymentRequest = {
   createdAt: string;
   paidAt?: string;
   expiresAt?: string;
+  /**
+   * When payment is due. The payer is reminded the day before, on the day,
+   * and once more three days late; the issuer is told when it goes overdue.
+   */
+  dueAt?: string;
+  reminders?: { beforeAt?: string; dueAt?: string; overdueAt?: string };
+  /**
+   * Paid by milestone: one hold per line item, each released on its own as
+   * that part of the work is delivered.
+   */
+  milestoneTransferIds?: string[];
 };
 
 export type Invoice = PaymentRequest;
@@ -159,16 +170,29 @@ export function createInvoice(input: {
   receiverHandle?: string;
   allowedStructures?: InvoicePaymentStructure[];
   expiresInMs?: number;
+  /** ISO time payment is due. */
+  dueAt?: string;
+  /** Let the payer hold one payment per line item, released as each is delivered. */
+  milestones?: boolean;
 }): PaymentRequest {
   const description = input.description?.trim() || input.note?.trim() || "";
   const items = normalizeItems(input.items, input.amount || 0, description);
   const total = items.reduce((s, it) => s + it.amount, 0);
   if (!(total > 0)) throw new Error("Invoice needs at least one priced item");
+  if (input.milestones && (items.length < 2 || items.length > 10)) {
+    throw new Error("Milestones need 2 to 10 priced lines, one per milestone");
+  }
+  const dueMs = input.dueAt ? Date.parse(input.dueAt) : NaN;
+  if (input.dueAt && (!Number.isFinite(dueMs) || dueMs < Date.now() - 60_000)) {
+    throw new Error("The due date must be in the future");
+  }
 
   const allowed =
     input.allowedStructures && input.allowedStructures.length > 0
       ? input.allowedStructures
-      : (["full", "split", "escrow"] as InvoicePaymentStructure[]);
+      : input.milestones
+        ? (["full", "milestones"] as InvoicePaymentStructure[])
+        : (["full", "split", "escrow"] as InvoicePaymentStructure[]);
 
   const id = randomUUID();
   const token = (input.token || "USDC").toUpperCase();
@@ -192,7 +216,15 @@ export function createInvoice(input: {
     link: `evabob://pay/${id}`,
     shareUrl: `${publicBase()}/pay/${id}`,
     createdAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + (input.expiresInMs ?? 7 * 24 * 60 * 60 * 1000)).toISOString(),
+    // A request with a due date stays payable well past it, so a late payer
+    // can still pay after the overdue reminder.
+    expiresAt: new Date(
+      Math.max(
+        now + (input.expiresInMs ?? 7 * 24 * 60 * 60 * 1000),
+        Number.isFinite(dueMs) ? dueMs + 30 * 24 * 60 * 60 * 1000 : 0,
+      ),
+    ).toISOString(),
+    ...(Number.isFinite(dueMs) ? { dueAt: new Date(dueMs).toISOString() } : {}),
   };
   const all = loadHydrated();
   all.unshift(row);
@@ -211,6 +243,8 @@ export function createPaymentRequest(input: {
   threadId?: string;
   receiverId?: string;
   receiverHandle?: string;
+  dueAt?: string;
+  milestones?: boolean;
 }): PaymentRequest {
   return createInvoice(input);
 }
@@ -332,6 +366,7 @@ export function markPaymentRequest(
       | "paidAt"
       | "paidTxHash"
       | "escrowTxHash"
+      | "milestoneTransferIds"
     >
   >,
 ): PaymentRequest | null {
@@ -406,8 +441,51 @@ export function invoiceChatMeta(inv: PaymentRequest): Record<string, unknown> {
     paidByLabel: inv.paidByLabel || null,
     paidAt: inv.paidAt || null,
     expiresAt: inv.expiresAt || null,
+    dueAt: inv.dueAt || null,
+    milestoneTransferIds: inv.milestoneTransferIds || null,
     link: inv.link,
   };
+}
+
+export type InvoiceReminder = "before" | "due" | "overdue";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Which due-date reminder this invoice needs now, if any. Pure. At most one
+ * per call, and each only once: the day before, on the day, three days late.
+ */
+export function reminderDue(inv: PaymentRequest, now: number): InvoiceReminder | null {
+  if (!inv.dueAt || !(inv.status === "open" || inv.status === "partial")) return null;
+  const due = Date.parse(inv.dueAt);
+  if (!Number.isFinite(due)) return null;
+  const sent = inv.reminders ?? {};
+  if (now >= due + 3 * DAY_MS) return sent.overdueAt ? null : "overdue";
+  if (now >= due) return sent.dueAt ? null : "due";
+  if (now >= due - DAY_MS) return sent.beforeAt || sent.dueAt ? null : "before";
+  return null;
+}
+
+/**
+ * Invoices that need a reminder now, marked as reminded. The caller sends
+ * them; marking first means a crash can skip a reminder but never repeat one.
+ */
+export function takeDueInvoiceReminders(now = Date.now()): Array<{
+  invoice: PaymentRequest;
+  kind: InvoiceReminder;
+}> {
+  const all = loadHydrated();
+  const out: Array<{ invoice: PaymentRequest; kind: InvoiceReminder }> = [];
+  for (let i = 0; i < all.length; i++) {
+    const kind = reminderDue(all[i], now);
+    if (!kind) continue;
+    const at = new Date(now).toISOString();
+    const key = kind === "before" ? "beforeAt" : kind === "due" ? "dueAt" : "overdueAt";
+    all[i] = { ...all[i], reminders: { ...all[i].reminders, [key]: at } };
+    out.push({ invoice: all[i], kind });
+  }
+  if (out.length) save(all);
+  return out;
 }
 
 export function expireOpenInvoices(now = Date.now()): PaymentRequest[] {

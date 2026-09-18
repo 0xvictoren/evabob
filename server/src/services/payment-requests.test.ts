@@ -134,3 +134,43 @@ describe("invoice permissions", () => {
     );
   });
 });
+
+describe("due dates and milestones", async () => {
+  const { reminderDue, takeDueInvoiceReminders } = await import("./payment-requests.js");
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("reminds the day before, on the day, and three days late — once each", () => {
+    const now = Date.now();
+    const due = now + 5 * DAY;
+    const inv = createInvoice({ userId: "issuer-due", amount: 40, description: "Logo", dueAt: new Date(due).toISOString(), receiverId: "payer-due" });
+    assert.equal(reminderDue(inv, due - 2 * DAY), null);
+    assert.equal(reminderDue(inv, due - 12 * 60 * 60 * 1000), "before");
+    assert.equal(reminderDue(inv, due + 60_000), "due");
+    assert.equal(reminderDue(inv, due + 4 * DAY), "overdue");
+    // It stays payable well after the due date.
+    assert.ok(Date.parse(inv.expiresAt!) > due + 20 * DAY);
+
+    const first = takeDueInvoiceReminders(due - 60_000).filter((r) => r.invoice.id === inv.id);
+    assert.deepEqual(first.map((r) => r.kind), ["before"]);
+    assert.equal(takeDueInvoiceReminders(due - 30_000).filter((r) => r.invoice.id === inv.id).length, 0);
+    assert.deepEqual(takeDueInvoiceReminders(due + 60_000).filter((r) => r.invoice.id === inv.id).map((r) => r.kind), ["due"]);
+    assert.deepEqual(takeDueInvoiceReminders(due + 4 * DAY).filter((r) => r.invoice.id === inv.id).map((r) => r.kind), ["overdue"]);
+    assert.equal(takeDueInvoiceReminders(due + 9 * DAY).filter((r) => r.invoice.id === inv.id).length, 0);
+  });
+
+  it("does not chase paid invoices or past due dates at creation", () => {
+    const inv = createInvoice({ userId: "issuer-due", amount: 10, description: "x", dueAt: new Date(Date.now() + DAY).toISOString() });
+    assert.equal(reminderDue({ ...inv, status: "paid" }, Date.now() + 2 * DAY), null);
+    assert.throws(() => createInvoice({ userId: "issuer-due", amount: 10, dueAt: new Date(Date.now() - DAY).toISOString() }));
+  });
+
+  it("offers milestones only for 2 to 10 priced lines", () => {
+    const inv = createInvoice({
+      userId: "issuer-ms",
+      items: [{ description: "Design", amount: 100 }, { description: "Build", amount: 200 }],
+      milestones: true,
+    });
+    assert.deepEqual(inv.allowedStructures, ["full", "milestones"]);
+    assert.throws(() => createInvoice({ userId: "issuer-ms", amount: 50, milestones: true }), /2 to 10/);
+  });
+});

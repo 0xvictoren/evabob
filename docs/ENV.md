@@ -16,8 +16,8 @@ testnet checklist. Production is deliberately locked by
 | `APP_NAME` | Display name (default `evabob`) |
 | `EVABOB_ENV` | `local`, `testnet`, or `production` deployment boundary |
 | `DATA_DIR` | Writable local mirror; `/var/data/evabob` on the Render persistent disk (Mongo remains authoritative) |
-| `GROQ_API_KEY` | Server-only LLM for the evabob Agent |
-| `GROQ_MODEL` | default `openai/gpt-oss-120b` |
+| `DEEPSEEK_API_KEY` | Server-only LLM for the evabob Agent |
+| `DEEPSEEK_MODEL` | default `deepseek-flash` |
 | `DYNAMIC_ENVIRONMENT_ID` | Dynamic Labs login |
 | `DYNAMIC_API_TOKEN` | Server JWT verify (optional for some paths) |
 | `CIRCLE_WALLETS_APP_ID` | Circle UCW app |
@@ -149,14 +149,42 @@ App Kit endpoints: `GET/POST /v1/app-kit/*` (send, bridge, swap, deposit, spend,
 - **End-user UCW**: `POST /v1/app-kit/ucw/*` returns a `jobId` + PIN challenges; poll `GET /v1/app-kit/jobs/:id`
 - **Chat**: `POST /v1/chat/threads/:id/money-command` routes buy/bridge/compose through App Kit
 
-## Evabob Agent (Groq LLM fallback)
+## Evabob Agent (DeepSeek LLM)
 
 | Variable | Purpose |
 |----------|---------|
-| `GROQ_API_KEY` | Server-only Groq key (`gsk_…`). Used only when the deterministic parser is unsure |
-| `GROQ_MODEL` | Default `openai/gpt-oss-120b` |
+| `DEEPSEEK_API_KEY` | Server-only DeepSeek key. Powers the assistant's tool-calling answers and the intent fallback when the deterministic parser is unsure |
+| `DEEPSEEK_MODEL` | Default `deepseek-flash`. Must support tool calling |
+| `DEEPSEEK_BASE_URL` | Default `https://api.deepseek.com` |
+| `DEEPSEEK_THINKING` | Default `false`. Thinking mode is slower and ignores temperature; leave off for chat |
 
 The agent thread is auto-created per user (`GET /v1/chat/threads`). Money intents never execute on the server — the app shows Confirm, then Circle PIN.
+
+## Held payments, bridges and scheduled work
+
+| Variable | Purpose |
+|----------|---------|
+| `PAYMENT_ESCROW` | PaymentEscrowV3, `0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39` on Arc Testnet. V3 is required: early refunds and review extensions use functions V2 does not have |
+| `CRON_SECRET` | Bearer token for `/internal/cron/tick` and `/internal/cron/escrow-refunds`. Vercel Cron sends it automatically when set |
+| `BRIDGE_ABANDON_WINDOW_MINUTES` | Default `40`. How long a person has to finish a burned bridge before the server finishes it. The 2× gas charge is recorded on the job and not collected (waived on testnet) |
+| `OPERATOR_USER_IDS` | Also who may decide held-payment reviews (`/v1/operator/reviews`) and who is alerted when one opens |
+| `MONEY_CIRCLES_ADDRESS` | MoneyCircles, `0x482497289a4F5197f67f98B2535cd23D6238d256` on Arc Testnet. Unset: circles are off. The tick collects due rounds and catches up behind members from the ops wallet (`PRIVATE_KEY`), which pays the gas |
+| `GROUP_POTS_ADDRESS` | GroupPots, `0x3CBDdab2398e06d5FB496a9DbF9424abD449D795` on Arc Testnet. Unset: collections are off. The tick refunds collections that missed their target |
+| `APP_PUBLIC_URL` | Also the base of every public link: receipts `/r/…`, hold links `/h/…`, collections `/g/…`. Until the web app is hosted these only open on the machine running it |
+
+## Push notifications (FCM)
+
+| Variable | Purpose |
+|----------|---------|
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Service-account key JSON from Firebase (Project settings → Service accounts), pasted as-is or base64-encoded. Unset = push off; in-app Pusher alerts still work. iPhones also need an APNs key uploaded in Firebase → Cloud Messaging |
+
+## Agent wallets — paid calls
+
+`AGENT_RESOURCE_ORIGINS` takes exact HTTPS origins, and may include the token
+`circle-marketplace` to add every origin in Circle's x402 catalog that the
+payer can settle with (GET, Gateway-batched, on this network). On Arc Testnet
+that set is empty today — the catalog's payable sellers are all on Arc
+mainnet — so paid calls stay off and the app says so.
 
 ## Optional
 
@@ -172,4 +200,8 @@ The agent thread is auto-created per user (`GET /v1/chat/threads`). Money intent
 Public defines only (no secrets):
 
 - `DYNAMIC_ENVIRONMENT_ID`, `PUSHER_KEY`, `PUSHER_CLUSTER`, `API_BASE_URL`
+- Push (optional, from the Firebase console's app settings):
+  `FIREBASE_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_MESSAGING_SENDER_ID`,
+  `FIREBASE_ANDROID_APP_ID`, `FIREBASE_IOS_APP_ID`, `FIREBASE_IOS_BUNDLE_ID`.
+  No `google-services.json` is needed; leave them empty and push stays off.
 - Circle app id is public; PIN runs via WebView against the API `/challenge` page

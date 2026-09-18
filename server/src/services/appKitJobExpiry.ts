@@ -269,3 +269,89 @@ export function fundsIntactMessage(
   }
   return "PIN expired. Your funds were not moved.";
 }
+
+// ─── Abandoned bridges ────────────────────────────────────────────────────
+
+/**
+ * How long a person has to finish a burned bridge themselves before the
+ * server finishes it for them. Set by the product owner (40 minutes); the
+ * environment may lengthen or shorten it for testing.
+ */
+export function bridgeAbandonWindowMs(
+  env: string | undefined = process.env.BRIDGE_ABANDON_WINDOW_MINUTES,
+): number {
+  const minutes = Number(env);
+  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 40) * 60 * 1000;
+}
+
+/**
+ * Whether the server should finish a burned bridge now.
+ *
+ * Timed from the burn itself when its block time is known. Otherwise from
+ * when the job was created, which is never later than the burn — so a missing
+ * timestamp can only make the server step in sooner, never leave money
+ * waiting longer than the window.
+ */
+export function abandonedBridgeDue(input: {
+  burnAtMs: number | null;
+  jobCreatedAtMs: number;
+  nowMs: number;
+  windowMs: number;
+}): boolean {
+  const start = input.burnAtMs ?? input.jobCreatedAtMs;
+  if (!Number.isFinite(start)) return false;
+  return input.nowMs - start >= input.windowMs;
+}
+
+/** What finishing a bridge cost the platform, and what it would charge. */
+export type BridgeRelayRecord = {
+  gasCostWei: string;
+  nativeSymbol: string;
+  nativeDecimals: number;
+  /** The rule is twice the gas spent, to the platform fee wallet. */
+  multiplier: 2;
+  wouldChargeWei: string;
+  /**
+   * Nothing is collected yet. The product owner chose not to charge on
+   * testnet, and how to collect from a wallet that needs its owner's PIN is
+   * still to be decided before real money.
+   */
+  charged: false;
+  reason: "waived_on_testnet" | "collection_not_decided";
+};
+
+export function bridgeRelayRecord(input: {
+  gasCostWei: string | bigint;
+  nativeSymbol: string;
+  nativeDecimals: number;
+  deploymentEnv: string;
+}): BridgeRelayRecord {
+  const gas = BigInt(input.gasCostWei);
+  return {
+    gasCostWei: gas.toString(),
+    nativeSymbol: input.nativeSymbol,
+    nativeDecimals: input.nativeDecimals,
+    multiplier: 2,
+    wouldChargeWei: (gas * 2n).toString(),
+    charged: false,
+    reason:
+      input.deploymentEnv === "production"
+        ? "collection_not_decided"
+        : "waived_on_testnet",
+  };
+}
+
+/**
+ * What arrives on the other network, in USDC, after Circle's Fast Transfer
+ * fee. Bridges run at Fast speed, where CCTP takes a few basis points from the
+ * amount itself (the Evabob fee is added on top and never touches it). The
+ * fee is rounded up to the sixth decimal so the figure shown is never more
+ * than what lands.
+ */
+export function landedAfterFastFee(amount: number, feeBps: number): { fee: number; landed: number } {
+  if (!Number.isFinite(amount) || amount <= 0) return { fee: 0, landed: 0 };
+  const bps = Number.isFinite(feeBps) && feeBps > 0 ? feeBps : 0;
+  const units = Math.round(amount * 1e6);
+  const feeUnits = Math.ceil((units * bps) / 10_000);
+  return { fee: feeUnits / 1e6, landed: Math.max(0, units - feeUnits) / 1e6 };
+}

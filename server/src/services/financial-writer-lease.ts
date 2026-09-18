@@ -88,10 +88,20 @@ export async function acquireFinancialWriterLease(): Promise<{
   const ttlMs = 45_000;
   let remote = false;
 
+  // A serverless host freezes idle instances, so a lease cannot be kept
+  // alive by a heartbeat and a second concurrent instance would crash at
+  // start. There, the lease is advisory: correctness comes from the
+  // generation-checked snapshot saves (mongo.ts), which refuse to overwrite
+  // another instance's write instead of relying on being the only writer.
+  const serverless = Boolean(process.env.VERCEL);
   try {
     if (mongoReady()) {
       remote = await mongoAcquireWriterLease(owner, ttlMs);
-      if (!remote) {
+      if (!remote && serverless) {
+        console.warn(
+          "[store] another instance holds the writer lease; continuing with generation-checked saves",
+        );
+      } else if (!remote) {
         throw new Error(
           "Another Evabob instance holds the global financial writer lease.",
         );
@@ -107,7 +117,7 @@ export async function acquireFinancialWriterLease(): Promise<{
   }
 
   let released = false;
-  const heartbeat = remote
+  const heartbeat = remote && !serverless
     ? setInterval(() => {
         void mongoRenewWriterLease(owner, ttlMs).then((ok) => {
           if (!ok) {

@@ -245,6 +245,11 @@ api.get("/health", async (c) => {
     smtpConfigured: smtpConfigured(),
     smtp,
     pusherConfigured: pusherConfigured(),
+    pushConfigured: await import("../services/push.js").then((m) => m.pushConfigured()),
+    /** Per bridge destination: can the server finish an abandoned bridge there? */
+    bridgeRelay: await import("../services/appKitMoney.js")
+      .then((m) => m.bridgeRelayHealth(config.features.bridgeRoutes))
+      .catch(() => null),
     gatewayApi: config.gatewayApiBase,
     synthraConfigured: Boolean(config.synthra.apiKey),
     fxConfigured: Boolean(config.exchangeRateApiKey),
@@ -252,11 +257,12 @@ api.get("/health", async (c) => {
     primaryStore: primaryStoreHealth(),
     operatorsConfigured: config.auth.operatorUserIds.length > 0,
     x402PaidExecution: Boolean(
-      config.agents.resourceOrigins.length &&
+      (await import("../services/circle-x402.js").then((m) => m.resolvedAgentOrigins())).length &&
       config.circle.apiKey &&
       config.circle.entitySecret
     ),
-    groqConfigured: Boolean(config.groq.apiKey),
+    llmConfigured: Boolean(config.llm.apiKey),
+    llmModel: config.llm.model,
     whatsappConfigured: Boolean(
       config.whatsapp.token && config.whatsapp.phoneNumberId,
     ),
@@ -344,8 +350,11 @@ api.get("/fx/rates", async (c) => {
   });
 });
 
-api.get("/config/public", (c) =>
-  c.json({
+api.get("/config/public", async (c) => {
+  // Paid agent calls are on only if some seller can actually be paid.
+  const { resolvedAgentOrigins } = await import("../services/circle-x402.js");
+  const agentOrigins = await resolvedAgentOrigins();
+  return c.json({
     arc: {
       chainId: config.arc.chainId,
       rpcUrl: config.arc.rpcUrl,
@@ -386,7 +395,7 @@ api.get("/config/public", (c) =>
         Boolean(config.circle.apiKey && config.circle.entitySecret),
       x402Execution:
         config.features.x402Execution &&
-        config.agents.resourceOrigins.length > 0 &&
+        agentOrigins.length > 0 &&
         Boolean(config.circle.apiKey && config.circle.entitySecret),
     },
     x402Pay: "POST /v1/x402/pay",
@@ -394,8 +403,8 @@ api.get("/config/public", (c) =>
       key: config.pusher.key || null,
       cluster: config.pusher.cluster,
     },
-  }),
-);
+  });
+});
 
 /** Public, deliberately limited invoice view used by /pay/{requestId}. */
 api.get("/public/payment-requests/:id", async (c) => {
@@ -449,6 +458,35 @@ api.get("/public/claims/:transferId", async (c) => {
       503,
     );
   }
+});
+
+/**
+ * A payment the payer chose to share: who, how much, when, where it is, and a
+ * fresh on-chain check once it has landed. Opened from /r/{publicId}.
+ */
+api.get("/public/receipts/:publicId", async (c) => {
+  const { publicReceipt } = await import("../services/publicReceipts.js");
+  const view = await publicReceipt(c.req.param("publicId"));
+  if (!view) return c.json({ error: "not_found" }, 404);
+  c.header("Cache-Control", "no-store");
+  return c.json(view);
+});
+
+/** A seller's hold link, as a buyer sees it before paying. Opened from /h/{id}. */
+api.get("/public/hold-links/:id", async (c) => {
+  const { publicHoldLinkView } = await import("../services/holdLinks.js");
+  const view = publicHoldLinkView(c.req.param("id"));
+  if (!view) return c.json({ error: "not_found" }, 404);
+  return c.json(view);
+});
+
+/** A group pot's progress, for its public page /g/{id}. Circles are private. */
+api.get("/public/groups/:id", async (c) => {
+  const { publicPotView } = await import("../services/groupMoney.js");
+  const view = await publicPotView(c.req.param("id"));
+  if (!view) return c.json({ error: "not_found" }, 404);
+  c.header("Cache-Control", "no-store");
+  return c.json(jsonSafe(view));
 });
 
 // ─── Users ─────────────────────────────────────────────────────────────────
@@ -532,12 +570,40 @@ api.get("/users/me", (c) => {
   if (!user) return c.json({ error: "unknown user — POST /users/session first" }, 404);
   return c.json({
     user,
+    /** Can decide held-payment reviews; the app shows the review screen. */
+    operator: config.auth.operatorUserIds.includes(id),
   });
 });
 
 // Tombstones. Phone was dropped as an identity type — payees are an email, a
 // handle, or a 0x address. 410 rather than 404 so an older installed build
 // gets a definite "this is gone" instead of looking like a routing fault.
+/**
+ * Registers this phone for push notifications, so money alerts and
+ * held-payment reminders reach it while the app is closed. A token is one app
+ * install; registering it here moves it from whoever had it before.
+ */
+api.post("/users/me/push-devices", async (c) => {
+  const body = z
+    .object({
+      token: z.string().min(20).max(4096),
+      platform: z.enum(["android", "ios"]),
+    })
+    .parse(await c.req.json());
+  const { registerPushDevice, pushConfigured } = await import("../services/push.js");
+  registerPushDevice({ userId: userId(c), token: body.token, platform: body.platform });
+  return c.json({ ok: true, pushConfigured: pushConfigured() });
+});
+
+/** Stops push to this phone for this account — called on sign-out. */
+api.delete("/users/me/push-devices", async (c) => {
+  const body = z
+    .object({ token: z.string().min(20).max(4096) })
+    .parse(await c.req.json().catch(() => ({})));
+  const { unregisterPushDevice } = await import("../services/push.js");
+  return c.json({ ok: true, removed: unregisterPushDevice(userId(c), body.token) });
+});
+
 api.post("/users/me/phone/start", (c) =>
   c.json(
     { error: "Phone is not a payee or profile field", code: "PHONE_REMOVED" },
@@ -579,8 +645,15 @@ api.post("/users/me/avatar", async (c) => {
     return c.json({ error: clientError(error, "Invalid avatar") }, 400);
   }
   const filename = avatarFilename(uid, avatar.extension);
+  const { mongoReady, mongoSaveAvatar } = await import("../services/mongo.js");
+  if (mongoReady()) {
+    // The durable copy. Local disk is only a per-instance cache.
+    await mongoSaveAvatar(filename, avatar.mime, avatar.bytes);
+  }
   writeFileSync(resolve(dir, filename), avatar.bytes);
-  const avatarUrl = `/uploads/${filename}`;
+  // The filename is fixed per person, so the version keeps an old copy from
+  // being shown out of an image cache after they change their photo.
+  const avatarUrl = `/uploads/${filename}?v=${Date.now()}`;
   user = store.updateProfile(uid, { avatarUrl }) ?? user;
   return c.json({ user, avatarUrl });
 });
@@ -600,7 +673,7 @@ api.get("/escrow/pending", async (c) => {
   return c.json({ items: [...byId.values()] });
 });
 
-api.post("/escrow/process-expired", async (c) => {
+api.post("/escrow/process-expired", operatorOnly, async (c) => {
   const { processExpiredEscrows } = await import("../services/escrow-jobs.js");
   const result = await processExpiredEscrows();
   return c.json(result);
@@ -716,7 +789,7 @@ api.post("/escrow/protected/plan", async (c) => {
       recipient: z.string().min(1),
       amountUsdc: z.number().positive(),
       memo: z.string().max(120).optional(),
-      purpose: z.enum(["claim_link", "job"]).default("claim_link"),
+      purpose: z.enum(["claim_link", "job", "cooling_off"]).default("claim_link"),
       expirySeconds: z.number().int().positive().optional(),
     })
     .parse(await c.req.json());
@@ -754,12 +827,18 @@ api.post("/escrow/protected/record", async (c) => {
       createTx: z.string().min(1),
       recipient: z.string().min(1),
       memo: z.string().max(120).optional(),
-      purpose: z.enum(["claim_link", "job"]).default("claim_link"),
+      purpose: z.enum(["claim_link", "job", "cooling_off"]).default("claim_link"),
+      /** The seller's hold link this order was paid through. */
+      holdLinkId: z.string().min(6).max(40).optional(),
     })
     .parse(await c.req.json());
 
-  const { readCreatedTransferId, escrowRecipientKey, EscrowError } =
-    await import("../services/protectedEscrow.js");
+  const {
+    readCreatedTransferId,
+    escrowRecipientKey,
+    EscrowError,
+    COOLING_OFF_SECONDS,
+  } = await import("../services/protectedEscrow.js");
   const { trackProtectedEscrow } = await import("../services/escrow-jobs.js");
 
   try {
@@ -783,9 +862,41 @@ api.post("/escrow/protected/record", async (c) => {
       return c.json({ error: "That hold was funded by another wallet" }, 403);
     }
 
+    // An order through a seller's link must be exactly what the link says:
+    // this seller, this price, held for the delivery window.
+    let holdLink: import("../services/holdLinks.js").HoldLink | null = null;
+    if (body.holdLinkId) {
+      const { assertHoldLinkOrder, HoldLinkError } = await import("../services/holdLinks.js");
+      if (body.purpose !== "job") {
+        return c.json({ error: "An order through a link is held until delivery" }, 400);
+      }
+      try {
+        holdLink = assertHoldLinkOrder({
+          holdLinkId: body.holdLinkId,
+          buyerId: uid,
+          recipientNormalized: normalized,
+          amountUsdc: onChain.amountUsdc,
+          expiresAtMs: new Date(onChain.expiresAt).getTime(),
+        });
+      } catch (error) {
+        if (error instanceof HoldLinkError) return c.json({ error: error.message }, error.status);
+        throw error;
+      }
+    }
+
     const { quotePlatformFee } = await import("../services/platformFee.js");
     const record = trackProtectedEscrow({
       onChainTransferId: onChain.transferId,
+      contractAddress: config.arc.paymentEscrow,
+      purpose: body.purpose,
+      ...(holdLink ? { holdLinkId: holdLink.id } : {}),
+      ...(body.purpose === "cooling_off"
+        ? {
+            releaseAt: new Date(
+              Date.now() + COOLING_OFF_SECONDS * 1000,
+            ).toISOString(),
+          }
+        : {}),
       fromUserId: uid,
       recipientKind: kind === "email" ? "email" : "phone",
       recipientId: normalized,
@@ -819,6 +930,28 @@ api.post("/escrow/protected/record", async (c) => {
       }
     }
 
+    // Tell the worker money is set aside for them, and what to do next.
+    if (body.purpose === "job") {
+      const worker =
+        kind === "email"
+          ? store.findUserByEmail(normalized)
+          : store.findUserByHandle(normalized);
+      if (worker) {
+        const { alertUser } = await import("../services/notifyUser.js");
+        const buyer = payer?.handle ? `@${payer.handle}` : "Someone";
+        alertUser(worker.id, {
+          kind: "hold_waiting",
+          title: holdLink ? `New order: ${holdLink.title}` : "Money set aside for your work",
+          body: holdLink
+            ? `${buyer} paid ${onChain.amountUsdc} USDC. It's set aside for you until they get their order. Mark it delivered when you've sent it.`
+            : `${buyer} is holding ${onChain.amountUsdc} USDC for you. Mark the work delivered when it's done.`,
+          amountUsdc: onChain.amountUsdc,
+          token: "USDC",
+          transferId: onChain.transferId,
+        });
+      }
+    }
+
     return c.json({ ...record, transferId: onChain.transferId, emailed }, 201);
   } catch (e) {
     if (e instanceof EscrowError) return c.json({ error: e.message }, 400);
@@ -827,67 +960,480 @@ api.post("/escrow/protected/record", async (c) => {
 });
 
 /**
- * Releases a job hold to the person who did the work.
+ * Releases a held payment to the person it was held for. Payer only.
  *
- * Payer only — the worker must not be able to pay themselves — and the
- * recipient identity is taken from the stored record rather than the request,
- * so the caller cannot redirect the money to an address of their choosing.
+ * Kept for installed builds; it is the "confirm" action on /escrow/held and
+ * follows the same rules — including that a claim link is released by the
+ * recipient signing up, not by the payer.
  */
 api.post("/escrow/protected/:transferId/release", async (c) => {
-  const uid = userId(c);
-  const transferId = c.req.param("transferId");
-  const { releaseProtectedEscrow, EscrowError } = await import(
-    "../services/protectedEscrow.js"
+  const { confirmRelease, viewFor } = await import(
+    "../services/heldPayments.js"
   );
-  const { findTrackedByTransferId, markTrackedClaimed } = await import(
-    "../services/escrow-jobs.js"
-  );
-
-  const record = findTrackedByTransferId(transferId);
-  if (!record) return c.json({ error: "No such held payment" }, 404);
-  if (record.fromUserId !== uid) {
-    return c.json(
-      { error: "Only the person who funded this hold can release it" },
-      403,
-    );
-  }
-
-  const claimer = await resolvePayeeAddress(record.recipientId);
-  if (!claimer) {
-    return c.json(
-      {
-        error: `${record.recipientId} has no wallet yet — they need to finish signing up before this can be released`,
-        code: "RECIPIENT_NO_WALLET",
-      },
-      409,
-    );
-  }
-
-  try {
-    const out = await releaseProtectedEscrow({
-      transferId,
-      recipientId: record.recipientId,
-      claimerAddress: claimer,
-    });
-    markTrackedClaimed(record.id, out.claimTx);
-    store.addActivity({
+  return heldAction(c, async (uid) => {
+    const record = await confirmRelease({
+      transferId: c.req.param("transferId"),
       userId: uid,
-      kind: "escrow",
-      title: "Held payment released",
-      description: `${out.amountUsdc} USDC to ${record.recipientId}`,
-      amountUsdc: 0,
-      token: "USDC",
-      amountToken: out.amountUsdc,
-      counterparty: record.recipientId,
-      txHash: out.claimTx,
-      mode: "protected_escrow",
-      status: "completed",
     });
-    return c.json({ ok: true, ...out });
+    return {
+      ok: true,
+      claimTx: record.claimTx,
+      amountUsdc: record.amountUsdc,
+      hold: viewFor(record, "payer"),
+    };
+  });
+});
+
+// ─── Held payments: jobs, cooling-off, claim links ───────────────────────
+//
+// Rules (docs/HELD_PAYMENTS.md): the worker marks delivered; the payer has
+// 7 days to confirm or object, and silence releases. Cancelling after
+// delivery opens a reconciliation form that a person reviews. The server
+// decides when money moves; PaymentEscrowV3 decides who it can reach.
+
+async function heldAction(
+  c: Context,
+  run: (uid: string) => Promise<unknown> | unknown,
+) {
+  const { HeldPaymentError } = await import("../services/heldPayments.js");
+  const { EscrowError } = await import("../services/protectedEscrow.js");
+  try {
+    return c.json(jsonSafe(await run(userId(c))));
   } catch (e) {
+    if (e instanceof HeldPaymentError) {
+      return c.json({ error: e.message }, e.status);
+    }
     if (e instanceof EscrowError) return c.json({ error: e.message }, 400);
     throw e;
   }
+}
+
+const heldLinks = z.array(z.string().max(500)).max(5).optional();
+
+/**
+ * Every hold the caller pays or is paid by, newest first, with what they may
+ * do next. Opening the list also runs anything due on those holds — a job
+ * whose 7 days are up, a cooling-off payment whose window closed — so a
+ * scheduler that runs late delays a release rather than losing it.
+ */
+api.get("/escrow/held", async (c) => {
+  const uid = userId(c);
+  const { listHoldsFor, runDueHeldPaymentWork, viewFor } = await import(
+    "../services/heldPayments.js"
+  );
+  await runDueHeldPaymentWork({ onlyUserId: uid }).catch((e) =>
+    console.warn("[held] due work:", e instanceof Error ? e.message : e),
+  );
+  return c.json({
+    items: listHoldsFor(uid).map(({ record, role }) => viewFor(record, role)),
+  });
+});
+
+api.get("/escrow/held/:transferId", async (c) => {
+  const { holdFor, runDueHeldPaymentWork, viewFor } = await import(
+    "../services/heldPayments.js"
+  );
+  return heldAction(c, async (uid) => {
+    await runDueHeldPaymentWork({ onlyUserId: uid }).catch(() => undefined);
+    const { record, role } = holdFor(c.req.param("transferId"), uid);
+    return { hold: viewFor(record, role) };
+  });
+});
+
+/** Worker: the work is done. Starts the payer's 7 days. */
+api.post("/escrow/held/:transferId/deliver", async (c) => {
+  const body = z
+    .object({ note: z.string().min(1).max(500), links: heldLinks })
+    .parse(await c.req.json());
+  const { markDelivered, viewFor } = await import("../services/heldPayments.js");
+  return heldAction(c, async (uid) => ({
+    hold: viewFor(
+      await markDelivered({
+        transferId: c.req.param("transferId"),
+        userId: uid,
+        note: body.note,
+        links: body.links,
+      }),
+      "worker",
+    ),
+  }));
+});
+
+/** Payer: pay the worker now. */
+api.post("/escrow/held/:transferId/confirm", async (c) => {
+  const { confirmRelease, viewFor } = await import("../services/heldPayments.js");
+  return heldAction(c, async (uid) => ({
+    hold: viewFor(
+      await confirmRelease({ transferId: c.req.param("transferId"), userId: uid }),
+      "payer",
+    ),
+  }));
+});
+
+/**
+ * Payer: cancel. Before delivery (and for cooling-off and claim links) the
+ * money comes straight back. After delivery the reconciliation form is
+ * required — `reason` and `details` — and a person reviews it.
+ */
+api.post("/escrow/held/:transferId/cancel", async (c) => {
+  const body = z
+    .object({
+      reason: z
+        .enum(["no_longer_needed", "not_as_agreed", "not_received", "other"])
+        .optional(),
+      details: z.string().max(2000).optional(),
+      links: heldLinks,
+    })
+    .parse(await c.req.json().catch(() => ({})));
+  const { cancelHold, viewFor } = await import("../services/heldPayments.js");
+  return heldAction(c, async (uid) => {
+    const out = await cancelHold({
+      transferId: c.req.param("transferId"),
+      userId: uid,
+      ...body,
+    });
+    return { hold: viewFor(out.record, "payer"), underReview: out.review };
+  });
+});
+
+/** Worker: give the money back. Settles the hold and any open review. */
+api.post("/escrow/held/:transferId/give-back", async (c) => {
+  const { giveBack, viewFor } = await import("../services/heldPayments.js");
+  return heldAction(c, async (uid) => ({
+    hold: viewFor(
+      await giveBack({ transferId: c.req.param("transferId"), userId: uid }),
+      "worker",
+    ),
+  }));
+});
+
+/** Worker: their side of a review. */
+api.post("/escrow/held/:transferId/respond", async (c) => {
+  const body = z
+    .object({ statement: z.string().min(1).max(2000), links: heldLinks })
+    .parse(await c.req.json());
+  const { respondToReview, viewFor } = await import(
+    "../services/heldPayments.js"
+  );
+  return heldAction(c, async (uid) => ({
+    hold: viewFor(
+      respondToReview({
+        transferId: c.req.param("transferId"),
+        userId: uid,
+        statement: body.statement,
+        links: body.links,
+      }),
+      "worker",
+    ),
+  }));
+});
+
+/**
+ * Either person writes in the conversation on an open review, with links and
+ * up to 3 photos as evidence. The reviewer and the other person are told.
+ */
+api.post("/escrow/held/:transferId/messages", async (c) => {
+  const body = z
+    .object({
+      text: z.string().min(1).max(2000),
+      links: heldLinks,
+      photos: evidencePhotos,
+    })
+    .parse(await c.req.json());
+  const { addReviewMessage, viewFor, roleFor } = await import("../services/heldPayments.js");
+  return heldAction(c, async (uid) => {
+    const photos = await storePhotos(body.photos);
+    const { record, message } = addReviewMessage({
+      transferId: c.req.param("transferId"),
+      userId: uid,
+      text: body.text,
+      links: body.links,
+      photos,
+    });
+    return { message, hold: viewFor(record, roleFor(record, uid)!) };
+  });
+});
+
+/** What an operator sees of one review: both sides, and the work itself. */
+function operatorReviewView(r: import("../services/mongo.js").ProtectedEscrowRecord) {
+  return {
+    transferId: r.onChainTransferId,
+    amountUsdc: r.amountUsdc,
+    memo: r.memo ?? "",
+    payerUserId: r.fromUserId,
+    payer: store.getUser(r.fromUserId)?.handle ?? null,
+    recipient: r.recipientId,
+    status: r.status,
+    createdAt: r.createdAt,
+    expiresAt: r.expiresAt,
+    deliveredAt: r.deliveredAt,
+    deliveryNote: r.deliveryNote,
+    deliveryLinks: r.deliveryLinks ?? [],
+    review: r.review,
+  };
+}
+
+/** Operators: cancellations after delivery waiting for a decision. */
+api.get("/operator/reviews", operatorOnly, async (c) => {
+  const { listOpenReviews } = await import("../services/heldPayments.js");
+  return c.json(jsonSafe({ items: listOpenReviews().map(operatorReviewView) }));
+});
+
+/** Operators: one review, open or already decided. */
+api.get("/operator/reviews/:transferId", operatorOnly, async (c) => {
+  const { findTrackedByTransferId } = await import("../services/escrow-jobs.js");
+  const r = findTrackedByTransferId(c.req.param("transferId"));
+  if (!r?.review) return c.json({ error: "No review for that payment" }, 404);
+  return c.json(jsonSafe({ item: operatorReviewView(r) }));
+});
+
+const evidencePhotos = z
+  .array(
+    z.object({
+      imageBase64: z.string().min(32).max(400_000),
+      mime: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
+    }),
+  )
+  .max(3)
+  .optional();
+
+async function storePhotos(photos: z.infer<typeof evidencePhotos>): Promise<string[]> {
+  const { storeEvidencePhoto } = await import("../services/evidence.js");
+  const out: string[] = [];
+  for (const p of photos ?? []) out.push(await storeEvidencePhoto(p.imageBase64, p.mime));
+  return out;
+}
+
+/** Operators: write in a review's conversation, as "Reviewer". */
+api.post("/operator/reviews/:transferId/messages", operatorOnly, async (c) => {
+  const body = z
+    .object({
+      text: z.string().min(1).max(2000),
+      links: z.array(z.string()).max(5).optional(),
+      photos: evidencePhotos,
+    })
+    .parse(await c.req.json());
+  const { addReviewMessage } = await import("../services/heldPayments.js");
+  return heldAction(c, async (uid) => {
+    const photos = await storePhotos(body.photos);
+    const { record, message } = addReviewMessage({
+      transferId: c.req.param("transferId"),
+      userId: uid,
+      asReviewer: true,
+      text: body.text,
+      links: body.links,
+      photos,
+    });
+    return { message, item: operatorReviewView(record) };
+  });
+});
+
+/** Operators: decide a review. Both people see the note. */
+api.post("/operator/reviews/:transferId/decide", operatorOnly, async (c) => {
+  const body = z
+    .object({
+      outcome: z.enum(["release", "refund"]),
+      note: z.string().min(1).max(1000),
+    })
+    .parse(await c.req.json());
+  const { decideReview, viewFor } = await import("../services/heldPayments.js");
+  return heldAction(c, async (uid) => ({
+    hold: viewFor(
+      await decideReview({
+        transferId: c.req.param("transferId"),
+        operatorId: uid,
+        outcome: body.outcome,
+        note: body.note,
+      }),
+      "payer",
+    ),
+  }));
+});
+
+/**
+ * Before a payment: who this really is, whether the sender has paid them
+ * before, and whether to offer the ten-minute cooling-off hold.
+ */
+api.get("/payees/check", async (c) => {
+  const to = (c.req.query("to") || "").trim();
+  if (!to) return c.json({ error: "Who is this payment for?" }, 400);
+  const { checkPayee } = await import("../services/safeSend.js");
+  const { COOLING_OFF_SECONDS } = await import("../services/protectedEscrow.js");
+  const result = checkPayee({
+    userId: userId(c),
+    to,
+    coolingOffMinutes: Math.round(COOLING_OFF_SECONDS / 60),
+    holdsEnabled:
+      config.features.protectedSend && Boolean(config.arc.paymentEscrow),
+  });
+  if (!result.ok) return c.json(result, 400);
+  // Whether this payee is marked as family, and above what the emailed code
+  // is asked for, so the app can say so on the review sheet.
+  const { familyCheckAbove } = await import("../services/familyCheck.js");
+  const family = store
+    .listContacts(userId(c))
+    .some((k) => k.family && k.address.toLowerCase() === result.address.toLowerCase());
+  return c.json({ ...result, family, familyCheckAbove: familyCheckAbove(userId(c)) });
+});
+
+// ─── Hold links (sellers: buyers' money set aside until delivery) ─────────
+
+async function holdLinkAction(c: Context, run: () => unknown) {
+  const { HoldLinkError } = await import("../services/holdLinks.js");
+  try {
+    return c.json((await run()) as object);
+  } catch (error) {
+    if (error instanceof HoldLinkError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+}
+
+api.get("/hold-links", async (c) => {
+  const { listHoldLinksFor, sellerRecord } = await import("../services/holdLinks.js");
+  const uid = userId(c);
+  return c.json({ items: listHoldLinksFor(uid), record: sellerRecord(uid) });
+});
+
+api.post("/hold-links", async (c) => {
+  const body = z
+    .object({
+      title: z.string().min(1).max(120),
+      description: z.string().max(600).optional(),
+      amount: z.number().positive(),
+      deliveryDays: z.number().int().min(1).max(60).optional(),
+    })
+    .parse(await c.req.json());
+  const { createHoldLink, holdLinkUrl } = await import("../services/holdLinks.js");
+  return holdLinkAction(c, () => {
+    const link = createHoldLink(userId(c), body);
+    return { item: { ...link, url: holdLinkUrl(link.id) } };
+  });
+});
+
+api.post("/hold-links/:id/close", async (c) => {
+  const { setHoldLinkActive } = await import("../services/holdLinks.js");
+  return holdLinkAction(c, () => ({ item: setHoldLinkActive(userId(c), c.req.param("id"), false) }));
+});
+
+api.post("/hold-links/:id/open", async (c) => {
+  const { setHoldLinkActive } = await import("../services/holdLinks.js");
+  return holdLinkAction(c, () => ({ item: setHoldLinkActive(userId(c), c.req.param("id"), true) }));
+});
+
+// ─── Money circles and group pots ────────────────────────────────────────
+
+async function groupAction(c: Context, run: () => unknown) {
+  const { GroupMoneyError } = await import("../services/groupMoney.js");
+  try {
+    return c.json(jsonSafe(await run()));
+  } catch (error) {
+    if (error instanceof GroupMoneyError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+}
+
+const txBody = z.object({ txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/) });
+
+api.get("/groups", async (c) => {
+  const { listGroupsFor } = await import("../services/groupMoney.js");
+  return c.json(jsonSafe({ items: listGroupsFor(userId(c)) }));
+});
+
+api.get("/groups/:id", async (c) => {
+  const { groupFor } = await import("../services/groupMoney.js");
+  return groupAction(c, async () => ({ item: await groupFor(c.req.param("id"), userId(c)) }));
+});
+
+api.post("/groups/circles/:id/confirm", async (c) => {
+  const { txHash } = txBody.parse(await c.req.json());
+  const { confirmCircle, circleView } = await import("../services/groupMoney.js");
+  return groupAction(c, async () => ({
+    item: circleView(await confirmCircle(userId(c), c.req.param("id"), txHash as `0x${string}`), userId(c)),
+  }));
+});
+
+/** After joining: refresh from the chain (the circle may have just started). */
+api.post("/groups/circles/:id/sync", async (c) => {
+  const { getGroup, syncCircle, circleView, GroupMoneyError } = await import("../services/groupMoney.js");
+  return groupAction(c, async () => {
+    const g = getGroup(c.req.param("id"));
+    if (!g || g.kind !== "circle" || !g.memberIds.includes(userId(c))) throw new GroupMoneyError("No such circle", 404);
+    return { item: circleView(await syncCircle(g), userId(c)) };
+  });
+});
+
+api.post("/groups/pots/:id/confirm", async (c) => {
+  const { txHash } = txBody.parse(await c.req.json());
+  const { confirmPot, potView } = await import("../services/groupMoney.js");
+  return groupAction(c, async () => ({
+    item: potView(await confirmPot(userId(c), c.req.param("id"), txHash as `0x${string}`), userId(c)),
+  }));
+});
+
+api.post("/groups/pots/:id/contributed", async (c) => {
+  const { txHash } = txBody.parse(await c.req.json());
+  const { confirmContribution, potView } = await import("../services/groupMoney.js");
+  return groupAction(c, async () => ({
+    item: potView(await confirmContribution(userId(c), c.req.param("id"), txHash as `0x${string}`), userId(c)),
+  }));
+});
+
+// ─── Family check (emailed code before paying family) ─────────────────────
+
+/** Emails a code for this payment when it needs one; says so when it does not. */
+api.post("/family-check/start", async (c) => {
+  const body = z
+    .object({
+      to: z.string().min(1),
+      amount: z.number().positive(),
+      token: z.enum(["USDC", "EURC", "CIRBTC"]).optional().default("USDC"),
+    })
+    .parse(await c.req.json());
+  const uid = userId(c);
+  const { resolvePayee } = await import("../services/resolvePayee.js");
+  const payee = resolvePayee(uid, body.to.trim());
+  if (!payee.ok) return c.json({ error: payee.error, code: payee.code }, 404);
+  const { startFamilyCheck, FamilyCheckError } = await import("../services/familyCheck.js");
+  try {
+    return c.json(
+      await startFamilyCheck({ userId: uid, dest: payee.address, amount: body.amount, token: body.token }),
+    );
+  } catch (error) {
+    if (error instanceof FamilyCheckError) {
+      return c.json({ error: error.message, code: error.code }, error.status);
+    }
+    throw error;
+  }
+});
+
+api.post("/family-check/verify", async (c) => {
+  const body = z.object({ code: z.string().regex(/^\s*\d{6}\s*$/) }).parse(await c.req.json());
+  const { verifyFamilyCode, FamilyCheckError } = await import("../services/familyCheck.js");
+  try {
+    return c.json(verifyFamilyCode(userId(c), body.code));
+  } catch (error) {
+    if (error instanceof FamilyCheckError) {
+      return c.json({ error: error.message, code: error.code }, error.status);
+    }
+    throw error;
+  }
+});
+
+/** The amount above which a payment to family needs the emailed code. */
+api.get("/users/me/family-check", async (c) => {
+  const { familyCheckAbove } = await import("../services/familyCheck.js");
+  const uid = userId(c);
+  return c.json({
+    above: familyCheckAbove(uid),
+    familyContacts: store.listContacts(uid).filter((k) => k.family).length,
+  });
+});
+
+api.post("/users/me/family-check", async (c) => {
+  const body = z.object({ above: z.number().min(0).max(1_000_000) }).parse(await c.req.json());
+  const user = store.setFamilyCheckAbove(userId(c), body.above);
+  if (!user) return c.json({ error: "unknown user" }, 404);
+  return c.json({ above: body.above });
 });
 
 /**
@@ -1077,6 +1623,12 @@ api.post("/payment-requests", async (c) => {
       description: z.string().optional().default(""),
       note: z.string().max(500).optional(),
       threadId: z.string().optional(),
+      /** When payment is due; the payer is reminded around it. */
+      dueAt: z.string().datetime().optional(),
+      /** One hold per line, released as each is delivered. */
+      milestones: z.boolean().optional(),
+      /** Who should pay (@handle or email), so reminders reach them. */
+      payer: z.string().max(120).optional(),
     })
     .refine((b) => b.amount != null || (b.items && b.items.length > 0), {
       message: "Needs an amount, or at least one priced line",
@@ -1086,6 +1638,10 @@ api.post("/payment-requests", async (c) => {
   const { createPaymentRequest } = await import(
     "../services/payment-requests.js"
   );
+  const payer = body.payer ? store.findUserByRecipient(body.payer.trim()) : undefined;
+  if (body.payer && !payer) {
+    return c.json({ error: `No Evabob account for ${body.payer}` }, 404);
+  }
   try {
     const row = createPaymentRequest({
       userId: userId(c),
@@ -1095,6 +1651,11 @@ api.post("/payment-requests", async (c) => {
       description: body.description,
       note: body.note,
       threadId: body.threadId,
+      dueAt: body.dueAt,
+      milestones: body.milestones,
+      ...(payer
+        ? { receiverId: payer.id, receiverHandle: payer.handle ? `@${payer.handle}` : payer.email }
+        : {}),
     });
     return c.json(row, 201);
   } catch (e) {
@@ -1118,6 +1679,86 @@ api.get("/payment-requests/:id", async (c) => {
       address: issuer?.evmAddress || null,
     },
   });
+});
+
+/**
+ * Records an invoice paid by milestone: one hold per line item, all locked in
+ * one transaction. Each hold is checked against its line — payer, the
+ * issuer as recipient, the exact amount, in order — before any is tracked.
+ */
+api.post("/payment-requests/:id/milestones-held", async (c) => {
+  const body = z.object({ createTx: z.string().regex(/^0x[a-fA-F0-9]{64}$/) }).parse(await c.req.json());
+  const uid = userId(c);
+  const requests = await import("../services/payment-requests.js");
+  const invoice = requests.getPaymentRequest(c.req.param("id"));
+  if (!invoice) return c.json({ error: "not found" }, 404);
+  if (!invoice.allowedStructures.includes("milestones")) {
+    return c.json({ error: "This invoice is not paid by milestone" }, 409);
+  }
+  if (invoice.status !== "open") return c.json({ error: `This invoice is already ${invoice.status}` }, 409);
+  const payer = store.getUser(uid);
+  const issuer = store.getUser(invoice.senderId || invoice.userId);
+  if (!payer?.evmAddress || !issuer) return c.json({ error: "unknown user" }, 404);
+  if (issuer.id === uid) return c.json({ error: "You cannot pay your own invoice" }, 400);
+
+  const { readCreatedTransferIds, escrowRecipientKey, EscrowError } = await import("../services/protectedEscrow.js");
+  const { trackProtectedEscrow } = await import("../services/escrow-jobs.js");
+  try {
+    const created = await readCreatedTransferIds(body.createTx);
+    const recipient = issuer.handle ? `@${issuer.handle}` : issuer.email;
+    const { kind, normalized, key } = escrowRecipientKey(recipient);
+    const units = (n: number) => Math.round(n * 1e6);
+    const matches =
+      created.length === invoice.items.length &&
+      created.every(
+        (t, i) =>
+          t.sender.toLowerCase() === payer.evmAddress.toLowerCase() &&
+          t.recipientKey.toLowerCase() === key.toLowerCase() &&
+          units(t.amountUsdc) === units(invoice.items[i]!.amount),
+      );
+    if (!matches) {
+      return c.json({ error: "Those holds do not match this invoice", code: "PAYMENT_UNVERIFIED" }, 409);
+    }
+    const { quotePlatformFee } = await import("../services/platformFee.js");
+    const n = created.length;
+    const tracked = created.map((t, i) =>
+      trackProtectedEscrow({
+        onChainTransferId: t.transferId,
+        contractAddress: config.arc.paymentEscrow,
+        purpose: "job",
+        fromUserId: uid,
+        recipientKind: kind === "email" ? "email" : "phone",
+        recipientId: normalized,
+        amountUsdc: t.amountUsdc,
+        memo: `Milestone ${i + 1} of ${n}: ${invoice.items[i]!.description}`.slice(0, 120),
+        createTx: body.createTx,
+        // The fee on the whole invoice was charged once, in the same batch.
+        platformFee: i === 0 ? Number(quotePlatformFee(invoice.total, 6).fee) : 0,
+        expiresInMs: Math.max(0, Date.parse(t.expiresAt) - Date.now()),
+      }),
+    );
+    const updated = requests.markPaymentRequest(invoice.id, "escrow", uid, {
+      chosenStructure: "milestones",
+      escrowTxHash: body.createTx,
+      escrowLockedUsdc: invoice.total,
+      milestoneTransferIds: created.map((t) => t.transferId),
+      paidBy: uid,
+      paidByLabel: payer.handle ? `@${payer.handle}` : payer.displayName,
+    });
+    const { alertUser } = await import("../services/notifyUser.js");
+    alertUser(issuer.id, {
+      kind: "hold_waiting",
+      title: `${n} milestones set aside for you`,
+      body: `${payer.handle ? `@${payer.handle}` : "Your client"} set aside ${invoice.total} USDC in ${n} parts. Mark each one delivered as you finish it.`,
+      amountUsdc: invoice.total,
+      token: "USDC",
+      transferId: created[0]!.transferId,
+    });
+    return c.json(jsonSafe({ invoice: updated, transferIds: tracked.map((t) => t.onChainTransferId) }), 201);
+  } catch (e) {
+    if (e instanceof EscrowError) return c.json({ error: e.message }, 400);
+    return c.json({ error: clientError(e, "Could not record the milestones") }, 400);
+  }
 });
 
 api.post("/payment-requests/:id/mark", async (c) => {
@@ -1558,6 +2199,7 @@ api.post("/contacts", async (c) => {
       name: z.string().min(1).max(64),
       address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
       email: z.string().email().optional(),
+      family: z.boolean().optional(),
     })
     .parse(await c.req.json());
   const row = store.addContact({
@@ -1565,7 +2207,16 @@ api.post("/contacts", async (c) => {
     name: body.name,
     address: body.address,
     email: body.email,
+    family: body.family,
   });
+  return c.json({ contact: row });
+});
+
+/** Mark or unmark a contact as family (see /family-check). */
+api.post("/contacts/:id/family", async (c) => {
+  const body = z.object({ family: z.boolean() }).parse(await c.req.json());
+  const row = store.setContactFamily(userId(c), c.req.param("id"), body.family);
+  if (!row) return c.json({ error: "No such contact" }, 404);
   return c.json({ contact: row });
 });
 
@@ -1911,6 +2562,35 @@ api.get("/activity", (c) => {
   return c.json({ items });
 });
 
+/**
+ * Money that has come in, newest first, for the seller's "Money in" screen.
+ * `since` (ISO time) returns only what arrived after it, so the app can poll
+ * cheaply and chime once per new payment.
+ */
+api.get("/activity/incoming", (c) => {
+  const uid = userId(c);
+  const address = store.getUser(uid)?.evmAddress;
+  if (address) syncInboundInBackground({ userId: uid, address });
+  const since = Date.parse(c.req.query("since") || "");
+  const items = store
+    .listActivity(uid, 200)
+    .filter((a) => a.kind === "receive" && (a.status ?? "completed") === "completed")
+    .filter((a) => !Number.isFinite(since) || Date.parse(a.createdAt) > since)
+    .slice(0, Math.min(Number(c.req.query("limit") || 50), 100));
+  return c.json({ items });
+});
+
+/** Make a payment shareable and return its public link. Payer only. */
+api.post("/activity/:id/share", async (c) => {
+  const { sharePayment, ReceiptError } = await import("../services/publicReceipts.js");
+  try {
+    return c.json(sharePayment(userId(c), c.req.param("id")));
+  } catch (error) {
+    if (error instanceof ReceiptError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+});
+
 // ─── Chat ──────────────────────────────────────────────────────────────────
 
 /** Threads for the current user only; title/handle = the other party. */
@@ -2229,6 +2909,8 @@ api.post("/chat/threads/:id/money-command", async (c) => {
         if (body.amount == null || body.toChain == null) {
           return c.json({ error: "amount and toChain required" }, 400);
         }
+        const { warnIfRelayUnfunded } = await import("../services/appKitMoney.js");
+        void warnIfRelayUnfunded(body.toChain);
         job = startUcwBridgeJob({
           userId: uid,
           userToken: body.userToken,
@@ -2400,6 +3082,45 @@ api.post("/chat/threads", async (c) => {
 });
 
 // ─── Agent wallets + x402 nanopayments ─────────────────────────────────
+
+/**
+ * What an agent wallet can pay for on this network, from Circle's catalog.
+ *
+ * Only sellers the payer can settle with are listed: GET, Gateway-batched, on
+ * this deployment's network, and allowed by AGENT_RESOURCE_ORIGINS. On Arc
+ * Testnet the catalog has none, and the response says so plainly instead of
+ * listing services an agent could never pay.
+ */
+api.get("/agents/services", async (c) => {
+  const { payableServices, resolvedAgentOrigins, agentPaymentNetwork } =
+    await import("../services/circle-x402.js");
+  const network = agentPaymentNetwork();
+  let services: Awaited<ReturnType<typeof payableServices>> = [];
+  let catalogError: string | null = null;
+  try {
+    services = await payableServices();
+  } catch (e) {
+    catalogError = e instanceof Error ? e.message : "catalog unavailable";
+  }
+  const allowed = new Set(await resolvedAgentOrigins());
+  const items = services.map((s) => ({ ...s, allowed: allowed.has(s.origin) }));
+  const payable = items.filter((s) => s.allowed);
+  return c.json({
+    network,
+    paidExecution:
+      config.features.x402Execution &&
+      payable.length > 0 &&
+      Boolean(config.circle.apiKey && config.circle.entitySecret),
+    items,
+    note: catalogError
+      ? "The service catalog is unavailable right now."
+      : services.length === 0
+        ? "No services accept agent payments on this network yet."
+        : payable.length === 0
+          ? "Services exist on this network but none are allowed for agents here yet."
+          : null,
+  });
+});
 
 api.post("/x402/pay", async (c) => {
   const body = z

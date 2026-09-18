@@ -229,3 +229,80 @@ test("source funds moved: an incoming payment cannot fake a movement", () => {
   assert.equal(sourceFundsMoved({ balanceBefore: 20, balanceNow: 17, amount: 5 }), true);
   assert.equal(sourceFundsMoved({ balanceBefore: null, balanceNow: 17, amount: 5 }), null);
 });
+// ─── Abandoned bridges (the 40-minute rule) ───────────────────────────────
+
+import {
+  abandonedBridgeDue,
+  bridgeAbandonWindowMs,
+  bridgeRelayRecord,
+} from "./appKitJobExpiry.js";
+
+test("abandoned bridge: the window defaults to 40 minutes", () => {
+  assert.equal(bridgeAbandonWindowMs(undefined), 40 * 60_000);
+  assert.equal(bridgeAbandonWindowMs("15"), 15 * 60_000);
+  assert.equal(bridgeAbandonWindowMs("nonsense"), 40 * 60_000);
+});
+
+test("abandoned bridge: the person keeps the whole window to finish it", () => {
+  const burnAtMs = Date.parse("2026-09-18T10:00:00Z");
+  const windowMs = 40 * 60_000;
+  assert.equal(
+    abandonedBridgeDue({ burnAtMs, jobCreatedAtMs: burnAtMs - 60_000, nowMs: burnAtMs + windowMs - 1, windowMs }),
+    false,
+  );
+  assert.equal(
+    abandonedBridgeDue({ burnAtMs, jobCreatedAtMs: burnAtMs - 60_000, nowMs: burnAtMs + windowMs, windowMs }),
+    true,
+  );
+});
+
+test("abandoned bridge: timed from the burn, not from when the server noticed", () => {
+  // A job created at 10:00 whose burn landed at 10:05 is due at 10:45.
+  const created = Date.parse("2026-09-18T10:00:00Z");
+  const burned = created + 5 * 60_000;
+  const windowMs = 40 * 60_000;
+  assert.equal(
+    abandonedBridgeDue({ burnAtMs: burned, jobCreatedAtMs: created, nowMs: created + windowMs, windowMs }),
+    false,
+  );
+});
+
+test("abandoned bridge: an unreadable burn time can only bring the rescue forward", () => {
+  // Job creation is never after the burn, so falling back to it can make the
+  // server step in sooner, never leave money waiting longer.
+  const created = Date.parse("2026-09-18T10:00:00Z");
+  const windowMs = 40 * 60_000;
+  assert.equal(
+    abandonedBridgeDue({ burnAtMs: null, jobCreatedAtMs: created, nowMs: created + windowMs, windowMs }),
+    true,
+  );
+});
+
+test("abandoned bridge: the 2x gas charge is recorded and not collected on testnet", () => {
+  const r = bridgeRelayRecord({
+    gasCostWei: 1_500n,
+    nativeSymbol: "ETH",
+    nativeDecimals: 18,
+    deploymentEnv: "testnet",
+  });
+  assert.equal(r.gasCostWei, "1500");
+  assert.equal(r.wouldChargeWei, "3000");
+  assert.equal(r.charged, false);
+  assert.equal(r.reason, "waived_on_testnet");
+  assert.equal(
+    bridgeRelayRecord({ gasCostWei: 1n, nativeSymbol: "ETH", nativeDecimals: 18, deploymentEnv: "production" }).reason,
+    "collection_not_decided",
+  );
+});
+
+test("a bridge lands the amount less Circle's fast fee, never more", async () => {
+  const { landedAfterFastFee } = await import("./appKitJobExpiry.js");
+  // Base Sepolia → Arc charges 1.3 bps: 100 USDC lands as 99.987.
+  assert.deepEqual(landedAfterFastFee(100, 1.3), { fee: 0.013, landed: 99.987 });
+  // Rounding favours the honest figure: the fee rounds up.
+  assert.deepEqual(landedAfterFastFee(0.5, 1.3), { fee: 0.000065, landed: 0.499935 });
+  assert.deepEqual(landedAfterFastFee(1, 1), { fee: 0.0001, landed: 0.9999 });
+  // Arc → Base charges nothing today.
+  assert.deepEqual(landedAfterFastFee(25, 0), { fee: 0, landed: 25 });
+  assert.deepEqual(landedAfterFastFee(0, 1), { fee: 0, landed: 0 });
+});

@@ -300,8 +300,20 @@ class _InvoiceTab extends StatefulWidget {
 
 class _InvoiceTabState extends State<_InvoiceTab> {
   final List<_Line> _lines = [_Line()];
+  final _payer = TextEditingController();
   String _currency = 'USDC';
   bool _creating = false;
+
+  /// When payment is due. The payer is reminded the day before, on the day,
+  /// and three days late.
+  DateTime? _dueAt;
+
+  /// One hold per line, each paid out as that part is delivered.
+  bool _milestones = false;
+
+  int get _pricedLines => _lines.where((l) => l.value > 0).length;
+  bool get _milestonesPossible =>
+      _currency == 'USDC' && _pricedLines >= 2 && _pricedLines <= 10;
 
   /// Bumped after a generate so the history below reloads itself.
   int _historyToken = 0;
@@ -311,7 +323,23 @@ class _InvoiceTabState extends State<_InvoiceTab> {
     for (final l in _lines) {
       l.dispose();
     }
+    _payer.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickDue() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dueAt ?? now.add(const Duration(days: 7)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+      helpText: 'Payment due',
+    );
+    if (picked == null || !mounted) return;
+    // End of the chosen day, so "due today" means all of today.
+    setState(() => _dueAt =
+        DateTime(picked.year, picked.month, picked.day, 23, 59));
   }
 
   double get _total => _lines.fold(0, (sum, l) => sum + l.value);
@@ -339,10 +367,14 @@ class _InvoiceTabState extends State<_InvoiceTab> {
       // The caller is recorded as the one to be paid, so a link carries who
       // the money is for. Without that, whoever opens it has an amount and
       // nobody to send it to.
+      final payer = _payer.text.trim();
       final data = await api.post('/v1/payment-requests', body: {
         'items': items,
         'token': _currency,
         'description': _lines.first.description.text.trim(),
+        if (_dueAt != null) 'dueAt': _dueAt!.toUtc().toIso8601String(),
+        if (payer.isNotEmpty) 'payer': payer,
+        if (_milestones && _milestonesPossible) 'milestones': true,
       });
       if (!mounted) return;
 
@@ -359,6 +391,9 @@ class _InvoiceTabState extends State<_InvoiceTab> {
         _lines
           ..clear()
           ..add(_Line());
+        _payer.clear();
+        _dueAt = null;
+        _milestones = false;
         _historyToken++;
       });
 
@@ -463,6 +498,82 @@ class _InvoiceTabState extends State<_InvoiceTab> {
         const SizedBox(height: Space.md),
         Container(
           decoration: BoxDecoration(
+            color: EvabobColors.sheet,
+            borderRadius: Radii.all(Radii.md),
+            boxShadow: Shadows.subtle,
+          ),
+          padding: const EdgeInsets.fromLTRB(Space.lg, Space.sm, Space.lg, Space.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _payer,
+                decoration: const InputDecoration(
+                  labelText: 'Who pays? (optional)',
+                  hintText: '@username or email',
+                  border: InputBorder.none,
+                ),
+              ),
+              const Divider(height: 1),
+              Material(
+                type: MaterialType.transparency,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.event_outlined),
+                  title: Text(
+                    _dueAt == null
+                        ? 'Add a due date'
+                        : 'Due ${MaterialLocalizations.of(context).formatMediumDate(_dueAt!)}',
+                    style: Type.body.copyWith(color: EvabobColors.nearBlack),
+                  ),
+                  subtitle: _dueAt == null
+                      ? null
+                      : Text(
+                          _payer.text.trim().isEmpty
+                              ? 'Add who pays and we will remind them.'
+                              : 'We remind them the day before, on the day, '
+                                  'and if it is late.',
+                          style: Type.caption
+                              .copyWith(color: EvabobColors.navyMuted),
+                        ),
+                  trailing: _dueAt == null
+                      ? null
+                      : IconButton(
+                          tooltip: 'Remove the due date',
+                          onPressed: () => setState(() => _dueAt = null),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                  onTap: _pickDue,
+                ),
+              ),
+              const Divider(height: 1),
+              Material(
+                type: MaterialType.transparency,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _milestones && _milestonesPossible,
+                  onChanged: _milestonesPossible
+                      ? (v) => setState(() => _milestones = v)
+                      : null,
+                  title: Text('Paid by milestone',
+                      style:
+                          Type.body.copyWith(color: EvabobColors.nearBlack)),
+                  subtitle: Text(
+                    _milestonesPossible
+                        ? 'Each line is set aside separately and paid to you '
+                            'as you deliver it.'
+                        : 'Add 2 to 10 lines in dollars, one per milestone.',
+                    style:
+                        Type.caption.copyWith(color: EvabobColors.navyMuted),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: Space.md),
+        Container(
+          decoration: BoxDecoration(
             color: EvabobColors.mint,
             borderRadius: Radii.all(Radii.md),
           ),
@@ -508,8 +619,11 @@ class _InvoiceTabState extends State<_InvoiceTab> {
         ),
         const SizedBox(height: Space.md),
         Text(
-          'Whoever opens the link pays you. They can pay it all now, or hold '
-          'some of it until you deliver.',
+          _milestones && _milestonesPossible
+              ? 'Whoever opens the link pays you. They can pay it all now, or '
+                  'set each milestone aside to be paid as you deliver it.'
+              : 'Whoever opens the link pays you. They can pay it all now, or '
+                  'hold some of it until you deliver.',
           style: Type.caption.copyWith(color: EvabobColors.navyMuted),
         ),
         InvoiceHistory(refreshToken: _historyToken),

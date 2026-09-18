@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { formatUnits } from "viem";
 import { z } from "zod";
 import { config } from "../config.js";
@@ -8,6 +8,7 @@ import {
   createAddGatewayDelegateChallenges,
   createCctpBurnChallenges,
   createGatewayDepositChallenges,
+  walletForGatewayDomain,
   createPinWalletChallenge,
   createSession,
   createSynthraSwapChallenges,
@@ -32,6 +33,11 @@ import {
   feeTransferCall,
   quotePlatformFee,
 } from "../services/platformFee.js";
+import {
+  memoIdFor,
+  memoRecordCall,
+  normalizeMemo,
+} from "../services/memo.js";
 import { store } from "../store/db.js";
 import { getUserId } from "../middleware/auth.js";
 import { clientError } from "../utils/http-error.js";
@@ -349,6 +355,12 @@ circleWallets.post("/send", async (c) => {
     })
     .parse(await c.req.json());
 
+  const memoCheck = normalizeMemo(body.memo);
+  if (!memoCheck.ok) {
+    return c.json({ error: memoCheck.error, code: "INVALID_MEMO" }, 400);
+  }
+  const memo = memoCheck.memo;
+
   const { resolvePayee } = await import("../services/resolvePayee.js");
   const fromId = appUserId(c);
   const fromUser = store.getUser(fromId);
@@ -358,6 +370,18 @@ circleWallets.post("/send", async (c) => {
     return c.json({ error: payee.error, code: payee.code }, 404);
   }
   const destAddress = payee.address;
+  // Large payments to family need the code emailed to the sender first.
+  {
+    const { requireFamilyPass, FamilyCheckError } = await import("../services/familyCheck.js");
+    try {
+      requireFamilyPass({ userId: fromId, dest: destAddress, amount: body.amountUsdc, token: body.token ?? "USDC" });
+    } catch (error) {
+      if (error instanceof FamilyCheckError) {
+        return c.json({ error: error.message, code: error.code }, error.status);
+      }
+      throw error;
+    }
+  }
   const mode = payee.kind === "address" ? "direct_evm" : "direct_user";
   const peer = payee.user;
   const toLower = raw.replace(/^@/, "").toLowerCase();
@@ -384,10 +408,10 @@ circleWallets.post("/send", async (c) => {
         kind: "send",
         title: mode === "direct_evm" ? destAddress.slice(0, 10) + "…" : toLower,
         description:
-          body.memo ||
-          (mode === "direct_evm"
+          mode === "direct_evm"
             ? `Direct ${sendToken} send`
-            : `Send ${sendToken} to Evabob user`),
+            : `Send ${sendToken} to Evabob user`,
+        memo,
         amountUsdc: sendToken === "USDC" ? -body.amountUsdc : 0,
         amountNgnHint: body.amountNgn ? -body.amountNgn : undefined,
         counterparty: destAddress,
@@ -399,6 +423,27 @@ circleWallets.post("/send", async (c) => {
         mode: mode === "direct_evm" ? "direct" : "direct_user",
         status: "pending",
       });
+
+      // The memo is written on chain beside the transfer when the memo
+      // contract is configured. That needs the wallet batch, so a memo takes
+      // this send down the batch path just as a fee does.
+      const tokenAddress = tokenFor(sendToken) as `0x${string}`;
+      const transferCall = erc20TransferCall(
+        tokenAddress,
+        destAddress as `0x${string}`,
+        feeQuote.amountUnits,
+      );
+      const memoId = memo ? memoIdFor(sendActivity.id) : undefined;
+      const memoCall =
+        memo && memoId
+          ? memoRecordCall({
+              target: tokenAddress,
+              transferData: transferCall.data,
+              memoId,
+              memo,
+            })
+          : null;
+      if (memoId) store.updateActivity(sendActivity.id, { memoId });
 
       const sendResponse = (extra: Record<string, unknown>) => ({
         mode,
@@ -412,28 +457,26 @@ circleWallets.post("/send", async (c) => {
         amount: body.amountUsdc,
         platformFee: feeQuote.fee,
         amountNgn: body.amountNgn,
-        memo: body.memo,
+        memo,
+        memoOnchain: Boolean(memoCall),
         notify: { emailSent: false, detail: "not required for direct send" },
         appId: circleAppId(),
         promptSave,
         ...extra,
       });
 
-      // Platform fee on: the payment and the fee go in ONE wallet batch — one
-      // PIN, and neither lands without the other. App Kit's send has no fee
-      // option, so this path takes priority whenever a fee applies.
-      if (feeQuote.feeUnits > 0n) {
-        const tokenAddress = tokenFor(sendToken) as `0x${string}`;
+      // Platform fee or on-chain memo: the payment, the fee and the memo go in
+      // ONE wallet batch — one PIN, and none of them lands without the others.
+      // App Kit's send has neither option, so this path takes priority.
+      const feeCall = feeTransferCall(tokenAddress, feeQuote);
+      if (feeCall || memoCall) {
         const batch = await createWalletBatchChallenge({
           userToken: body.userToken,
           walletId: body.walletId,
           calls: [
-            erc20TransferCall(
-              tokenAddress,
-              destAddress as `0x${string}`,
-              feeQuote.amountUnits,
-            ),
-            feeTransferCall(tokenAddress, feeQuote)!,
+            transferCall,
+            ...(feeCall ? [feeCall] : []),
+            ...(memoCall ? [memoCall] : []),
           ],
         });
         return c.json(
@@ -490,7 +533,7 @@ circleWallets.post("/send", async (c) => {
             token: sendToken,
             amount: body.amountUsdc,
             amountNgn: body.amountNgn,
-            memo: body.memo,
+            memo,
             notify: { emailSent: false, detail: "not required for direct send" },
             appId: circleAppId(),
             challenges,
@@ -528,7 +571,7 @@ circleWallets.post("/send", async (c) => {
         token: sendToken,
         amount: body.amountUsdc,
         amountNgn: body.amountNgn,
-        memo: body.memo,
+        memo,
         notify: { emailSent: false, detail: "not required for direct send" },
         appId: circleAppId(),
         challenges: t.challengeId
@@ -563,23 +606,49 @@ circleWallets.post("/gateway/deposit", async (c) => {
       ...body,
       wallets,
     });
-    store.addActivity({
-      userId: appUserId(c),
-      kind: "fund",
-      title: `Gateway deposit · ${result.chain || "Arc"}`,
-      description: `UCW deposit ${body.amountUsdc} USDC`,
-      amountUsdc: body.amountUsdc,
-      ...("platformFee" in result && Number(result.platformFee) > 0
-        ? { platformFee: Number(result.platformFee), platformFeeToken: "USDC" }
-        : {}),
-    });
-    return c.json(result);
+    // No activity row yet. It used to be written here, before the PIN, so a
+    // cancelled top-up still read "Gateway deposit". The watch writes the row
+    // once the person has signed (confirm below) or once the money is seen
+    // arriving, and marks it arrived when Gateway credits it.
+    const depositor =
+      walletForGatewayDomain(wallets, result.domain)?.address ||
+      wallets.find((w) => w.id === body.walletId)?.address;
+    const { startTopUpWatch } = await import("../services/gatewayTracker.js");
+    const watchId = depositor
+      ? await startTopUpWatch({
+          userId: appUserId(c),
+          depositor,
+          domain: result.domain,
+          amountUsdc: body.amountUsdc,
+        })
+      : undefined;
+    return c.json({ ...result, ...(watchId ? { watchId } : {}) });
   } catch (e) {
     return c.json(
       { error: clientError(e, "gateway deposit failed") },
       400,
     );
   }
+});
+
+/**
+ * The person signed a top-up: show it as on its way. Only the watch's owner.
+ */
+circleWallets.post("/gateway/deposit/confirm", async (c) => {
+  const body = z
+    .object({
+      watchId: z.string().min(1),
+      txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
+    })
+    .parse(await c.req.json());
+  const { confirmTopUpSigned } = await import("../services/gatewayTracker.js");
+  const watch = confirmTopUpSigned({
+    userId: appUserId(c),
+    watchId: body.watchId,
+    txHash: body.txHash,
+  });
+  if (!watch) return c.json({ error: "No such top-up" }, 404);
+  return c.json({ ok: true, status: watch.status });
 });
 
 /**
@@ -717,46 +786,56 @@ circleWallets.post("/gateway/pay", async (c) => {
 
     if (result.status === "complete" && result.mintTx) {
       // success path below
-    } else if (
-      result.status === "in_transit" ||
-      result.status === "forwarded" ||
-      result.status === "attestation_pending"
-    ) {
-      store.addActivity({
+    } else {
+      // Not landed inside this request. Record it — with the attestation, so
+      // the tracker can still mint it from the ops wallet while it is valid —
+      // and show it as on its way. It used to be answered "do not retry" and
+      // then forgotten.
+      const to = `${body.destinationAddress.slice(0, 6)}…${body.destinationAddress.slice(-4)}`;
+      const row = store.addActivity({
         userId: uid,
         kind: "withdraw",
-        title: `Gateway pay · domain ${body.destinationDomain}`,
-        description: `${body.amountUsdc} USDC in transit → ${body.destinationAddress.slice(0, 10)}…`,
+        title: "Paid from your GA",
+        description: `${body.amountUsdc} USDC to ${to} · on its way`,
         amountUsdc: -body.amountUsdc,
+        token: "USDC",
+        amountToken: body.amountUsdc,
         txHash: result.transferId,
         status: "pending",
         receiver: body.destinationAddress,
+        mode: "gateway_pay",
         ...feeFields,
       });
+      const gw = (result.gatewayResponse ?? {}) as {
+        attestation?: string;
+        signature?: string;
+      };
+      const { trackGatewayPay } = await import("../services/gatewayTracker.js");
+      const paymentId = trackGatewayPay({
+        userId: uid,
+        transferId: result.transferId,
+        attestation: typeof gw.attestation === "string" ? gw.attestation : undefined,
+        signature: typeof gw.signature === "string" ? gw.signature : undefined,
+        destinationDomain: body.destinationDomain,
+        destinationAddress: body.destinationAddress,
+        amountUsdc: body.amountUsdc,
+        activityId: row.id,
+      });
+      // 202 with doNotRetry: the app must not send it again; the tracker
+      // finishes it and tells the person when it lands.
       return c.json(
         jsonSafe({
+          ...result,
           ok: false,
           doNotRetry: true,
           mode: "user_gateway_pay",
-          error:
-            result.note ||
-            "Gateway burn accepted. Destination mint is in transit — do not retry.",
-          ...result,
+          status: "in_transit",
+          paymentId,
+          error: "Sent — it is on its way. We will tell you when it arrives.",
+          // The attestation stays on the server, which finishes the mint.
+          gatewayResponse: undefined,
         }),
         202,
-      );
-    } else {
-      // 200 so the app can read doNotRetry without treating this as a retryable HTTP error.
-      return c.json(
-        jsonSafe({
-          ok: false,
-          doNotRetry: true,
-          mode: "user_gateway_pay",
-          error:
-            result.note ||
-            "Gateway burn submitted but destination mint failed. Do not retry — funds may already be in transit.",
-          ...result,
-        }),
       );
     }
 
@@ -766,8 +845,8 @@ circleWallets.post("/gateway/pay", async (c) => {
     store.addActivity({
       userId: uid,
       kind: "withdraw",
-      title: `Gateway pay · domain ${body.destinationDomain}`,
-      description: `${body.amountUsdc} USDC from unified balance${srcNote ? ` (${srcNote})` : ""} → ${body.destinationAddress.slice(0, 10)}…`,
+      title: "Paid from your GA",
+      description: `${body.amountUsdc} USDC${srcNote ? ` (from ${srcNote})` : ""} → ${body.destinationAddress.slice(0, 6)}…${body.destinationAddress.slice(-4)}`,
       amountUsdc: -body.amountUsdc,
       txHash: result.mintTx || result.transferId,
       status: "completed",
@@ -775,13 +854,11 @@ circleWallets.post("/gateway/pay", async (c) => {
       ...feeFields,
     });
 
-    // Keep user profile linked to SCA for balance queries
-    store.upsertUser({
-      id: uid,
-      email: `${uid}@evabob.app`,
-      displayName: uid,
-      evmAddress: depositor,
-    });
+    // This used to upsert the user with email `${uid}@evabob.app` and name
+    // `${uid}` to "keep the profile linked to the SCA". upsertUser merges, so
+    // every successful Gateway payment overwrote the person's real email and
+    // name — breaking claim links and held payments addressed to their email.
+    // The wallet is already bound at session time; nothing needs writing here.
 
     return c.json(
       jsonSafe({
@@ -1169,19 +1246,65 @@ circleWallets.post("/escrow/hold", async (c) => {
       recipient: z.string().min(1),
       amountUsdc: z.number().positive(),
       memo: z.string().max(120).optional(),
-      purpose: z.enum(["claim_link", "job"]).default("claim_link"),
+      purpose: z.enum(["claim_link", "job", "cooling_off"]).default("claim_link"),
       expirySeconds: z.number().int().positive().optional(),
+      /** Paying through a seller's hold link: the link sets who, how much and how long. */
+      holdLinkId: z.string().min(6).max(40).optional(),
     })
     .parse(await c.req.json());
 
-  const { planProtectedEscrow, EscrowError } = await import(
+  const { planProtectedEscrow, isRegistered, EscrowError } = await import(
     "../services/protectedEscrow.js"
   );
-  const { createCalldataChallenge } = await import(
-    "../services/circle-ucw.js"
-  );
+
+  if (body.holdLinkId) {
+    const { getHoldLink } = await import("../services/holdLinks.js");
+    const link = getHoldLink(body.holdLinkId);
+    const seller = link ? store.getUser(link.sellerId) : null;
+    if (!link || !seller?.handle) return c.json({ error: "That link does not exist" }, 404);
+    if (!link.active) return c.json({ error: "The seller has closed this link" }, 409);
+    if (link.sellerId === appUserId(c)) {
+      return c.json({ error: "You cannot buy from your own link" }, 400);
+    }
+    body.recipient = `@${seller.handle}`;
+    body.amountUsdc = link.amount;
+    body.purpose = "job";
+    body.expirySeconds = link.deliveryDays * 24 * 60 * 60;
+  }
 
   try {
+    // A cooling-off hold pays an existing account after ten minutes. Someone
+    // with no account yet needs a claim link instead, which waits for them.
+    if (body.purpose === "cooling_off" && !isRegistered(body.recipient)) {
+      return c.json(
+        {
+          error: `${body.recipient} doesn't have an Evabob account yet. Send it as a claim link instead.`,
+          code: "RECIPIENT_NOT_REGISTERED",
+        },
+        400,
+      );
+    }
+
+    // Holding money for family is still paying family: the same emailed
+    // code applies when the recipient's wallet is a family contact.
+    const recipientAddress = store.findUserByRecipient(body.recipient)?.evmAddress;
+    if (recipientAddress) {
+      const { requireFamilyPass, FamilyCheckError } = await import("../services/familyCheck.js");
+      try {
+        requireFamilyPass({
+          userId: appUserId(c),
+          dest: recipientAddress,
+          amount: body.amountUsdc,
+          token: "USDC",
+        });
+      } catch (error) {
+        if (error instanceof FamilyCheckError) {
+          return c.json({ error: error.message, code: error.code }, error.status);
+        }
+        throw error;
+      }
+    }
+
     const plan = planProtectedEscrow({
       recipientId: body.recipient,
       amountUsdc: body.amountUsdc,
@@ -1198,71 +1321,202 @@ circleWallets.post("/escrow/hold", async (c) => {
       purpose: plan.purpose,
     };
 
-    // Platform fee on: approve, lock and fee go in ONE wallet batch — a
-    // single PIN, and the fee is never taken for a hold that did not lock.
-    // The batch receipt still carries TransferCreated, so the same challenge
-    // is the "create" the app reads the transfer id from.
+    // Approve, lock and (when it applies) the platform fee go in ONE wallet
+    // batch: a single PIN, and the fee is never taken for a hold that did not
+    // lock. This used to fall back to two separate PINs when no fee applied,
+    // which made holding money — including the cooling-off hold a first
+    // payment to someone new now gets — more work than just sending it. The
+    // batch receipt still carries TransferCreated, so the same challenge is
+    // the "create" the app reads the transfer id from.
     const feeQuote = quotePlatformFee(body.amountUsdc, 6);
-    if (feeQuote.feeUnits > 0n) {
-      const usdc = config.arc.usdc as `0x${string}`;
-      const batch = await createWalletBatchChallenge({
-        userToken: body.userToken,
-        walletId: body.walletId,
-        calls: [
-          { to: plan.steps[0]!.to as `0x${string}`, data: plan.steps[0]!.data },
-          { to: plan.steps[1]!.to as `0x${string}`, data: plan.steps[1]!.data },
-          feeTransferCall(usdc, feeQuote)!,
-        ],
-      });
-      return c.json({
-        appId: batch.appId,
-        challenges: [
-          {
-            step: "create",
-            challengeId: batch.challengeId,
-            description: "Lock the funds",
-          },
-        ],
-        createChallengeId: batch.challengeId,
-        platformFee: feeQuote.fee,
-        plan: planSummary,
-      });
-    }
-
-    const approve = await createCalldataChallenge({
+    const feeCall =
+      feeQuote.feeUnits > 0n
+        ? feeTransferCall(config.arc.usdc as `0x${string}`, feeQuote)
+        : null;
+    const batch = await createWalletBatchChallenge({
       userToken: body.userToken,
       walletId: body.walletId,
-      contractAddress: plan.steps[0]!.to,
-      callData: plan.steps[0]!.data,
+      calls: [
+        { to: plan.steps[0]!.to as `0x${string}`, data: plan.steps[0]!.data },
+        { to: plan.steps[1]!.to as `0x${string}`, data: plan.steps[1]!.data },
+        ...(feeCall ? [feeCall] : []),
+      ],
     });
-    const create = await createCalldataChallenge({
-      userToken: body.userToken,
-      walletId: body.walletId,
-      contractAddress: plan.steps[1]!.to,
-      callData: plan.steps[1]!.data,
-    });
-
     return c.json({
-      appId: create.appId,
+      appId: batch.appId,
       challenges: [
         {
-          step: "approve",
-          challengeId: approve.challengeId,
-          description: "Allow the hold to take the funds",
-        },
-        {
           step: "create",
-          challengeId: create.challengeId,
+          challengeId: batch.challengeId,
           description: "Lock the funds",
         },
       ],
-      createChallengeId: create.challengeId,
+      createChallengeId: batch.challengeId,
+      ...(feeCall ? { platformFee: feeQuote.fee } : {}),
       plan: planSummary,
     });
   } catch (e) {
     if (e instanceof EscrowError) return c.json({ error: e.message }, 400);
     throw e;
   }
+});
+
+/**
+ * Locks one hold per invoice line under a single PIN, for an invoice paid by
+ * milestone. Approve the total, create each hold, and take the Evabob fee on
+ * the total, all in one wallet batch: none of it lands without the rest.
+ */
+circleWallets.post("/escrow/hold-milestones", async (c) => {
+  const body = z
+    .object({
+      userToken: z.string().min(1),
+      walletId: z.string().min(1),
+      paymentRequestId: z.string().min(1),
+    })
+    .parse(await c.req.json());
+  const { getPaymentRequest } = await import("../services/payment-requests.js");
+  const invoice = getPaymentRequest(body.paymentRequestId);
+  if (!invoice) return c.json({ error: "No such invoice" }, 404);
+  if (!invoice.allowedStructures.includes("milestones")) {
+    return c.json({ error: "This invoice is not paid by milestone" }, 409);
+  }
+  if (invoice.status !== "open") return c.json({ error: `This invoice is already ${invoice.status}` }, 409);
+  if ((invoice.token || "USDC") !== "USDC") {
+    return c.json({ error: "Milestones are held in dollars only" }, 400);
+  }
+  const issuer = store.getUser(invoice.senderId || invoice.userId);
+  const recipient = issuer?.handle ? `@${issuer.handle}` : issuer?.email;
+  if (!issuer || !recipient) return c.json({ error: "The invoice has no one to pay" }, 404);
+  if (issuer.id === appUserId(c)) return c.json({ error: "You cannot pay your own invoice" }, 400);
+
+  // Family check applies to the whole invoice, as to any payment.
+  {
+    const { requireFamilyPass, FamilyCheckError } = await import("../services/familyCheck.js");
+    try {
+      requireFamilyPass({ userId: appUserId(c), dest: issuer.evmAddress, amount: invoice.total, token: "USDC" });
+    } catch (error) {
+      if (error instanceof FamilyCheckError) {
+        return c.json({ error: error.message, code: error.code }, error.status);
+      }
+      throw error;
+    }
+  }
+
+  const { planMilestoneHolds, EscrowError } = await import("../services/protectedEscrow.js");
+  try {
+    const plan = planMilestoneHolds({
+      recipientId: recipient,
+      milestones: invoice.items.map((it, i) => ({
+        amountUsdc: it.amount,
+        memo: `Milestone ${i + 1}: ${it.description}`,
+      })),
+    });
+    const feeQuote = quotePlatformFee(plan.totalUsdc, 6);
+    const feeCall =
+      feeQuote.feeUnits > 0n ? feeTransferCall(config.arc.usdc as `0x${string}`, feeQuote) : null;
+    const batch = await createWalletBatchChallenge({
+      userToken: body.userToken,
+      walletId: body.walletId,
+      calls: [...plan.calls, ...(feeCall ? [feeCall] : [])],
+    });
+    return c.json({
+      appId: batch.appId,
+      challenges: [{ step: "create", challengeId: batch.challengeId, description: "Set aside each milestone" }],
+      createChallengeId: batch.challengeId,
+      milestones: invoice.items.length,
+      totalUsdc: plan.totalUsdc,
+      ...(feeCall ? { platformFee: feeQuote.fee } : {}),
+    });
+  } catch (e) {
+    if (e instanceof EscrowError) return c.json({ error: e.message }, 400);
+    throw e;
+  }
+});
+
+// ─── Money circles and group pots ────────────────────────────────────────
+// Each route builds one wallet batch (one PIN). The app confirms with the
+// resulting transaction on /v1/groups/…, which reads the chain.
+
+const walletBody = { userToken: z.string().min(1), walletId: z.string().min(1) };
+
+async function groupBatch(
+  c: Context,
+  build: () => Promise<{ calls: Array<{ to: `0x${string}`; data: `0x${string}` }>; groupId: string }>,
+) {
+  const body = z.object(walletBody).passthrough().parse(await c.req.json().catch(() => ({})));
+  const { GroupMoneyError } = await import("../services/groupMoney.js");
+  try {
+    const { calls, groupId } = await build();
+    const batch = await createWalletBatchChallenge({
+      userToken: body.userToken,
+      walletId: body.walletId,
+      calls,
+    });
+    return c.json({
+      appId: batch.appId,
+      challenges: [{ step: "create", challengeId: batch.challengeId, description: "Confirm" }],
+      createChallengeId: batch.challengeId,
+      groupId,
+    });
+  } catch (e) {
+    if (e instanceof GroupMoneyError) return c.json({ error: e.message }, e.status);
+    throw e;
+  }
+}
+
+circleWallets.post("/groups/circles", async (c) => {
+  const body = z
+    .object({
+      ...walletBody,
+      name: z.string().min(1).max(80),
+      contributionUsdc: z.number().positive(),
+      every: z.enum(["ten_minutes", "day", "week", "two_weeks", "month"]),
+      members: z.array(z.string().min(1).max(120)).min(2).max(20),
+      startAt: z.string().datetime().optional(),
+    })
+    .parse(await c.req.raw.clone().json());
+  const { prepareCircle } = await import("../services/groupMoney.js");
+  return groupBatch(c, async () => {
+    const { record, calls } = await prepareCircle(appUserId(c), body);
+    return { calls, groupId: record.id };
+  });
+});
+
+circleWallets.post("/groups/circles/:id/join", async (c) => {
+  const { joinCircleCalls } = await import("../services/groupMoney.js");
+  return groupBatch(c, async () => ({
+    calls: joinCircleCalls(appUserId(c), c.req.param("id")),
+    groupId: c.req.param("id"),
+  }));
+});
+
+circleWallets.post("/groups/pots", async (c) => {
+  const body = z
+    .object({
+      ...walletBody,
+      title: z.string().min(1).max(120),
+      description: z.string().max(600).optional(),
+      targetUsdc: z.number().positive(),
+      deadline: z.string().datetime(),
+      beneficiary: z.string().max(120).optional(),
+    })
+    .parse(await c.req.raw.clone().json());
+  const { preparePot } = await import("../services/groupMoney.js");
+  return groupBatch(c, async () => {
+    const { record, calls } = preparePot(appUserId(c), body);
+    return { calls, groupId: record.id };
+  });
+});
+
+circleWallets.post("/groups/pots/:id/contribute", async (c) => {
+  const body = z
+    .object({ ...walletBody, amountUsdc: z.number().positive() })
+    .parse(await c.req.raw.clone().json());
+  const { contributeCalls } = await import("../services/groupMoney.js");
+  return groupBatch(c, async () => ({
+    calls: contributeCalls(appUserId(c), c.req.param("id"), body.amountUsdc),
+    groupId: c.req.param("id"),
+  }));
 });
 
 circleWallets.post("/swap", async (c) => {
@@ -1498,7 +1752,9 @@ circleWallets.post("/confirm-activity", async (c) => {
     // The device cannot know whether an in-flight transaction was broadcast.
     return c.json({ ok: false, pending: true, error: "Reconcile the payment before changing its status." }, 409);
   }
-  const { confirmPaymentActivity } = await import("../services/confirm-payment.js");
+  const { confirmPaymentActivity, recordPeerReceipt } = await import(
+    "../services/confirm-payment.js"
+  );
   let confirmation;
   try {
     confirmation = await confirmPaymentActivity(uid, row.id, body.txHash);
@@ -1506,33 +1762,277 @@ circleWallets.post("/confirm-activity", async (c) => {
     return c.json({ ok: false, pending: true, error: "Payment is not yet verified on chain." }, 409);
   }
   if (!confirmation.newlyVerified) return c.json({ ok: true, item: confirmation.row });
-  // Mirror receive for peer sends
-  if (row.kind === "send" && row.counterparty) {
-    const peer =
-      store.findUserByRecipient(row.counterparty) ||
-      (row.receiver ? store.findUserByHandle(row.receiver.replace(/^@/, "")) : null);
-    if (peer && peer.id !== uid) {
+  recordPeerReceipt(confirmation.row, body.txHash);
+  return c.json({ ok: true, item: store.getActivity(row.id) });
+});
+
+/** Most people one payment can go to. Keeps one PIN readable and gas bounded. */
+const BATCH_MAX_RECIPIENTS = 10;
+
+/**
+ * One payment to several people, approved with one PIN.
+ *
+ * Arc's batch tutorial uses Multicall3From, which — like Arc's memo contract —
+ * requires msg.sender == tx.origin and so reverts for Evabob's smart contract
+ * wallets. The wallet batches the transfers itself instead, with its own
+ * atomic `executeBatch`: every person is paid or nobody is, which is the
+ * promise the confirmation card makes. The platform fee and any memo ride in
+ * the same batch.
+ *
+ * Each person gets their own activity row, joined by `batchId`, and each row
+ * is verified against its own Transfer event in the receipt (confirm-batch).
+ */
+circleWallets.post("/send-batch", async (c) => {
+  const body = z
+    .object({
+      userToken: z.string().min(10),
+      walletId: z.string().min(1),
+      token: z.enum(["USDC", "EURC"]).optional().default("USDC"),
+      payments: z
+        .array(
+          z.object({
+            to: z.string().min(1),
+            amount: z.number().positive(),
+          }),
+        )
+        .min(2)
+        .max(BATCH_MAX_RECIPIENTS),
+      memo: z.string().optional(),
+    })
+    .parse(await c.req.json());
+
+  if (!config.features.agentBatchSend) {
+    return c.json(
+      {
+        error: "Paying several people at once is not switched on yet. Nothing was sent.",
+        code: "BATCH_SEND_DISABLED",
+      },
+      403,
+    );
+  }
+  const memoCheck = normalizeMemo(body.memo);
+  if (!memoCheck.ok) {
+    return c.json({ error: memoCheck.error, code: "INVALID_MEMO" }, 400);
+  }
+  const memo = memoCheck.memo;
+
+  const { resolvePayee } = await import("../services/resolvePayee.js");
+  const fromId = appUserId(c);
+  const fromUser = store.getUser(fromId);
+  const token = body.token;
+  const decimals = tokenDecimals(token);
+  const tokenAddress = tokenFor(token) as `0x${string}`;
+
+  // Resolve everyone before anything is written, so one bad payee fails the
+  // whole request instead of leaving drafts for the people who did resolve.
+  const legs: Array<{
+    payee: Extract<ReturnType<typeof resolvePayee>, { ok: true }>;
+    amount: number;
+    quote: ReturnType<typeof quotePlatformFee>;
+  }> = [];
+  const seen = new Set<string>();
+  for (const p of body.payments) {
+    const payee = resolvePayee(fromId, p.to.trim());
+    if (!payee.ok) {
+      return c.json({ error: `${p.to}: ${payee.error}`, code: payee.code }, 404);
+    }
+    const key = payee.address.toLowerCase();
+    // Receipts are verified per recipient address, so two legs to one address
+    // could not be told apart. Asking once for the combined amount is clearer.
+    if (seen.has(key)) {
+      return c.json(
+        {
+          error: `${payee.label} is in the list twice. Send them one combined amount instead.`,
+          code: "DUPLICATE_RECIPIENT",
+        },
+        400,
+      );
+    }
+    seen.add(key);
+    let quote;
+    try {
+      quote = quotePlatformFee(p.amount, decimals);
+    } catch {
+      return c.json({ error: `The amount for ${payee.label} is not valid.` }, 400);
+    }
+    legs.push({ payee, amount: p.amount, quote });
+  }
+
+  const senderLabel = fromUser?.handle
+    ? `@${fromUser.handle}`
+    : fromUser?.displayName || fromUser?.email || fromUser?.evmAddress || fromId;
+  const { randomUUID } = await import("node:crypto");
+  const batchId = randomUUID();
+
+  try {
+    const rows = legs.map((leg) =>
       store.addActivity({
-        userId: peer.id,
-        kind: "receive",
-        title: row.sender || "Evabob user",
-        description: row.description || "Payment received",
-        amountUsdc: row.token === "USDC" ? Math.abs(row.amountUsdc) : 0,
-        amountNgnHint: row.amountNgnHint
-          ? Math.abs(row.amountNgnHint)
-          : undefined,
-        counterparty: row.sender || uid,
-        sender: row.sender,
-        receiver: row.receiver,
-        token: row.token,
-        amountToken: row.amountToken,
-        mode: row.mode,
-        status: "completed",
-        txHash: body.txHash,
-      });
+        userId: fromId,
+        kind: "send",
+        title: leg.payee.label,
+        description: `Payment to ${legs.length} people`,
+        amountUsdc: token === "USDC" ? -leg.amount : 0,
+        counterparty: leg.payee.address,
+        sender: senderLabel,
+        receiver: leg.payee.label,
+        token,
+        amountToken: leg.amount,
+        ...feeActivityFields(leg.quote, token, decimals),
+        mode: "batch",
+        status: "pending",
+        batchId,
+        memo,
+      }),
+    );
+
+    const transfers = legs.map((leg) =>
+      erc20TransferCall(tokenAddress, leg.payee.address, leg.quote.amountUnits),
+    );
+    const memoCalls = memo
+      ? rows.map((row, i) => {
+          const memoId = memoIdFor(row.id);
+          store.updateActivity(row.id, { memoId });
+          return memoRecordCall({
+            target: tokenAddress,
+            transferData: transfers[i]!.data,
+            memoId,
+            memo,
+          });
+        })
+      : [];
+    const feeUnits = legs.reduce((sum, leg) => sum + leg.quote.feeUnits, 0n);
+    const feeRecipient = legs[0]!.quote.recipient;
+    const feeCall =
+      feeUnits > 0n && feeRecipient
+        ? erc20TransferCall(tokenAddress, feeRecipient, feeUnits)
+        : null;
+
+    const batch = await createWalletBatchChallenge({
+      userToken: body.userToken,
+      walletId: body.walletId,
+      calls: [
+        ...transfers,
+        ...(feeCall ? [feeCall] : []),
+        ...memoCalls.filter((call): call is NonNullable<typeof call> => call != null),
+      ],
+    });
+
+    const total = legs.reduce((sum, leg) => sum + leg.quote.amountUnits, 0n);
+    return c.json({
+      rail: "ucw-batch",
+      mode: "batch",
+      batchId,
+      token,
+      total: Number(formatUnits(total, decimals)),
+      platformFee: formatUnits(feeUnits, decimals),
+      memo,
+      memoOnchain: memoCalls.some((call) => call != null),
+      legs: rows.map((row, i) => ({
+        activityId: row.id,
+        to: legs[i]!.payee.address,
+        label: legs[i]!.payee.label,
+        amount: legs[i]!.amount,
+      })),
+      appId: circleAppId(),
+      challenges: batch.challengeId
+        ? [{ step: "transfer", challengeId: batch.challengeId }]
+        : [],
+      message: `Pay ${legs.length} people — confirm with PIN`,
+    });
+  } catch (e) {
+    return c.json({ error: clientError(e, "batch send failed") }, 400);
+  }
+});
+
+/**
+ * After the batch PIN: verify every row of the batch against the receipt.
+ *
+ * The batch is atomic on chain, so either every leg verifies or the
+ * transaction failed. A row that does not verify yet (an RPC hiccup, a
+ * receipt not indexed) stays pending and the call can be repeated — rows
+ * already verified are left as they are.
+ */
+circleWallets.post("/confirm-batch", async (c) => {
+  const body = z
+    .object({
+      batchId: z.string().min(1),
+      txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+      /** Agent thread to post the receipt into, when the batch came from chat. */
+      threadId: z.string().optional(),
+    })
+    .parse(await c.req.json());
+  const uid = appUserId(c);
+  const rows = store.listBatchActivity(uid, body.batchId);
+  if (rows.length === 0) return c.json({ error: "Payment not found" }, 404);
+
+  const { confirmPaymentActivity, recordPeerReceipt } = await import(
+    "../services/confirm-payment.js"
+  );
+  const items = [];
+  let verified = 0;
+  for (const row of rows) {
+    try {
+      const result = await confirmPaymentActivity(uid, row.id, body.txHash);
+      if (result.newlyVerified) recordPeerReceipt(result.row, body.txHash);
+      verified++;
+      items.push(result.row);
+    } catch {
+      items.push(store.getActivity(row.id));
     }
   }
-  return c.json({ ok: true, item: store.getActivity(row.id) });
+  const ok = verified === rows.length;
+
+  if (ok && body.threadId) {
+    const thread = store.listThreads().find((t) => t.id === body.threadId);
+    if (thread?.members.includes(uid) && !store.findReceiptByTxHash(body.txHash)) {
+      const first = rows[0]!;
+      const token = first.token || "USDC";
+      const total = rows.reduce((sum, r) => sum + (r.amountToken ?? 0), 0);
+      const receipt = store.addMessage({
+        threadId: thread.id,
+        senderId: uid,
+        kind: "receipt",
+        text: `Sent ${total} ${token} to ${rows.length} people`,
+        meta: {
+          type: "batch_send",
+          batchId: body.batchId,
+          amount: Number(total.toFixed(6)),
+          amountUsdc: token === "USDC" ? Number(total.toFixed(6)) : 0,
+          token,
+          memo: first.memo,
+          sender: first.sender,
+          receiver: rows.map((r) => r.receiver).join(", "),
+          recipients: rows.map((r) => ({
+            label: r.receiver,
+            address: r.counterparty,
+            amount: r.amountToken,
+          })),
+          date: new Date().toISOString(),
+          hash: body.txHash,
+          txHash: body.txHash,
+          mode: "batch",
+        },
+      });
+      try {
+        const { pusherTrigger } = await import("../services/pusher.js");
+        await pusherTrigger(`private-chat-${thread.id}`, "message", receipt);
+      } catch {
+        /* optional */
+      }
+    }
+  }
+
+  return c.json(
+    {
+      ok,
+      pending: !ok,
+      verified,
+      total: rows.length,
+      items,
+      ...(ok ? {} : { error: "Not every payment is verified on chain yet. Try again shortly." }),
+    },
+    ok ? 200 : 409,
+  );
 });
 
 /** Public self-linking is retired; the server links only verified identities. */

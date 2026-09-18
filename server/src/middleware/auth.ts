@@ -56,6 +56,9 @@ const PUBLIC_PATHS = new Set([
 const PUBLIC_PREFIXES = [
   "/v1/public/payment-requests/",
   "/v1/public/claims/",
+  "/v1/public/receipts/",
+  "/v1/public/hold-links/",
+  "/v1/public/groups/",
 ] as const;
 
 /**

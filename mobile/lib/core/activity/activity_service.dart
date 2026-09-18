@@ -72,6 +72,11 @@ class ActivityEntry {
   final String? platformFeeToken;
 
   bool get isPending => status == 'pending';
+
+  /// Payments this person made can be shared as a public link.
+  bool get shareable =>
+      (kind == 'send' || kind == 'withdraw' || kind == 'bridge') &&
+      status != 'cancelled';
   bool get resumable => isPending && jobId != null && jobId!.isNotEmpty;
 
   /// Inflow when amountUsdc > 0; for non-USDC (e.g. cirBTC swap) use token sign.
@@ -157,6 +162,13 @@ class ActivityEntry {
   }
 }
 
+class SharedPaymentLink {
+  const SharedPaymentLink({required this.publicId, required this.url});
+
+  final String publicId;
+  final String url;
+}
+
 class ActivityService extends ChangeNotifier {
   ActivityService(this._api, this._fx);
 
@@ -192,6 +204,31 @@ class ActivityService extends ChangeNotifier {
       loading = false;
       notifyListeners();
     }
+  }
+
+  /// A public link for one of your payments, which anyone can open to see
+  /// who paid, how much and when, with a fresh check against the Arc network.
+  /// While the money is still moving the same link shows where it is.
+  Future<SharedPaymentLink> shareLink(String activityId) async {
+    final res = await _api.post('/v1/activity/$activityId/share');
+    return SharedPaymentLink(
+      publicId: res['publicId']?.toString() ?? '',
+      url: res['url']?.toString() ?? '',
+    );
+  }
+
+  /// Money that has come in, newest first. With [since], only what arrived
+  /// after it, so a screen can poll and react once per new payment.
+  Future<List<ActivityEntry>> incoming({DateTime? since}) async {
+    final q = since == null
+        ? ''
+        : '?since=${Uri.encodeQueryComponent(since.toUtc().toIso8601String())}';
+    final data = await _api.get('/v1/activity/incoming$q');
+    final list = data['items'] as List? ?? [];
+    return list
+        .whereType<Map>()
+        .map((e) => ActivityEntry.fromJson(Map<String, dynamic>.from(e), _fx))
+        .toList(growable: false);
   }
 
   /// Attach on-chain hash to receipt after UCW confirms (best-effort).

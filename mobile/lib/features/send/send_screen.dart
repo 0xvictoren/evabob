@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/activity/activity_service.dart';
+import '../../core/api/api_client.dart';
 import '../../core/calc/calculator.dart';
 import '../../core/config/app_features.dart';
 import '../../core/contacts/contacts_service.dart';
@@ -12,14 +13,18 @@ import '../../core/theme/evabob_theme.dart';
 import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/wallet/circle_wallet_service.dart';
+import '../../core/wallet/payee_check.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/address_scan_sheet.dart';
 import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/confirm_payment_sheet.dart';
 import '../../core/widgets/contact_picker_sheet.dart';
 import '../../core/widgets/evabob_ui.dart';
+import '../../core/widgets/family_code_sheet.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/platform_fee_note.dart';
+import '../activity/receipt_sheet.dart';
+import '../held/held_payment_screen.dart';
 import 'amount_keypad.dart';
 
 /// Send flow: amount in real tokens (USDC / EURC), plus token toggle.
@@ -183,30 +188,101 @@ class _SendScreenState extends State<SendScreen> {
   /// typed — and shows the address only as something to check against. A payee
   /// with no prior payment in the activity history is treated as new, which
   /// adds the acknowledgement step.
-  PaymentReview _buildReview(double amount, List<ActivityEntry> history) {
+  PaymentReview _buildReview(
+    double amount,
+    List<ActivityEntry> history, {
+    PayeeCheck? check,
+  }) {
     final typed = _to.text.trim();
     final target = _target;
-    final paidBefore = history.any(
-      (e) => (e.counterparty ?? '').toLowerCase() == target.toLowerCase(),
-    );
+    // The server's check covers every payment ever made, not just the page of
+    // activity loaded on this phone, so it wins when it answered.
+    final paidBefore = check?.paidBefore ??
+        history.any(
+          (e) => (e.counterparty ?? '').toLowerCase() == target.toLowerCase(),
+        );
 
     final isAddress = target.startsWith('0x');
-    final name = _picked?.name ?? (isAddress ? _shortAddress(target) : typed);
+    // Who it really is, as the server resolved it: a display name with the
+    // handle to check against, rather than only what was typed.
+    final resolvedName = check?.displayName;
+    final name = _picked?.name ??
+        resolvedName ??
+        (isAddress ? (check?.label ?? _shortAddress(target)) : typed);
     // Repeating the address under itself gives nothing extra to check, so the
     // chip only appears when the name and the address are different things.
-    final detail = isAddress && _picked != null ? _shortAddress(target) : null;
+    final detail = check != null && (resolvedName != null || _picked != null)
+        ? [
+            if (check.label.isNotEmpty && check.label != name) check.label,
+            _shortAddress(check.address),
+          ].join(' · ')
+        : (isAddress && _picked != null ? _shortAddress(target) : null);
+
+    // A cooling-off hold pays an Evabob account in dollars; it is offered
+    // only there, and switched on by default for someone never paid before.
+    final coolingOff =
+        check != null && check.coolingOffAvailable && _token == 'USDC';
 
     final memo = _memo.text.trim();
     return PaymentReview(
       payee: name,
       payeeDetail: detail,
+      payeePhotoUrl: check?.avatarUrl,
       amount: amount,
       token: _token,
       firstTime: !paidBefore,
+      cautions: check?.cautions ?? const [],
+      coolingOffMinutes: coolingOff ? check.coolingOffMinutes : null,
+      coolingOffDefault: coolingOff && check.coolingOffRecommended,
       note: memo.isEmpty
           ? 'It usually arrives in about a second.'
           : 'Memo: $memo\nIt usually arrives in about a second.',
     );
+  }
+
+  /// Sends through a cooling-off hold, then shows it with its countdown and a
+  /// Cancel button — the one place the sender can still take it back.
+  Future<void> _sendWithCoolingOff({
+    required CircleWalletService circle,
+    required ActivityService activity,
+    required WalletService walletSvc,
+    required PayeeCheck check,
+    required double amount,
+  }) async {
+    final recipient = check.holdRecipient;
+    if (recipient == null || recipient.isEmpty) return;
+    final held = await circle.holdForRecipient(
+      context: context,
+      recipient: recipient,
+      amountUsdc: amount,
+      purpose: 'cooling_off',
+      memo: _memo.text.trim().isEmpty ? null : _memo.text.trim(),
+    );
+    if (!mounted) return;
+    if (held['ok'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(friendlyError(
+            held['error'],
+            fallback: 'The payment did not go through.',
+          )),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    await walletSvc.refreshBalances(addressOverride: circle.address);
+    await activity.refresh();
+    final transferId = held['transferId']?.toString();
+    if (!mounted) return;
+    if (transferId != null && transferId.isNotEmpty) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => HeldPaymentScreen(transferId: transferId),
+        ),
+      );
+    }
+    if (mounted) widget.onBack?.call();
   }
 
   Future<void> _pickCurrency() async {
@@ -673,16 +749,67 @@ class _SendScreenState extends State<SendScreen> {
                                   return;
                                 }
                               }
+                              // Who this really is, whether they have been
+                              // paid before, and whether the address only
+                              // looks familiar — asked of the server before
+                              // anything is shown, so the review can say so.
+                              PayeeCheck? check;
+                              try {
+                                check = await checkPayee(
+                                  context.read<ApiClient>(),
+                                  payee,
+                                );
+                              } on ApiException catch (e) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(friendlyError(
+                                      e.message,
+                                      fallback:
+                                          'We could not find who that is.',
+                                    )),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (!context.mounted) return;
                               // The PIN screen after this shows a title and
                               // nothing else — not the amount, not who is
                               // being paid. This is the last and only place
                               // both appear together, so it is where the
                               // "cannot be undone" has to be said.
-                              final confirmed = await confirmPayment(
+                              final choice = await confirmPaymentChoice(
                                 context,
-                                _buildReview(amount, activity.items),
+                                _buildReview(
+                                  amount,
+                                  activity.items,
+                                  check: check,
+                                ),
                               );
-                              if (!confirmed || !context.mounted) return;
+                              if (choice == null || !context.mounted) return;
+                              // Family above the chosen amount: the code
+                              // from email, before the PIN. The server
+                              // decides, and refuses the send without it.
+                              if (check == null || check.family) {
+                                final passed = await passFamilyCheck(
+                                  context,
+                                  to: payee,
+                                  amount: amount,
+                                  token: _token,
+                                );
+                                if (!passed || !context.mounted) return;
+                              }
+                              if (choice.coolingOff && check != null) {
+                                await _sendWithCoolingOff(
+                                  circle: circle,
+                                  activity: activity,
+                                  walletSvc: walletSvc,
+                                  check: check,
+                                  amount: amount,
+                                );
+                                return;
+                              }
                               final res = await circle.send(
                                 context: context,
                                 to: payee,
@@ -730,10 +857,28 @@ class _SendScreenState extends State<SendScreen> {
                                   }
                                 }
                                 if (!context.mounted) return;
+                                // The proof link, one tap from the moment
+                                // the seller asks "has it come?". Opened from
+                                // the root navigator: this screen closes next.
+                                final sent = activity.items
+                                    .where((e) => e.id == activityId)
+                                    .firstOrNull;
+                                final rootNav =
+                                    Navigator.of(context, rootNavigator: true);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(shortUiText(msg, max: 180)),
                                     behavior: SnackBarBehavior.floating,
+                                    duration: const Duration(seconds: 6),
+                                    action: sent != null && sent.shareable
+                                        ? SnackBarAction(
+                                            label: 'Show proof',
+                                            onPressed: () => ReceiptSheet.open(
+                                              rootNav.context,
+                                              sent,
+                                            ),
+                                          )
+                                        : null,
                                   ),
                                 );
                                 final dest =

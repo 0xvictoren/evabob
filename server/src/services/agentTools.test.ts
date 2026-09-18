@@ -183,7 +183,7 @@ describe("tool dispatch", () => {
     );
   });
 
-  it("exposes every tool to the model in Groq's schema shape", () => {
+  it("exposes every tool to the model in the OpenAI-compatible schema shape", () => {
     const defs = readToolDefinitions();
     assert.equal(
       defs.length,

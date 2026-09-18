@@ -19,6 +19,9 @@ import '../../core/widgets/motion.dart';
 import '../activity/incomplete_jobs_banner.dart';
 import '../activity/receipt_sheet.dart';
 import '../chat/chat_thread_screen.dart';
+import '../groups/groups_screen.dart';
+import '../hold_links/hold_links_screen.dart';
+import '../money_in/money_in_screen.dart';
 import 'action_row.dart';
 import 'home_menu.dart';
 import 'income_card.dart';
@@ -93,6 +96,18 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (choice) {
       case HomeMenuAction.request:
         (widget.onRequest ?? widget.onSend)();
+      case HomeMenuAction.sellWithLink:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const HoldLinksScreen()),
+        );
+      case HomeMenuAction.groups:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const GroupsScreen()),
+        );
+      case HomeMenuAction.moneyIn:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const MoneyInScreen()),
+        );
       case HomeMenuAction.convert:
         widget.onExchange();
       case HomeMenuAction.ga:

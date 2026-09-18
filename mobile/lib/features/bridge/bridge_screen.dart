@@ -348,6 +348,12 @@ class _BridgeScreenState extends State<BridgeScreen> {
         payee: _destName,
         amount: amt,
         action: 'Move',
+        // Circle takes a small Fast Transfer fee on the way; the quote
+        // already subtracted it. Stale or missing quotes show the full amount.
+        landedAmount: _expectedAmount != null && _expectedAmount! <= amt
+            ? _expectedAmount
+            : null,
+        landedLabel: 'Arrives on $_destName',
         note: 'It leaves $_sourceName now and appears on $_destName once it '
             'settles. Your money is safe while it is on its way.',
       ),

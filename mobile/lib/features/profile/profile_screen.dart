@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/held/operator_reviews_api.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/auth/evabob_auth.dart';
 import '../../core/security/app_lock_service.dart';
@@ -18,6 +19,8 @@ import '../../core/widgets/confirm_action_dialog.dart';
 import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
 import '../auth/app_lock_screen.dart';
+import '../held/operator_reviews_screen.dart';
+import 'family_check_screen.dart';
 // Gateway parked for later.
 // import '../gateway/gateway_screen.dart';
 import '../wallet/circle_onboard_sheet.dart';
@@ -497,6 +500,20 @@ class ProfileScreen extends StatelessWidget {
                     );
                   },
                 ),
+                Divider(
+                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                _tile(
+                  Icons.family_restroom_rounded,
+                  'Family check',
+                  'A code from email before large payments to family',
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const FamilyCheckScreen(),
+                    ),
+                  ),
+                ),
+                // Operators only: decide held-payment reviews.
+                const _OperatorReviewsTile(),
                 // Gateway payment methods parked — revisit later.
                 // Divider(height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
                 // _tile(
@@ -600,6 +617,60 @@ class ProfileScreen extends StatelessWidget {
       trailing:
           const Icon(Icons.chevron_right_rounded, color: EvabobColors.chalk),
       onTap: onTap,
+    );
+  }
+}
+
+/// Shown only to operators. Asks the server once whether this account may
+/// decide held-payment reviews, and renders nothing for everyone else.
+class _OperatorReviewsTile extends StatefulWidget {
+  const _OperatorReviewsTile();
+
+  @override
+  State<_OperatorReviewsTile> createState() => _OperatorReviewsTileState();
+}
+
+class _OperatorReviewsTileState extends State<_OperatorReviewsTile> {
+  bool _operator = false;
+
+  @override
+  void initState() {
+    super.initState();
+    OperatorReviewsApi(context.read<ApiClient>()).isOperator().then((v) {
+      if (mounted && v) setState(() => _operator = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_operator) return const SizedBox.shrink();
+    return Column(
+      children: [
+        Divider(height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.gavel_rounded,
+              color: EvabobColors.emeraldDeep),
+          title: const Text(
+            'Held-payment reviews',
+            style: TextStyle(
+              fontWeight: FontWeight.w400,
+              color: EvabobColors.navy,
+            ),
+          ),
+          subtitle: const Text(
+            'Jobs cancelled after delivery, waiting for a decision',
+            style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded,
+              color: EvabobColors.chalk),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const OperatorReviewsScreen(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

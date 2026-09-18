@@ -11,6 +11,8 @@ import 'core/auth/evabob_auth.dart';
 import 'core/chat/chat_service.dart';
 import 'core/chat/pusher_service.dart';
 import 'core/notifications/money_alerts.dart';
+import 'core/sound/money_sounds.dart';
+import 'core/notifications/push_registration.dart';
 import 'core/navigation/app_link_service.dart';
 import 'core/config/env.dart';
 import 'core/config/app_features.dart';
@@ -67,6 +69,7 @@ class EvabobServices {
     required this.appLock,
     required this.features,
     required this.appLinks,
+    required this.push,
   });
 
   factory EvabobServices.production() {
@@ -75,6 +78,13 @@ class EvabobServices {
     final auth = EvabobAuth(api: api)..init();
     final notify = SectionNotify();
     final pusher = PusherService()..init();
+    final moneyAlerts = MoneyAlerts(pusher);
+    final appLinks = AppLinkService()..init();
+    final push = PushRegistration(api, moneyAlerts, appLinks);
+    // A tapped notification — Pusher or push — opens what it is about.
+    moneyAlerts.onOpen = push.openFromData;
+    // money_in.mp3 whenever money reaches this person while the app is open.
+    unawaited(MoneySounds.instance.start(moneyAlerts));
     return EvabobServices(
       api: api,
       fx: fx,
@@ -87,11 +97,12 @@ class EvabobServices {
       contacts: ContactsService(api),
       theme: ThemeController(),
       pusher: pusher,
-      moneyAlerts: MoneyAlerts(pusher),
+      moneyAlerts: moneyAlerts,
       notify: notify,
       appLock: AppLockService()..init(),
       features: AppFeatures(api)..refresh(),
-      appLinks: AppLinkService()..init(),
+      appLinks: appLinks,
+      push: push,
     );
   }
 
@@ -111,6 +122,7 @@ class EvabobServices {
   final AppLockService appLock;
   final AppFeatures features;
   final AppLinkService appLinks;
+  final PushRegistration push;
 }
 
 class EvabobApp extends StatefulWidget {
@@ -143,6 +155,7 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
   late final AppLockService _appLock;
   late final AppFeatures _features;
   late final AppLinkService _appLinks;
+  late final PushRegistration _push;
   late final bool _ownsServices;
 
   @override
@@ -168,6 +181,7 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
     _appLock = services.appLock;
     _features = services.features;
     _appLinks = services.appLinks;
+    _push = services.push;
     _auth.addListener(_onAuth);
   }
 
@@ -216,6 +230,8 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
       _pusher.setAuthToken(u.authToken);
       // Listening starts once the session can authorise the channel.
       _moneyAlerts.start(circleId);
+      // Push to this phone when the app is closed, if Firebase is configured.
+      _push.start(circleId);
       _wallet.syncSession().then((_) {
         _features.refresh();
         // Prefer live Circle address once ready; fall back to the SCA the
@@ -232,6 +248,8 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
         _circle.refreshOpenJobs();
       });
     } else {
+      // Before the session is cleared: unregistering needs it.
+      _push.stop();
       _api.setAuthToken(null);
       _api.setUserId(null);
       _pusher.setAuthToken(null);
@@ -281,6 +299,7 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
         ChangeNotifierProvider<EvabobAuth>.value(value: _auth),
         ChangeNotifierProvider<ChatService>.value(value: _chat),
         Provider<PusherService>.value(value: _pusher),
+        Provider<MoneyAlerts>.value(value: _moneyAlerts),
         ChangeNotifierProvider<WalletService>.value(value: _wallet),
         ChangeNotifierProvider<CircleWalletService>.value(value: _circle),
         ChangeNotifierProvider<ActivityService>.value(value: _activity),

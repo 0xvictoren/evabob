@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -10,15 +13,11 @@ import '../chat/pusher_service.dart';
 /// happened to open the app and pull to refresh. Chat had been real-time since
 /// the beginning; money had not.
 ///
-/// This listens on the user's own Pusher channel and raises a system
-/// notification. Two honest limits, worth stating rather than letting anyone
-/// assume otherwise:
-///
-///  * It works while the app is running or backgrounded, not while it is
-///    force-quit. Waking a closed app needs FCM or APNs and a Firebase
-///    project.
-///  * The server decides what is worth announcing. Nothing here polls, so an
-///    event the server never sends is silence.
+/// Alerts arrive two ways. This listens on the user's own Pusher channel,
+/// which works while the app is running or backgrounded. Push through
+/// Firebase (PushRegistration) reaches the phone when the app is closed. Both
+/// carry the same tag, and a tagged alert always lands in the same
+/// notification slot, so a phone that gets both shows one notification.
 class MoneyAlerts {
   MoneyAlerts(this._pusher);
 
@@ -28,9 +27,19 @@ class MoneyAlerts {
   bool _ready = false;
   String? _userId;
 
+  /// Called with an alert's data when its notification is tapped.
+  void Function(Map<String, dynamic> data)? onOpen;
+
+  final _events = StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Every alert as it arrives, for screens that react live — the seller's
+  /// Money in screen chimes on `money_in` instead of waiting for its next poll.
+  Stream<Map<String, dynamic>> get events => _events.stream;
+
   /// Android needs a channel declared before anything can be posted to it, and
   /// its importance is fixed at creation — raising it later is ignored, so it
-  /// is set high here to make sure a payment actually surfaces.
+  /// is set high here to make sure a payment actually surfaces. Push from the
+  /// server names this same channel.
   static const _channel = AndroidNotificationChannel(
     'evabob_money',
     'Money',
@@ -46,6 +55,14 @@ class MoneyAlerts {
           android: AndroidInitializationSettings('@mipmap/ic_launcher'),
           iOS: DarwinInitializationSettings(),
         ),
+        onDidReceiveNotificationResponse: (response) {
+          final payload = response.payload;
+          if (payload == null || payload.isEmpty) return;
+          try {
+            final data = jsonDecode(payload);
+            if (data is Map) onOpen?.call(Map<String, dynamic>.from(data));
+          } catch (_) {}
+        },
       );
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
@@ -81,16 +98,37 @@ class MoneyAlerts {
     if (id != null) await _pusher.unsubscribeUserAlerts(id);
   }
 
+  /// A push that arrived while the app was open. Shown like the Pusher copy.
+  void showPush({String? title, String? body, Map<String, dynamic>? data}) {
+    _show({
+      ...?data,
+      if (title != null) 'title': title,
+      if (body != null) 'body': body,
+    });
+  }
+
   void _show(Map<String, dynamic> alert) {
+    _events.add(alert);
     final title = alert['title']?.toString() ?? 'Evabob';
     final body = alert['body']?.toString() ?? '';
     if (body.isEmpty) return;
     if (!_ready) return;
+    final tag = alert['tag']?.toString();
+    final payload = jsonEncode({
+      for (final k in ['kind', 'transferId', 'jobId', 'txHash', 'link'])
+        if (alert[k] != null) k: alert[k].toString(),
+    });
     try {
       _plugin.show(
-        // Distinct per notification so a second payment does not silently
-        // replace the first one the user has not read yet.
-        DateTime.now().millisecondsSinceEpoch.remainder(1 << 31),
+        // With a tag, one fixed slot: Android keys notifications by tag and
+        // id (FCM posts tagged ones with id 0), and iOS replaces a request with
+        // the same identifier. Without one, a distinct id, so a second payment
+        // does not silently replace a first the user has not read yet.
+        tag == null
+            ? DateTime.now().millisecondsSinceEpoch.remainder(1 << 31)
+            : (defaultTargetPlatform == TargetPlatform.android
+                ? 0
+                : tag.hashCode & 0x7fffffff),
         title,
         body,
         NotificationDetails(
@@ -100,9 +138,13 @@ class MoneyAlerts {
             channelDescription: _channel.description,
             importance: Importance.high,
             priority: Priority.high,
+            tag: tag,
+            // The second copy of the same alert replaces the first silently.
+            onlyAlertOnce: true,
           ),
           iOS: const DarwinNotificationDetails(),
         ),
+        payload: payload,
       );
     } catch (e) {
       debugPrint('MoneyAlerts show: $e');

@@ -60,3 +60,8 @@ server/data/
 *.tsbuildinfo
 next-env.d.ts
 
+
+# Firebase: the service-account key is a secret (its value lives in server/.env);
+# google-services.json is not needed by the build (the app reads dart_defines.json).
+*firebase-adminsdk*.json
+mobile/tool/google-services.json

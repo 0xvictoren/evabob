@@ -16,12 +16,23 @@ import 'package:provider/provider.dart';
 /// The labels are the brief's, not the code's: Buy is "Convert", Bridge is
 /// "Move money", Unified is "Your GA". A person should not have to know what a
 /// bridge is to move their own money.
-enum HomeMenuAction { request, convert, ga, agent, moveMoney, profile }
+enum HomeMenuAction {
+  request,
+  sellWithLink,
+  groups,
+  moneyIn,
+  convert,
+  ga,
+  agent,
+  moveMoney,
+  profile,
+}
 
 Future<HomeMenuAction?> showHomeMenu(BuildContext context) {
   return showModalBottomSheet<HomeMenuAction>(
     context: context,
     backgroundColor: Colors.transparent,
+    isScrollControlled: true,
     // A sheet that springs up, per the brief. The bounce comes from the
     // transition curve, not from the sheet dragging.
     transitionAnimationController: null,
@@ -38,6 +49,24 @@ class _Menu extends StatelessWidget {
       Icons.request_quote_outlined,
       'Request',
       'Ask someone to pay you'
+    ),
+    (
+      HomeMenuAction.sellWithLink,
+      Icons.add_link_rounded,
+      'Sell with a link',
+      "Buyers' money is set aside until their order arrives"
+    ),
+    (
+      HomeMenuAction.groups,
+      Icons.groups_2_outlined,
+      'Circles and collections',
+      'Save together, or raise money for something'
+    ),
+    (
+      HomeMenuAction.moneyIn,
+      Icons.point_of_sale_rounded,
+      'Money in',
+      'Hear each payment arrive, for your counter'
     ),
     (
       HomeMenuAction.convert,
@@ -77,6 +106,9 @@ class _Menu extends StatelessWidget {
     final visible = _items.where((item) {
       return switch (item.$1) {
         HomeMenuAction.request => features.requests,
+        HomeMenuAction.sellWithLink => true,
+        HomeMenuAction.groups => true,
+        HomeMenuAction.moneyIn => true,
         HomeMenuAction.convert => features.conversion,
         HomeMenuAction.ga => features.gateway,
         HomeMenuAction.moveMoney => features.bridge,
@@ -95,8 +127,12 @@ class _Menu extends StatelessWidget {
           boxShadow: Shadows.raised,
         ),
         padding: const EdgeInsets.symmetric(vertical: Space.sm),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          padding: EdgeInsets.zero,
           children: [
             for (var i = 0; i < visible.length; i++)
               RiseIn(

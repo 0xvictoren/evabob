@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/activity/activity_service.dart';
-import '../../core/utils/text_safe.dart';
+import '../../core/api/api_client.dart';
+import '../../core/held/held_payments_api.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/utils/money_format.dart';
-import '../../core/wallet/circle_wallet_service.dart';
-import '../../core/wallet/wallet_service.dart';
-import '../../core/widgets/confirm_action_dialog.dart';
 import '../../core/widgets/glass.dart';
+import '../held/held_payment_screen.dart';
 
-/// Money this user is holding for someone else, with a way to hand it over.
+/// Money being held — for someone, or for this person — that is not settled.
 ///
-/// It needs its own list rather than riding on activity rows because releasing
-/// takes the on-chain transfer id, which an activity row does not carry.
+/// Both sides see it now. A worker used to have no view of money held for
+/// them at all, so they could not mark work delivered, and a payer who went
+/// quiet simply got it back at expiry. Each row says in one line where the
+/// payment stands and opens the payment for anything that needs doing.
 class HeldPaymentsBanner extends StatefulWidget {
   const HeldPaymentsBanner({super.key});
 
@@ -22,8 +23,7 @@ class HeldPaymentsBanner extends StatefulWidget {
 }
 
 class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
-  List<Map<String, dynamic>> _items = const [];
-  String? _busyId;
+  List<HeldPayment> _items = const [];
   bool _loaded = false;
 
   @override
@@ -34,10 +34,10 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
 
   Future<void> _load() async {
     try {
-      final list = await context.read<CircleWalletService>().listHeldPayments();
+      final all = await HeldPaymentsApi(context.read<ApiClient>()).list();
       if (!mounted) return;
       setState(() {
-        _items = list;
+        _items = all.where((h) => !h.stage.settled).toList(growable: false);
         _loaded = true;
       });
     } catch (_) {
@@ -45,67 +45,33 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
     }
   }
 
-  /// Days left, because an exact timestamp is not what anyone needs here —
-  /// they need to know whether it is about to come back to them.
-  String _remaining(String? expiresAt) {
-    if (expiresAt == null) return '';
-    final end = DateTime.tryParse(expiresAt);
-    if (end == null) return '';
-    final left = end.difference(DateTime.now());
-    if (left.isNegative) return 'expired — returning to you';
-    if (left.inDays >= 1) {
-      return '${left.inDays} day${left.inDays == 1 ? '' : 's'} left';
-    }
-    return '${left.inHours} hour${left.inHours == 1 ? '' : 's'} left';
-  }
-
-  Future<void> _release(Map<String, dynamic> item) async {
-    final id = item['transferId']?.toString();
-    if (id == null) return;
-    // Handing the money over is final, and it sat behind a single unguarded
-    // tap on a banner someone might not have been reading closely.
-    final amount = (item['amountUsdc'] as num?)?.toDouble();
-    final who = item['recipientId']?.toString() ?? 'them';
-    final confirmed = await confirmAction(
-      context,
-      title: 'Send this to $who?',
-      message: amount == null
-          ? 'It reaches them straight away, and you cannot get it back '
-              'afterwards.'
-          : '${formatMoney(amount)} reaches them straight away. You cannot '
-              'get it back afterwards.',
-      confirmLabel: 'Send it',
-    );
-    if (!confirmed || !mounted) return;
-    setState(() => _busyId = id);
-    final circle = context.read<CircleWalletService>();
-    final activity = context.read<ActivityService>();
-    final wallet = context.read<WalletService>();
-    final res = await circle.releaseHold(id);
-    if (!mounted) return;
-    setState(() => _busyId = null);
-
-    final ok = res['ok'] == true;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok
-              ? 'Sent to ${item['recipientId']}'
-              : friendlyError(
-                  res['error'],
-                  fallback: 'Could not send that yet. Try again in a moment.',
-                ),
-        ),
-        behavior: SnackBarBehavior.floating,
+  Future<void> _open(HeldPayment h) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => HeldPaymentScreen(transferId: h.transferId),
       ),
     );
-    if (ok) {
-      await _load();
-      try {
-        await activity.refresh();
-        await wallet.refreshBalances(force: true, silent: true);
-      } catch (_) {}
-    }
+    if (mounted) await _load();
+  }
+
+  String _line(HeldPayment h) {
+    String day(DateTime? t) =>
+        t == null ? 'soon' : DateFormat('d MMM').format(t.toLocal());
+    final who = h.counterparty;
+    return switch (h.stage) {
+      HeldStage.waitingForDelivery => h.isPayer
+          ? 'Held for $who until the work arrives'
+          : '$who is holding this for your work — mark it delivered when done',
+      HeldStage.delivered => h.isPayer
+          ? '$who says it is done — check it by ${day(h.autoReleaseAt)}'
+          : 'Delivered — yours on ${day(h.autoReleaseAt)} unless they object',
+      HeldStage.underReview => h.isPayer
+          ? 'Being reviewed'
+          : 'Being reviewed — add your side',
+      HeldStage.coolingOff => 'Sending to $who shortly — you can still cancel',
+      HeldStage.waitingToClaim => 'Waiting for $who to join',
+      _ => '',
+    };
   }
 
   @override
@@ -113,62 +79,59 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
     if (!_loaded || _items.isEmpty) return const SizedBox.shrink();
     return Column(
       children: [
-        for (final item in _items)
+        for (final h in _items)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Glass(
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor:
-                        EvabobColors.danger.withValues(alpha: 0.12),
-                    child: const Icon(
-                      Icons.lock_clock_rounded,
-                      color: EvabobColors.danger,
-                      size: 20,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _open(h),
+              child: Glass(
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: (h.needsMe
+                              ? EvabobColors.danger
+                              : EvabobColors.blue)
+                          .withValues(alpha: 0.12),
+                      child: Icon(
+                        h.isCoolingOff
+                            ? Icons.timer_outlined
+                            : Icons.lock_clock_rounded,
+                        color: h.needsMe ? EvabobColors.danger : EvabobColors.blue,
+                        size: 20,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Holding ${item['amountUsdc'] is num ? formatMoney((item['amountUsdc'] as num).toDouble()) : '\$—'} for ${item['recipientId']}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w400,
-                            color: EvabobColors.navy,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            h.isPayer
+                                ? '${formatMoney(h.amountUsdc)} to ${h.counterparty}'
+                                : '${formatMoney(h.amountUsdc)} from ${h.counterparty}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w400,
+                              color: EvabobColors.navy,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          [
-                            if ((item['memo']?.toString() ?? '').isNotEmpty)
-                              item['memo'].toString(),
-                            _remaining(item['expiresAt']?.toString()),
-                          ].where((s) => s.isNotEmpty).join(' · '),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: EvabobColors.navyMuted,
+                          const SizedBox(height: 2),
+                          Text(
+                            _line(h),
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: EvabobColors.navyMuted,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (_busyId == item['transferId']?.toString())
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else
-                    FilledButton(
-                      onPressed:
-                          item['expired'] == true ? null : () => _release(item),
-                      child: const Text('Send it'),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: EvabobColors.inkTertiary,
                     ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

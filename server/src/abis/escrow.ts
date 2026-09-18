@@ -1,5 +1,10 @@
 /**
- * PaymentEscrowV2 on Arc.
+ * PaymentEscrowV3 on Arc (a superset of V2's interface).
+ *
+ * V3 adds two attestor-only functions: `refundWithAttestation`, which returns
+ * a pending hold to its sender before expiry, and `extendExpiry`, which moves
+ * expiry later while a cancelled job is under review. Everything else below
+ * is unchanged from V2.
  *
  * Differs from V1 in ways that matter to callers: `createTransfer` no longer
  * takes a password hash (the password claim path was front-runnable and is
@@ -40,6 +45,23 @@ export const paymentEscrowAbi = [
     name: "refund",
     stateMutability: "nonpayable",
     inputs: [{ name: "transferId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "refundWithAttestation",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "transferId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "extendExpiry",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "transferId", type: "uint256" },
+      { name: "newExpiresAt", type: "uint64" },
+    ],
     outputs: [],
   },
   {
@@ -137,6 +159,24 @@ export const paymentEscrowAbi = [
       { name: "transferId", type: "uint256", indexed: true },
       { name: "sender", type: "address", indexed: true },
       { name: "amount", type: "uint128", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "TransferRefundedEarly",
+    inputs: [
+      { name: "transferId", type: "uint256", indexed: true },
+      { name: "sender", type: "address", indexed: true },
+      { name: "amount", type: "uint128", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "ExpiryExtended",
+    inputs: [
+      { name: "transferId", type: "uint256", indexed: true },
+      { name: "previousExpiresAt", type: "uint64", indexed: false },
+      { name: "expiresAt", type: "uint64", indexed: false },
     ],
   },
 ] as const;

@@ -179,6 +179,8 @@ class _AgentsScreenState extends State<AgentsScreen> {
                 ),
               ),
               const SizedBox(height: 14),
+              const _PayableServices(),
+              const SizedBox(height: 14),
               if (agents.loading && agents.wallets.isEmpty)
                 const Padding(
                   padding: EdgeInsets.all(24),
@@ -782,6 +784,96 @@ class _AgentDetailState extends State<_AgentDetail> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// What an agent wallet can actually spend on, said before anyone funds one.
+///
+/// The catalog of paid services has sellers on Arc's main network and none on
+/// its test network, so on testnet this says nothing is payable yet rather
+/// than letting someone fund a wallet for spending that cannot happen.
+class _PayableServices extends StatefulWidget {
+  const _PayableServices();
+
+  @override
+  State<_PayableServices> createState() => _PayableServicesState();
+}
+
+class _PayableServicesState extends State<_PayableServices> {
+  AgentServices? _services;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<AgentService>().services().then((s) {
+      if (mounted) setState(() => _services = s);
+    }).catchError((Object _) {
+      if (mounted) setState(() => _failed = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _services;
+    if (s == null && !_failed) return const SizedBox.shrink();
+    final payable = s?.paidExecution == true && s!.items.isNotEmpty;
+    return Glass(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'What an agent can pay for here',
+            style: TextStyle(
+              fontWeight: FontWeight.w400,
+              fontSize: 14,
+              color: EvabobColors.navy,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (!payable)
+            Text(
+              _failed
+                  ? 'We could not load the list right now.'
+                  : '${s?.note ?? 'Nothing yet.'} An agent wallet can still '
+                      'hold money, and you can take it out any time.',
+              style: const TextStyle(
+                fontSize: 10,
+                color: EvabobColors.navyMuted,
+              ),
+            )
+          else
+            for (final item in s.items.take(8))
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.description.isEmpty
+                            ? item.provider
+                            : '${item.provider} · ${item.description}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: EvabobColors.navyMuted,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      formatMoney(item.priceUsdc),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: EvabobColors.navy,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
     );
   }
 }

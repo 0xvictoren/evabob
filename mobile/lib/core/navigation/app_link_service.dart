@@ -24,6 +24,14 @@ class AppLinkService extends ChangeNotifier {
     );
   }
 
+  /// Opens an in-app link, e.g. from a tapped notification. Same handling as
+  /// a link from outside the app.
+  void open(Uri uri) {
+    if (uri.scheme.toLowerCase() != 'evabob') return;
+    _pending = uri;
+    notifyListeners();
+  }
+
   Uri? take() {
     final value = _pending;
     _pending = null;

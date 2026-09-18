@@ -81,6 +81,20 @@ class ApiClient {
     return _decode(res);
   }
 
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final res = await _client
+        .delete(
+          _u(path),
+          headers: _headers,
+          body: jsonEncode(body ?? {}),
+        )
+        .timeout(const Duration(seconds: 30));
+    return _decode(res);
+  }
+
   Map<String, dynamic> _decode(http.Response res) {
     Map<String, dynamic> json = {};
     try {

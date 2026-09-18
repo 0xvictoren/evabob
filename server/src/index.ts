@@ -7,7 +7,6 @@ import { ZodError } from "zod";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { bodyLimit } from "hono/body-limit";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { config } from "./config.js";
 import { dataDir, dataPath } from "./utils/data-path.js";
 import { authMiddleware } from "./middleware/auth.js";
@@ -24,6 +23,7 @@ import {
   flushPrimaryStore,
   initializePrimaryStore,
   primaryStoreHealth,
+  refreshPrimaryStoreIfStale,
 } from "./services/primary-store.js";
 import { assertProductionSafety } from "./services/production-safety.js";
 
@@ -73,6 +73,18 @@ app.use(
     ],
   }),
 );
+
+// Several instances may be running (every serverless host does this). If
+// another has saved since this one last looked, catch up before handling, so
+// the request neither acts on stale records nor loses a race when it saves.
+app.use("*", async (_c, next) => {
+  try {
+    await refreshPrimaryStoreIfStale();
+  } catch (error) {
+    console.warn("[store] refresh before request failed", error);
+  }
+  await next();
+});
 
 // A response that mutated local state is not released until the matching
 // atomic Mongo snapshot is durable. JSON-only development remains a no-op.
@@ -145,6 +157,14 @@ app.use("/v1/users/handle", rateLimit(SENSITIVE));
 app.use("/v1/x402/*", rateLimit(SENSITIVE));
 app.use("/v1/synthra/*", rateLimit(SENSITIVE));
 app.use("/v1/escrow/protected/*", rateLimit(SENSITIVE));
+// Actions that move held money or open a review. POST only: the app polls
+// GET /v1/escrow/held/:id on a receipt, and that must not hit this ceiling.
+app.on("POST", "/v1/escrow/held/*", rateLimit(SENSITIVE));
+app.on("POST", "/v1/operator/*", rateLimit(SENSITIVE));
+// Group money: each confirm reads the chain; the keeper does the rest.
+app.on("POST", "/v1/groups/*", rateLimit(SENSITIVE));
+// Sends email, and guards a 6-digit code against guessing.
+app.use("/v1/family-check/*", rateLimit(SENSITIVE));
 app.use("/v1/agents/*/deposit", rateLimit(SENSITIVE));
 app.use("/v1/agents/*/withdraw", rateLimit(SENSITIVE));
 app.use("/v1/agents", rateLimit(ONBOARDING));
@@ -154,13 +174,45 @@ app.use("/v1/circle/create-user", rateLimit(ONBOARDING));
 app.use("/v1/circle/session", rateLimit(ONBOARDING));
 app.use("/v1/circle/prepare-pin", rateLimit(ONBOARDING));
 
-app.use(
-  "/uploads/*",
-  serveStatic({
-    root: dataDir,
-    rewriteRequestPath: (p) => p.replace(/^\/uploads/, "/uploads"),
-  }),
-);
+/**
+ * Profile photos. Served from Mongo, where uploads are stored, with this
+ * instance's disk as a fallback for local development without Mongo. Only
+ * the avatar filename shape is served, so nothing else on disk is reachable.
+ */
+const AVATAR_FILE = /^avatar_[a-f0-9]{32}\.(jpg|png|webp)$/;
+// Review evidence photos: random names, reachable only by those given the path.
+const EVIDENCE_FILE = /^evidence_[a-f0-9]{32}\.(jpg|png|webp)$/;
+app.get("/uploads/:file", async (c) => {
+  const file = c.req.param("file");
+  if (!AVATAR_FILE.test(file) && !EVIDENCE_FILE.test(file)) return c.notFound();
+  const headers = {
+    "Cache-Control": "public, max-age=86400",
+    "X-Content-Type-Options": "nosniff",
+  };
+  try {
+    const { mongoLoadAvatar } = await import("./services/mongo.js");
+    const stored = await mongoLoadAvatar(file);
+    if (stored) {
+      return c.body(new Uint8Array(stored.bytes), 200, {
+        ...headers,
+        "Content-Type": stored.mime,
+      });
+    }
+  } catch (error) {
+    console.warn("[avatar] mongo read failed", error);
+  }
+  const onDisk = resolve(dataDir, "uploads", file);
+  if (!existsSync(onDisk)) return c.notFound();
+  const mime = file.endsWith(".png")
+    ? "image/png"
+    : file.endsWith(".webp")
+      ? "image/webp"
+      : "image/jpeg";
+  return c.body(new Uint8Array(readFileSync(onDisk)), 200, {
+    ...headers,
+    "Content-Type": mime,
+  });
+});
 
 // Acquire the global writer lease and restore Mongo's authoritative snapshot
 // before importing modules that load JSON into memory.
@@ -273,15 +325,40 @@ app.get("/challenge", (c) => {
   return c.html(readFileSync(path, "utf8"));
 });
 
-// Hosted schedulers invoke this route with CRON_SECRET. A local Node process
-// can still run the in-process timer when RUN_INTERNAL_REFUND_JOB is not false.
-app.get("/internal/cron/escrow-refunds", async (c) => {
+// Hosted schedulers invoke these routes with CRON_SECRET (Vercel Cron sends
+// it as a bearer token automatically). A local Node process runs the same
+// work on in-process timers when RUN_INTERNAL_REFUND_JOB is not false.
+function cronAuthorized(c: { req: { header: (n: string) => string | undefined } }) {
   const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return c.json({ error: "cron_not_configured" }, 503);
-  if (c.req.header("authorization") !== `Bearer ${secret}`) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
+  if (!secret) return "cron_not_configured" as const;
+  return c.req.header("authorization") === `Bearer ${secret}` ? null : ("unauthorized" as const);
+}
+
+app.get("/internal/cron/escrow-refunds", async (c) => {
+  const denied = cronAuthorized(c);
+  if (denied) return c.json({ error: denied }, denied === "unauthorized" ? 401 : 503);
   return c.json(await processExpiredEscrows());
+});
+
+/**
+ * Everything that must happen on time without anyone watching: job holds
+ * whose 7 days are up, cooling-off payments whose 10 minutes have passed,
+ * bridges abandoned for more than 40 minutes, reminders. Add `refunds=1` to
+ * also sweep expired holds (the chain walk is heavier, so hourly is plenty).
+ *
+ * Every step is idempotent and re-checks the chain before moving money, so a
+ * scheduler that runs twice, or late, only repeats or delays work.
+ */
+app.get("/internal/cron/tick", async (c) => {
+  const denied = cronAuthorized(c);
+  if (denied) return c.json({ error: denied }, denied === "unauthorized" ? 401 : 503);
+  const { runTickWork } = await import("./services/tick.js");
+  const work = await runTickWork();
+  const refunds =
+    c.req.query("refunds") === "1" ? await processExpiredEscrows() : undefined;
+  // Runs outside a user request; persist before answering.
+  await flushPrimaryStore();
+  return c.json({ ...work, ...(refunds ? { refunds } : {}) });
 });
 
 // Advertises only what is actually mounted above. This list used to name
@@ -328,6 +405,25 @@ if (!process.env.VERCEL) {
   }
   if (process.env.RUN_INTERNAL_REFUND_JOB !== "false") {
     startEscrowRefundJob();
+    // The same due work the hosted tick runs, once a minute.
+    let ticking = false;
+    const tick = async () => {
+      // A slow tick (a round collected, refunds sent) must not overlap the next.
+      if (ticking) return;
+      ticking = true;
+      try {
+        const { runTickWork, tickWasBusy } = await import("./services/tick.js");
+        const work = await runTickWork();
+        if (tickWasBusy(work)) console.log("[tick]", JSON.stringify(work));
+        await flushPrimaryStore();
+      } catch (e) {
+        console.warn("[tick]", e instanceof Error ? e.message : e);
+      } finally {
+        ticking = false;
+      }
+    };
+    setTimeout(tick, 20_000);
+    setInterval(tick, 60_000);
   }
 }
 

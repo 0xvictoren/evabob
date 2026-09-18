@@ -79,5 +79,9 @@
 	<string>Evabob uses the camera to scan wallet QR codes.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Evabob uses Face ID to unlock the app and confirm payments.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>

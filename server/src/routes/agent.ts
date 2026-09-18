@@ -229,7 +229,7 @@ async function formatInvoices(uid: string): Promise<string> {
 /**
  * What the agent said before it could call tools.
  *
- * Still the answer whenever Groq is unreachable, rate-limited, or returns
+ * Still the answer whenever the model is unreachable, rate-limited, or returns
  * nothing usable — a degraded reply beats an empty chat bubble, and these
  * three lookups cover the questions people actually ask most.
  */
@@ -417,7 +417,7 @@ agentRoutes.post("/message", async (c) => {
   // Every message goes to the tool-calling agent first. It answers questions
   // from the read tools, and for money it calls a propose_ tool, which
   // validates and resolves the action but moves nothing — the card below is
-  // what the user approves. When Groq is unreachable the deterministic parser
+  // what the user approves. When the model is unreachable the deterministic parser
   // below still handles the turn, so a money instruction never depends on the
   // model being up.
   const turn = await runAgentTurn({
@@ -510,7 +510,7 @@ agentRoutes.post("/message", async (c) => {
     });
   }
 
-  // Groq was unreachable. Fall back to the deterministic parser: reads and
+  // The model was unreachable. Fall back to the deterministic parser: reads and
   // chatter get their pre-tool canned answers, money instructions carry on to
   // the original Confirm-card path below.
   if (CONVERSATIONAL.has(intent.intent)) {

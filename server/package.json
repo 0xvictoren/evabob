@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start:prod": "node dist/index.js",
     "cron:escrow-refunds": "node scripts/run-escrow-refunds.mjs",
+    "cron:tick": "node scripts/run-escrow-refunds.mjs /internal/cron/tick?refunds=1",
     "smoke:render": "node scripts/render-smoke.mjs",
     "validate:render-env": "node scripts/validate-render-env.mjs",
     "keys:roles": "tsx src/scripts/generate-role-keys.ts",

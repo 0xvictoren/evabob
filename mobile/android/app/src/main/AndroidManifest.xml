@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Android 13+: money alerts and held-payment reminders (local and push). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="@string/app_name"
@@ -40,6 +42,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Push that names no channel lands in the same "Money" channel the
+             app creates for in-app alerts. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="evabob_money" />
     </application>
     <queries>
         <intent>

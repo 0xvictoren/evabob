@@ -13,6 +13,7 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/confirm_payment_sheet.dart';
 import '../../core/widgets/evabob_ui.dart';
+import '../../core/widgets/family_code_sheet.dart';
 import '../../core/widgets/glass.dart';
 
 class PaymentLinkScreen extends StatefulWidget {
@@ -93,6 +94,11 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
       ),
     );
     if (!approved || !mounted) return;
+    if (!await passFamilyCheck(context,
+            to: address, amount: amount, token: token) ||
+        !mounted) {
+      return;
+    }
 
     setState(() {
       _busy = true;
@@ -145,6 +151,75 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
     }
   }
 
+  /// Pays by milestone: each line set aside on its own and paid to the
+  /// sender as that part is delivered.
+  Future<void> _payByMilestone() async {
+    final invoice = _invoice;
+    if (invoice == null || _busy) return;
+    final payee = invoice['payee'] is Map
+        ? Map<String, dynamic>.from(invoice['payee'] as Map)
+        : <String, dynamic>{};
+    final label = payee['label']?.toString() ?? 'Evabob user';
+    final address = payee['address']?.toString() ?? '';
+    final amount = (invoice['total'] as num?)?.toDouble() ?? 0;
+    final lines = (invoice['items'] as List? ?? const []).length;
+    final approved = await confirmPayment(
+      context,
+      PaymentReview(
+        payee: label,
+        amount: amount,
+        action: 'Set aside',
+        warning: 'The money leaves your balance now, in $lines parts. Each '
+            'part reaches $label only when that milestone is delivered, or '
+            '7 days after it is marked delivered if you say nothing. You can '
+            'cancel any part before it is delivered.',
+        landedLabel: 'Set aside for $label',
+      ),
+    );
+    if (!approved || !mounted) return;
+    if (address.startsWith('0x') &&
+        (!await passFamilyCheck(context, to: address, amount: amount) ||
+            !mounted)) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final res = await context
+          .read<CircleWalletService>()
+          .holdMilestones(context: context, paymentRequestId: widget.requestId);
+      if (!mounted) return;
+      if (res['ok'] != true) {
+        throw Exception(res['error']?.toString() ?? 'The milestones were not set aside');
+      }
+      await Future.wait([
+        context.read<ActivityService>().refresh(),
+        context.read<WalletService>().refreshBalances(
+              addressOverride: context.read<CircleWalletService>().address,
+            ),
+      ]);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Set aside in $lines parts. Each is paid as it is '
+              'delivered — follow them in Activity.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = friendlyError(
+            error,
+            fallback: 'The milestones were not set aside.',
+          ));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final invoice = _invoice;
@@ -157,6 +232,9 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
     final payee = invoice?['payee'] is Map
         ? Map<String, dynamic>.from(invoice!['payee'] as Map)
         : <String, dynamic>{};
+    final byMilestone = (invoice?['allowedStructures'] as List? ?? const [])
+        .contains('milestones');
+    final dueAt = DateTime.tryParse(invoice?['dueAt']?.toString() ?? '');
 
     return Scaffold(
       backgroundColor: EvabobColors.pageBg,
@@ -194,6 +272,19 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
                           style: const TextStyle(
                               fontSize: 14, color: EvabobColors.navyMuted),
                         ),
+                        if (open && dueAt != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Due ${MaterialLocalizations.of(context).formatMediumDate(dueAt.toLocal())}',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: dueAt.isBefore(DateTime.now())
+                                  ? EvabobColors.alert
+                                  : EvabobColors.navyMuted,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 24),
                         if (invoice != null)
                           Glass(
@@ -241,6 +332,22 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
                                   const TextStyle(color: EvabobColors.alert)),
                         ],
                         const SizedBox(height: 24),
+                        if (open && byMilestone) ...[
+                          EvabobPrimaryButton(
+                            label: 'Set aside by milestone',
+                            onPressed: !_busy ? _payByMilestone : null,
+                            busy: _busy,
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Each line is paid only when that part is '
+                            'delivered. Or pay it all now:',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                fontSize: 11, color: EvabobColors.navyMuted),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         EvabobPrimaryButton(
                           label: open
                               ? 'Pay ${formatMoney(amount, token)}'

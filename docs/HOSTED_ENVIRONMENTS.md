@@ -7,7 +7,7 @@ It creates three resources in Frankfurt:
 |---|---|---|
 | `evabob-api-testnet` | paid Node web service, one instance | Hono API, Circle/Arc integration and durable avatar uploads |
 | `evabob-web-testnet` | paid Node web service | Next.js public `/pay/{id}` and `/claim` pages |
-| `evabob-refunds-testnet` | hourly cron | Calls the protected held-payment refund endpoint at minute 5 UTC |
+| `evabob-refunds-testnet` | cron, every 5 minutes | Calls `/internal/cron/tick?refunds=1`: due held-payment releases, abandoned-bridge completion, reminders, expired-hold refunds |
 
 The smallest paid web plan is intentional. The API needs a persistent disk,
 which Render does not offer on free web services. The public payment service is
@@ -159,10 +159,52 @@ Before enabling a feature flag:
 6. Enable only the single feature being tested, complete its failure matrix,
    then leave it enabled only if every state reconciles correctly.
 
-## Known scaling boundary
+## Scheduled work — `/internal/cron/tick`
 
-The current store is a process-global snapshot mirrored atomically to Mongo
-under a renewable writer lease. The disk-backed API is therefore pinned to one
-instance and is appropriate only for low-traffic internal testnet. Before a
-larger test, normalize financial records into Mongo collections with
-database-level atomic/idempotent writes and move avatars to object storage.
+Some things must happen on time with nobody watching: a job hold whose 7
+days are up releases to the worker, a cooling-off payment goes after its 10
+minutes, a bridge abandoned for 40 minutes is finished by the server, and
+reminders go out. One authenticated route does all of it:
+
+```
+GET /internal/cron/tick            # held payments + abandoned bridges
+GET /internal/cron/tick?refunds=1  # …plus the expired-hold refund sweep
+Authorization: Bearer $CRON_SECRET
+```
+
+Every step re-checks the chain before moving money, so running it twice, or
+late, only repeats or delays work. The same work also runs whenever the people
+involved open their held payments or bridge jobs, so a missed schedule delays
+a release rather than losing it.
+
+| Host | How it is scheduled |
+|---|---|
+| **Local** (current — the API is not hosted yet) | The server runs the same work every minute in process unless `RUN_INTERNAL_REFUND_JOB=false`. No cron is needed. |
+| **Render** (prepared, not deployed) | The `evabob-refunds-testnet` cron runs `npm run cron:tick` every 5 minutes. |
+| **Vercel** (prepared, not deployed) | `server/vercel.json` declares a daily cron, the most frequent a free plan accepts. Set `CRON_SECRET` in the project's environment and Vercel sends it automatically. On a Pro plan use `*/5 * * * *`, or point an external scheduler at the route every 5 minutes. |
+
+A 10-minute cooling-off payment only goes on time if something runs within a
+few minutes of it becoming due — the scheduler, or the sender watching the
+countdown screen (which asks the server when the timer ends).
+
+## Scaling boundary
+
+The store is still an in-memory snapshot mirrored to Mongo, but two limits
+were removed on 2026-09-18:
+
+- **The 16 MB ceiling.** The snapshot is written as chunk documents under a
+  small head document that is switched atomically to each new generation.
+  While the state is under 12 MB the head also carries an inline copy, so a
+  server still running the previous release can read it.
+- **One writer only.** Each save is conditional on the generation the process
+  loaded, so a second instance can no longer silently overwrite the first.
+  Each request first checks the head (one small read) and reloads if another
+  instance saved. A save that loses a race fails with `503
+  persistence_unavailable` instead of overwriting. On Vercel the writer lease
+  is advisory for that reason; elsewhere it is still exclusive.
+
+Profile photos are stored in Mongo, not on the API's disk.
+
+Still to do before real traffic: financial records as individual Mongo
+documents with per-record atomic writes (so concurrent requests on different
+instances do not contend for one snapshot), and an external contract audit.

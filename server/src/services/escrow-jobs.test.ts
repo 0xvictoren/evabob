@@ -23,9 +23,13 @@ const scratch = mkdtempSync(join(tmpdir(), "evabob-escrow-jobs-"));
 mkdirSync(join(scratch, "data"), { recursive: true });
 process.chdir(scratch);
 
-const { trackProtectedEscrow, listLocalPending } = await import(
-  "./escrow-jobs.js"
-);
+// Records are only acted on against the contract they were created on, so
+// the test needs a configured one. Set before config.ts is first imported.
+const CURRENT = "0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39";
+process.env.PAYMENT_ESCROW = CURRENT;
+
+const { trackProtectedEscrow, listLocalPending, findTrackedByTransferId } =
+  await import("./escrow-jobs.js");
 
 const FILE = join(scratch, "data", "protected-escrows.json");
 
@@ -77,6 +81,29 @@ describe("tracked protected escrows", () => {
       "a restarted process must still see the pending hold",
     );
     assert.equal(pending[0]!.onChainTransferId, "7");
+  });
+
+  it("stamps each hold with the contract it lives on", () => {
+    const [row] = listLocalPending();
+    assert.equal(row!.contractAddress, CURRENT);
+  });
+
+  it("never acts on a hold recorded against an older contract", () => {
+    // Transfer ids restart at 1 on every deployment. A record from the old
+    // contract naming transfer 7 must not be mistaken for the new contract's
+    // transfer 7, or a refund or release would touch someone else's money.
+    trackProtectedEscrow({
+      onChainTransferId: "8",
+      contractAddress: "0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805",
+      fromUserId: "payer",
+      recipientKind: "email",
+      recipientId: "old@example.com",
+      amountUsdc: 1,
+      memo: "",
+      createTx: "0x" + "b".repeat(64),
+    });
+    assert.equal(findTrackedByTransferId("8"), undefined);
+    assert.ok(listLocalPending().every((r) => r.onChainTransferId !== "8"));
   });
 
   it("records the on-chain transfer id, which is what a refund needs", () => {

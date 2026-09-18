@@ -1,10 +1,11 @@
 /**
- * Groq LLM fallback for the Evabob Agent.
+ * Language-model fallback for the Evabob Agent's intent parser (DeepSeek, via
+ * services/llm.ts).
  * Only used when the deterministic parser is unsure.
  * Never executes transfers — returns structured JSON only.
  */
 
-import { config } from "../config.js";
+import { chatCompletion, llmConfigured } from "./llm.js";
 import {
   type AgentIntent,
   type ThreadContext,
@@ -14,8 +15,6 @@ import {
   pendingIntentFromHistory,
   shouldMergeFollowUp,
 } from "./intentParser.js";
-
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const SYSTEM = `You are the evabob Agent (tagline: bob me!). Talk like a helpful payments assistant.
 
@@ -105,8 +104,8 @@ function mergeLlm(base: AgentIntent, parsed: Record<string, unknown>): AgentInte
   };
 }
 
-export function groqConfigured(): boolean {
-  return Boolean(config.groq.apiKey);
+export function intentLlmConfigured(): boolean {
+  return llmConfigured();
 }
 
 function templateReply(intent: AgentIntent): string {
@@ -158,44 +157,32 @@ export async function refineAgentIntent(
     deterministic.confidence >= 0.75 &&
     deterministic.intent !== "clarification_needed";
 
-  if (!config.groq.apiKey) {
+  if (!llmConfigured()) {
     return { ...deterministic, reply: templateReply(deterministic) };
   }
 
   try {
-    const res = await fetch(GROQ_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.groq.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.groq.model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM },
-          ...(history || []).slice(-8),
-          {
-            role: "user",
-            content: JSON.stringify({
-              message,
-              threadContext: threadContext || {},
-              deterministicHint: deterministic,
-            }),
-          },
-        ],
-      }),
+    const data = await chatCompletion({
+      caller: "agent-llm",
+      temperature: 0.2,
+      json: true,
+      messages: [
+        { role: "system", content: SYSTEM },
+        ...(history || []).slice(-8),
+        {
+          role: "user",
+          content: JSON.stringify({
+            message,
+            threadContext: threadContext || {},
+            deterministicHint: deterministic,
+          }),
+        },
+      ],
     });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.warn("[agent-llm] groq", res.status, errText.slice(0, 180));
+    if (!data) {
       return { ...deterministic, reply: templateReply(deterministic) };
     }
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const raw = data.choices?.[0]?.message?.content || "{}";
+    const raw = data.content || "{}";
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const merged = mergeLlm(deterministic, parsed);
     if (locked) {

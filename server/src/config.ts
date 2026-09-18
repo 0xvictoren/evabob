@@ -190,8 +190,12 @@ export const config = {
       .filter(Boolean),
     agentWallets: envFlag("FEATURE_AGENT_WALLETS", false),
     x402Execution: envFlag("FEATURE_X402_EXECUTION", false),
-    /** Arc Multicall3From batch transfer. Kept off until direct EOA funding,
-     * simulation and receipt verification are all wired end to end. */
+    /**
+     * One payment to several people, approved with one PIN — offered by the
+     * Evabob Agent. Runs as the wallet's own atomic `executeBatch`, not Arc's
+     * Multicall3From, which reverts for smart contract wallets. Every leg is
+     * verified against the receipt before any row reads completed.
+     */
     agentBatchSend: envFlag("FEATURE_AGENT_BATCH_SEND", false),
     bankTopUp: false,
     cardTopUp: false,
@@ -222,6 +226,17 @@ export const config = {
     adminSafeAddress: req("ADMIN_SAFE_ADDRESS"),
     /** Releases held payments. See getEscrowAttestorAccount(). */
     escrowAttestorPrivateKey: req("ESCROW_ATTESTOR_PRIVATE_KEY"),
+    /**
+     * EvabobMemo (contracts/src/EvabobMemo.sol). When set, a payment memo is
+     * written on chain in the same wallet batch as the transfer; when unset it
+     * is kept on the payment record only. See services/memo.ts for why Arc's
+     * own memo wrapper cannot be used from Evabob's smart contract wallets.
+     */
+    memoContract: req("MEMO_CONTRACT_ADDRESS"),
+    /** Rotating savings circles (contracts/src/MoneyCircles.sol). No admin. */
+    moneyCircles: req("MONEY_CIRCLES_ADDRESS"),
+    /** Target collections with refunds (contracts/src/GroupPots.sol). No admin. */
+    groupPots: req("GROUP_POTS_ADDRESS"),
   },
 
   gatewayApiBase: req(
@@ -269,16 +284,26 @@ export const config = {
   },
 
   /**
-   * Groq LLM for Evabob Agent natural-language fallback.
-   * Deterministic parser always runs first; key is server-only.
+   * The Evabob Agent's language model: DeepSeek, OpenAI-compatible. The
+   * deterministic parser always runs first and the key is server-only.
+   * The model must support tool calling — the agent's read tools depend on it.
+   * Thinking mode stays off unless DEEPSEEK_THINKING=true (see services/llm.ts).
    */
-  groq: {
-    apiKey: req("GROQ_API_KEY"),
-    // Must be a model that supports tool calling — the agent's read tools
-    // depend on it. `llama-3.3-70b-versatile` was the default until Groq
-    // decommissioned it, at which point every agent call 404'd and silently
-    // fell back to the regex parser, which is why the assistant felt canned.
-    model: req("GROQ_MODEL", "openai/gpt-oss-120b"),
+  llm: {
+    apiKey: req("DEEPSEEK_API_KEY"),
+    model: req("DEEPSEEK_MODEL", "deepseek-flash"),
+    baseUrl: req("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+    thinking: req("DEEPSEEK_THINKING", "false") === "true",
+  },
+
+  /**
+   * Push notifications through Firebase Cloud Messaging (Android, and iOS via
+   * an APNs key uploaded to the same Firebase project). The service-account
+   * JSON may be pasted as-is or base64-encoded. Unset = push off; in-app
+   * Pusher alerts still work.
+   */
+  push: {
+    serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() || "",
   },
 
   /** WhatsApp Cloud API (optional until you provide credentials). */

@@ -23,8 +23,10 @@ export function findAgentByApiKey(rawKey: string): AgentWallet | undefined {
   return store.findAgentByApiKeyHash(hash);
 }
 
-function allowedOrigins(): string[] {
-  return [...config.agents.resourceOrigins];
+/** Exact origins plus, when configured, Circle's payable catalog origins. */
+async function allowedOrigins(): Promise<string[]> {
+  const { resolvedAgentOrigins } = await import("./circle-x402.js");
+  return resolvedAgentOrigins();
 }
 
 function paidReady(agent: AgentWallet): string | null {
@@ -54,7 +56,7 @@ export async function x402PayForAgent(input: {
     return { ...base, ok: false, error: "Agent resources currently support GET without caller-supplied headers" };
   }
 
-  const origins = allowedOrigins();
+  const origins = await allowedOrigins();
   const readiness = paidReady(input.agent);
   if (readiness) {
     try {

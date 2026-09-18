@@ -14,10 +14,29 @@ const valid = {
   },
   paymentRequests: [],
   protectedEscrows: [],
+  appKitJobs: [],
+  pushDevices: [],
+  gatewayTracker: [],
+  holdLinks: [],
+  groupMoney: [],
 };
 
 test("accepts a complete primary-store snapshot", () => {
   assert.deepEqual(validatePrimaryDatasets(valid), valid);
+});
+
+test("loads a snapshot written before bridge jobs and devices were included", () => {
+  // Snapshots already in Mongo predate these datasets. They must still load,
+  // with the new datasets empty, rather than fail the whole restore.
+  const {
+    appKitJobs: _jobs,
+    pushDevices: _devices,
+    gatewayTracker: _gw,
+    holdLinks: _links,
+    groupMoney: _groups,
+    ...older
+  } = valid;
+  assert.deepEqual(validatePrimaryDatasets(older), valid);
 });
 
 test("rejects partial snapshots instead of erasing omitted financial data", () => {
@@ -28,5 +47,9 @@ test("rejects partial snapshots instead of erasing omitted financial data", () =
   assert.throws(
     () => validatePrimaryDatasets({ ...valid, paymentRequests: {} }),
     /paymentRequests must be an array/,
+  );
+  assert.throws(
+    () => validatePrimaryDatasets({ ...valid, appKitJobs: {} }),
+    /appKitJobs must be an array/,
   );
 });

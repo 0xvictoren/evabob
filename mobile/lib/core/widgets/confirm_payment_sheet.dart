@@ -30,7 +30,45 @@ class PaymentReview {
     this.payeeLabel = 'To',
     this.feeOnTop = true,
     this.tokenDecimals = 6,
+    this.cautions = const [],
+    this.coolingOffMinutes,
+    this.coolingOffDefault = false,
+    this.landedAmount,
+    this.landedLabel = 'They receive',
+    this.payeePhotoUrl,
+    this.feeFrom,
   });
+
+  /// When the Evabob fee is taken from what is paid out rather than added on
+  /// top — a circle's payout, a collection's release — what it is taken
+  /// from, e.g. "the payout". Nothing extra leaves the payer.
+  final String? feeFrom;
+
+  /// What actually arrives, when it differs from [amount] — a bridge loses
+  /// Circle's small Fast Transfer fee on the way. Null means the full amount
+  /// arrives: the Evabob fee is always added on top, never taken from it.
+  final double? landedAmount;
+
+  /// Heading for the landed line: "They receive", "Arrives on Base".
+  final String landedLabel;
+
+  /// The payee's profile photo, so a person can recognise who they are
+  /// paying, not just read a name.
+  final String? payeePhotoUrl;
+
+  /// What lands at the other end, stated before the PIN.
+  double get landed => landedAmount ?? amount;
+
+  /// Cautions from the server's payee check — a lookalike address, an address
+  /// that is not an Evabob account. Shown above everything else on the sheet.
+  final List<String> cautions;
+
+  /// When set, the sheet offers to send in this many minutes instead of now,
+  /// so the sender can still cancel if the call they are on is a scam.
+  final int? coolingOffMinutes;
+
+  /// Whether that offer starts switched on: a first payment to someone new.
+  final bool coolingOffDefault;
 
   /// How the Evabob fee is taken. True: added on top, so the total is shown.
   /// False (a conversion): taken inside the rate, so only the fee is shown.
@@ -94,13 +132,29 @@ class PaymentReview {
 
 /// Shows the review sheet. Returns true only if the person confirmed.
 Future<bool> confirmPayment(BuildContext context, PaymentReview review) async {
-  final ok = await showModalBottomSheet<bool>(
+  final choice = await confirmPaymentChoice(context, review);
+  return choice != null;
+}
+
+/// What the person chose on the review sheet.
+class PaymentChoice {
+  const PaymentChoice({required this.coolingOff});
+
+  /// Send after the cooling-off window instead of now.
+  final bool coolingOff;
+}
+
+/// Shows the review sheet. Null when cancelled; otherwise how to send.
+Future<PaymentChoice?> confirmPaymentChoice(
+  BuildContext context,
+  PaymentReview review,
+) {
+  return showModalBottomSheet<PaymentChoice>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
     builder: (ctx) => _ConfirmPaymentSheet(review: review),
   );
-  return ok == true;
 }
 
 class _ConfirmPaymentSheet extends StatefulWidget {
@@ -114,10 +168,13 @@ class _ConfirmPaymentSheet extends StatefulWidget {
 
 class _ConfirmPaymentSheetState extends State<_ConfirmPaymentSheet> {
   bool _checked = false;
+  late bool _coolingOff = widget.review.coolingOffMinutes != null &&
+      widget.review.coolingOffDefault;
 
   @override
   Widget build(BuildContext context) {
     final r = widget.review;
+    final minutes = r.coolingOffMinutes;
     // A payee never paid before has to tick the box. Everyone else is one tap.
     final canConfirm = !r.firstTime || _checked;
 
@@ -143,12 +200,33 @@ class _ConfirmPaymentSheetState extends State<_ConfirmPaymentSheet> {
               ),
               const SizedBox(height: Space.lg),
 
+              for (final caution in r.cautions) ...[
+                _Caution(text: caution),
+                const SizedBox(height: Space.md),
+              ],
+
               // Who, first and largest. It is the thing most likely to be
               // wrong and the thing people actually recognise.
-              _Field(
-                label: r.payeeLabel,
-                value: r.payee,
-                style: Type.title.copyWith(color: EvabobColors.nearBlack),
+              Row(
+                children: [
+                  if (r.payeePhotoUrl != null &&
+                      r.payeePhotoUrl!.isNotEmpty) ...[
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: EvabobColors.sand,
+                      foregroundImage: NetworkImage(r.payeePhotoUrl!),
+                    ),
+                    const SizedBox(width: Space.md),
+                  ],
+                  Expanded(
+                    child: _Field(
+                      label: r.payeeLabel,
+                      value: r.payee,
+                      style:
+                          Type.title.copyWith(color: EvabobColors.nearBlack),
+                    ),
+                  ),
+                ],
               ),
               if (r.payeeDetail != null && r.payeeDetail!.isNotEmpty) ...[
                 const SizedBox(height: Space.sm),
@@ -168,7 +246,37 @@ class _ConfirmPaymentSheetState extends State<_ConfirmPaymentSheet> {
               _FeeLines(review: r),
 
               const SizedBox(height: Space.lg),
-              _Consequence(text: r.warning),
+              _Consequence(
+                text: _coolingOff && minutes != null
+                    ? 'It goes to them in $minutes minutes. Until then you can '
+                        'cancel it from Activity and get it all back. After '
+                        'that it cannot be undone.'
+                    : r.warning,
+              ),
+              if (minutes != null) ...[
+                const SizedBox(height: Space.sm),
+                // Its own Material, so the tap ripple is not hidden under the
+                // sheet's background.
+                Material(
+                  type: MaterialType.transparency,
+                  child: SwitchListTile(
+                    value: _coolingOff,
+                    onChanged: (v) => setState(() => _coolingOff = v),
+                    contentPadding: EdgeInsets.zero,
+                    activeThumbColor: EvabobColors.emerald,
+                    title: Text(
+                      'Wait $minutes minutes before it goes',
+                      style: Type.body.copyWith(color: EvabobColors.nearBlack),
+                    ),
+                    subtitle: Text(
+                      'Time to hang up and check. If someone is rushing you to '
+                      'pay, that is a reason to wait.',
+                      style:
+                          Type.caption.copyWith(color: EvabobColors.navyMuted),
+                    ),
+                  ),
+                ),
+              ],
 
               if (r.note != null && r.note!.isNotEmpty) ...[
                 const SizedBox(height: Space.sm),
@@ -193,7 +301,7 @@ class _ConfirmPaymentSheetState extends State<_ConfirmPaymentSheet> {
                     child: SizedBox(
                       height: 52,
                       child: TextButton(
-                        onPressed: () => Navigator.pop(context, false),
+                        onPressed: () => Navigator.pop(context),
                         child: Text(
                           'Cancel',
                           style: Type.label
@@ -216,10 +324,15 @@ class _ConfirmPaymentSheetState extends State<_ConfirmPaymentSheet> {
                           ),
                         ),
                         onPressed: canConfirm
-                            ? () => Navigator.pop(context, true)
+                            ? () => Navigator.pop(
+                                  context,
+                                  PaymentChoice(coolingOff: _coolingOff),
+                                )
                             : null,
                         child: Text(
-                          '${r.action} ${formatMoney(r.amount, r.token)}',
+                          _coolingOff && minutes != null
+                              ? 'Send in $minutes min'
+                              : '${r.action} ${formatMoney(r.amount, r.token)}',
                           style: Type.label.copyWith(
                             color: canConfirm
                                 ? EvabobColors.onPrimary
@@ -249,11 +362,15 @@ class _FeeLines extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final features = context.watch<AppFeatures>();
+    final feeFrom = review.feeFrom;
     final fee = features.platformFeeFor(
-      review.amount,
+      feeFrom == null ? review.amount : review.landed,
       decimals: review.tokenDecimals,
     );
-    if (fee <= 0) return const SizedBox.shrink();
+    // Only money going somewhere has a landed amount; a conversion's is the
+    // rate, which the conversion screen already shows.
+    final showLanded = review.feeOnTop || feeFrom != null;
+    final landed = feeFrom == null ? review.landed : review.landed - fee;
     final percent = (features.platformFeeBps / 100)
         .toStringAsFixed(2)
         .replaceFirst(RegExp(r'0+$'), '')
@@ -280,20 +397,38 @@ class _FeeLines extends StatelessWidget {
       );
     }
 
+    if (fee <= 0 && !showLanded) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: Space.sm),
       child: Column(
         children: [
-          line(
-            review.feeOnTop
-                ? 'Evabob fee ($percent%)'
-                : 'Evabob fee ($percent%, taken from the conversion)',
-            formatMoney(fee, review.token),
-          ),
-          if (review.feeOnTop)
+          if (fee > 0)
+            line(
+              feeFrom != null
+                  ? 'Evabob fee ($percent%, from $feeFrom)'
+                  : review.feeOnTop
+                      ? 'Evabob fee ($percent%)'
+                      : 'Evabob fee ($percent%, taken from the conversion)',
+              formatMoney(fee, review.token),
+            ),
+          if (review.feeOnTop && feeFrom == null && fee > 0)
             line(
               'You pay in total',
               formatMoney(review.amount + fee, review.token),
+              strong: true,
+            ),
+          if (showLanded)
+            line(
+              review.landedAmount == null && feeFrom == null
+                  ? review.landedLabel
+                  : '${review.landedLabel} about',
+              // Rounded down, so the figure shown is never more than lands.
+              formatMoney(
+                review.landedAmount == null && feeFrom == null
+                    ? landed
+                    : (landed * 100 + 1e-6).floorToDouble() / 100,
+                review.token,
+              ),
               strong: true,
             ),
         ],
@@ -355,6 +490,42 @@ class _VerifyChip extends StatelessWidget {
           fontFamily: 'monospace',
           color: EvabobColors.navyMuted,
         ),
+      ),
+    );
+  }
+}
+
+/// A specific reason to stop and look, from the payee check. Stronger than the
+/// general consequence line because it is about this payment in particular.
+class _Caution extends StatelessWidget {
+  const _Caution({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(Space.md),
+      decoration: BoxDecoration(
+        color: EvabobColors.alert.withValues(alpha: 0.08),
+        borderRadius: Radii.all(Radii.sm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            size: 18,
+            color: EvabobColors.alert,
+          ),
+          const SizedBox(width: Space.sm),
+          Expanded(
+            child: Text(
+              text,
+              style: Type.caption.copyWith(color: EvabobColors.nearBlack),
+            ),
+          ),
+        ],
       ),
     );
   }

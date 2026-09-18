@@ -86,7 +86,7 @@ services:
       - key: IDENTITY_REGISTRY
         value: 0xb14355288fcE19811cccaF1589ea85e3791320a0
       - key: PAYMENT_ESCROW
-        value: 0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805
+        value: 0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39
       - key: USE_APP_KIT
         value: "true"
       - key: APP_KIT_ADAPTER
@@ -127,9 +127,9 @@ services:
         value: "250"
       - key: AGENT_RESOURCE_ORIGINS
         value: ""
-      - key: GROQ_MODEL
-        value: openai/gpt-oss-120b
-      - key: GROQ_API_KEY
+      - key: DEEPSEEK_MODEL
+        value: deepseek-flash
+      - key: DEEPSEEK_API_KEY
         sync: false
       - key: EXCHANGE_RATE_API_KEY
         sync: false
@@ -191,9 +191,12 @@ services:
     region: frankfurt
     plan: 0.5c-512mb
     rootDir: server
-    schedule: "5 * * * *"
+    # Every 5 minutes: releases due held payments (7-day jobs, 10-minute
+    # cooling-off), finishes bridges abandoned for 40+ minutes, and sweeps
+    # expired holds. See /internal/cron/tick.
+    schedule: "*/5 * * * *"
     buildCommand: npm ci --legacy-peer-deps
-    startCommand: npm run cron:escrow-refunds
+    startCommand: npm run cron:tick
     envVars:
       - key: NODE_VERSION
         value: "22"

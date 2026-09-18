@@ -12,6 +12,7 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/glass.dart';
+import 'payment_proof_card.dart';
 
 /// Full-screen receipt for a history item — download + share.
 class ReceiptSheet extends StatefulWidget {
@@ -369,6 +370,10 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                       ],
                     ),
                   ),
+                  if (e.shareable) ...[
+                    const SizedBox(height: 12),
+                    PaymentProofCard(entry: e),
+                  ],
                   if (_savedPath != null) ...[
                     const SizedBox(height: 12),
                     Text(

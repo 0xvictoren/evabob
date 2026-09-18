@@ -200,6 +200,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
         payee: _sourceChainName,
         amount: amt,
         action: 'Top up',
+        landedLabel: 'Arrives in your GA',
         warning: features.platformFeeBps > 0
             ? 'The money stays yours the whole time. You will be asked to '
                 'confirm once.'
@@ -578,7 +579,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     const SizedBox(height: 6),
                     Text(
                       'Move money you hold on another network into the '
-                      'balance you spend from. You will confirm twice.',
+                      'balance you spend from. You confirm with your PIN, and '
+                      'we tell you when it has arrived.',
                       style: const TextStyle(
                         color: EvabobColors.navyMuted,
                         fontSize: 10,

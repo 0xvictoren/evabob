@@ -1,7 +1,8 @@
 /** MongoDB persistence for application records and distributed coordination. */
 
 import dns from "node:dns";
-import { MongoClient, type Collection, type Db } from "mongodb";
+import { randomUUID } from "node:crypto";
+import { Binary, MongoClient, type Collection, type Db } from "mongodb";
 import { config } from "../config.js";
 import type { UserRecord } from "../store/db.js";
 
@@ -22,15 +23,74 @@ export type PrimaryStoreDatasets = {
   app: unknown;
   paymentRequests: unknown;
   protectedEscrows: unknown;
+  /**
+   * App Kit jobs (bridges, swaps, deposits in flight). Optional so a snapshot
+   * written before they were included still loads.
+   */
+  appKitJobs?: unknown;
+  /** Devices registered for push notifications. Optional for the same reason. */
+  pushDevices?: unknown;
+  /** Gateway payments and top-ups in flight. Optional for the same reason. */
+  gatewayTracker?: unknown;
+  /** Sellers' hold-until-delivered links. Optional for the same reason. */
+  holdLinks?: unknown;
+  /** Money circles and group pots. Optional for the same reason. */
+  groupMoney?: unknown;
 };
 
+/**
+ * The head of the primary store.
+ *
+ * Schema 1 kept every dataset inline in this one document, which is capped
+ * at 16 MB by MongoDB — the whole app's state had to fit in it. Schema 2
+ * keeps the serialized state in chunk documents and makes this document a
+ * small pointer to the current set, with a generation number:
+ *
+ *   - no single document approaches the 16 MB cap, however large the state;
+ *   - switching to a new snapshot is one atomic update of this document, so a
+ *     reader sees the old snapshot or the new one, never half of each;
+ *   - the update only succeeds if the generation is still the one the writer
+ *     loaded, so two server instances cannot silently overwrite each other.
+ */
 type PrimaryStoreDocument = {
   _id: "primary";
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   checksum: string;
-  datasets: PrimaryStoreDatasets;
+  /** Schema 1 only. */
+  datasets?: PrimaryStoreDatasets;
+  /** Schema 2: increments on every successful save. */
+  generation?: number;
+  /** Schema 2: chunk ids of the current snapshot, in order. */
+  chunkIds?: string[];
+  bytes?: number;
   updatedAt: Date;
 };
+
+type PrimaryStoreChunk = {
+  _id: string;
+  generation: number;
+  index: number;
+  data: string;
+};
+
+/** Another instance saved first; this one must reload before writing. */
+export class PrimaryStoreConflict extends Error {}
+
+/**
+ * Characters per chunk. UTF-8 needs at most 3 bytes for any character in a
+ * JS string's basic plane (4 for a surrogate pair, which is two characters),
+ * so 3 million characters stays well under the 16 MB document cap.
+ */
+const PRIMARY_CHUNK_CHARS = 3_000_000;
+
+/**
+ * Below this size the head also carries the snapshot inline, as schema 1 did.
+ * That keeps a server still running the previous release able to read the
+ * store while a new one writes it — during a rolling deploy, a rollback, or a
+ * developer's local server sharing the database — and leaves the head well
+ * under the 16 MB cap. Above it, only the chunks hold the data.
+ */
+const INLINE_COPY_MAX_BYTES = 12 * 1024 * 1024;
 
 /** Some Windows / ISP resolvers refuse Atlas SRV (querySrv ECONNREFUSED). */
 function preferPublicDns() {
@@ -41,9 +101,60 @@ function preferPublicDns() {
   }
 }
 
+/**
+ * Why money is being held. Decides what releases it:
+ *   claim_link  — the recipient signs up and proves the email it was sent to
+ *   job         — the worker marks delivered and the payer confirms, or 7 days
+ *                 pass without an objection
+ *   cooling_off — a first payment to someone new, released after a short
+ *                 window unless the sender cancels
+ */
+export type HeldPurpose = "claim_link" | "job" | "cooling_off";
+
+/** A payer's cancellation after delivery, waiting for a person to decide. */
+export type HeldReview = {
+  status: "under_review" | "released_to_worker" | "refunded_to_payer";
+  openedAt: string;
+  /** Why the payer no longer needs the job — the reconciliation form. */
+  reason: string;
+  details: string;
+  payerLinks?: string[];
+  workerStatement?: string;
+  workerLinks?: string[];
+  workerRespondedAt?: string;
+  decidedAt?: string;
+  /** Operator user id who decided. Never shown to the parties. */
+  decidedBy?: string;
+  decisionNote?: string;
+  /**
+   * The conversation while the review is open: both people and the reviewer,
+   * each message with its own evidence. The reviewer is never named.
+   */
+  messages?: ReviewMessage[];
+};
+
+export type ReviewMessage = {
+  id: string;
+  from: "payer" | "worker" | "reviewer";
+  text: string;
+  links: string[];
+  /** Evidence photos, as /uploads/evidence_… paths. */
+  photos: string[];
+  at: string;
+};
+
 export type ProtectedEscrowRecord = {
   id: string;
   onChainTransferId?: string;
+  /**
+   * The escrow contract that holds this transfer. Transfer ids restart at 1
+   * on every deployment, so an id alone is ambiguous; a record without this
+   * predates PaymentEscrowV3 and is never acted on against the current one.
+   */
+  contractAddress?: string;
+  purpose?: HeldPurpose;
+  /** Paid through a seller's hold link (services/holdLinks.ts). */
+  holdLinkId?: string;
   fromUserId: string;
   recipientKind: "email" | "phone";
   recipientId: string;
@@ -55,6 +166,37 @@ export type ProtectedEscrowRecord = {
   claimTx?: string;
   refundTx?: string;
   createTx?: string;
+  /** How the money left the hold, for receipts and the activity row. */
+  settledBy?:
+    | "payer_confirmed"
+    | "auto_release"
+    | "cooling_off_elapsed"
+    | "claimed_on_signup"
+    | "payer_cancelled"
+    | "worker_refunded"
+    | "review_released"
+    | "review_refunded"
+    | "expired";
+  settledAt?: string;
+
+  // --- job ---
+  deliveredAt?: string;
+  deliveryNote?: string;
+  deliveryLinks?: string[];
+  /** When silence releases the money to the worker. */
+  autoReleaseAt?: string;
+  /** The one-day reminder has been sent to the payer. */
+  reminderSentAt?: string;
+  /** The "expires in a week, nothing delivered" nudge has been sent. */
+  expiryNudgeSentAt?: string;
+  review?: HeldReview;
+
+  // --- cooling_off ---
+  /** End of the window in which the sender may cancel. */
+  releaseAt?: string;
+
+  /** Last error from an automatic release, so it is visible, not silent. */
+  lastAutoError?: string;
 };
 
 let client: MongoClient | null = null;
@@ -190,31 +332,169 @@ function primaryStore(): Collection<PrimaryStoreDocument> {
   return db.collection<PrimaryStoreDocument>("primary_store");
 }
 
+type AvatarDocument = {
+  _id: string;
+  mime: string;
+  data: Binary;
+  updatedAt: Date;
+};
+
+function avatars(): Collection<AvatarDocument> {
+  if (!db) throw new Error("mongo not ready");
+  return db.collection<AvatarDocument>("avatars");
+}
+
+/**
+ * Profile photos live in Mongo, not on the API's disk. A serverless host gives
+ * every instance its own throwaway disk, so a photo written by one was missing
+ * on the next; they are capped at 256 KB, well within a document.
+ */
+export async function mongoSaveAvatar(
+  filename: string,
+  mime: string,
+  bytes: Buffer,
+): Promise<void> {
+  if (!mongoReady()) throw new Error("mongo not ready");
+  await avatars().updateOne(
+    { _id: filename },
+    { $set: { mime, data: new Binary(bytes), updatedAt: new Date() } },
+    { upsert: true },
+  );
+}
+
+export async function mongoLoadAvatar(
+  filename: string,
+): Promise<{ mime: string; bytes: Buffer } | null> {
+  if (!mongoReady()) return null;
+  const row = await avatars().findOne({ _id: filename });
+  return row ? { mime: row.mime, bytes: Buffer.from(row.data.buffer) } : null;
+}
+
+function primaryChunks(): Collection<PrimaryStoreChunk> {
+  if (!db) throw new Error("mongo not ready");
+  return db.collection<PrimaryStoreChunk>("primary_store_chunks");
+}
+
+/** Splits serialized state into chunk-sized strings. Exported for tests. */
+export function splitIntoChunks(text: string, size = PRIMARY_CHUNK_CHARS): string[] {
+  if (text.length === 0) return [""];
+  const out: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    let end = Math.min(i + size, text.length);
+    // Never split a surrogate pair across two documents.
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    out.push(text.slice(i, end));
+    i = end;
+  }
+  return out;
+}
+
+/** The current generation, or null when nothing has been saved yet. Cheap. */
+export async function mongoPrimaryStoreGeneration(): Promise<number | null> {
+  if (!mongoReady()) return null;
+  const head = await primaryStore().findOne(
+    { _id: "primary" },
+    { projection: { generation: 1 } },
+  );
+  return head ? (head.generation ?? 0) : null;
+}
+
 export async function mongoLoadPrimaryStore(): Promise<{
   checksum: string;
   datasets: PrimaryStoreDatasets;
+  generation: number;
 } | null> {
   if (!mongoReady()) return null;
-  const row = await primaryStore().findOne({ _id: "primary" });
-  return row ? { checksum: row.checksum, datasets: row.datasets } : null;
+  const head = await primaryStore().findOne({ _id: "primary" });
+  if (!head) return null;
+  if (head.chunkIds && head.chunkIds.length > 0) {
+    const rows = await primaryChunks()
+      .find({ _id: { $in: head.chunkIds } })
+      .toArray();
+    const byId = new Map(rows.map((r) => [r._id, r.data]));
+    const parts = head.chunkIds.map((id) => byId.get(id));
+    if (parts.some((p) => p == null)) {
+      throw new Error("Mongo primary store is missing a chunk of the current snapshot");
+    }
+    return {
+      checksum: head.checksum,
+      datasets: JSON.parse(parts.join("")) as PrimaryStoreDatasets,
+      generation: head.generation ?? 0,
+    };
+  }
+  if (!head.datasets) throw new Error("Mongo primary store head has no data");
+  return { checksum: head.checksum, datasets: head.datasets, generation: head.generation ?? 0 };
 }
 
-/** Atomically replaces the complete state while the writer lease is held. */
+/**
+ * Saves a complete snapshot as the next generation.
+ *
+ * `expectedGeneration` is the generation this process loaded (null when the
+ * store was empty). The chunks are written first under ids nobody reads yet;
+ * then the head is switched to them only if it is still at the expected
+ * generation. If another instance saved in between, nothing becomes current,
+ * the orphaned chunks are removed, and PrimaryStoreConflict is thrown so the
+ * caller reloads instead of overwriting someone else's change.
+ */
 export async function mongoSavePrimaryStore(
   datasets: PrimaryStoreDatasets,
   checksum: string,
-): Promise<void> {
+  expectedGeneration: number | null,
+): Promise<number> {
   if (!mongoReady()) throw new Error("mongo not ready");
-  await primaryStore().replaceOne(
-    { _id: "primary" },
-    {
-      schemaVersion: 1,
-      checksum,
-      datasets,
-      updatedAt: new Date(),
-    },
-    { upsert: true },
+  const text = JSON.stringify(datasets);
+  const next = (expectedGeneration ?? 0) + 1;
+  const tag = randomUUID().slice(0, 8);
+  const parts = splitIntoChunks(text);
+  const chunkIds = parts.map((_, i) => `${next}:${tag}:${i}`);
+  await primaryChunks().insertMany(
+    parts.map((data, index) => ({ _id: chunkIds[index]!, generation: next, index, data })),
   );
+
+  const inline = Buffer.byteLength(text, "utf8") <= INLINE_COPY_MAX_BYTES;
+  const head = {
+    schemaVersion: 2 as const,
+    checksum,
+    generation: next,
+    chunkIds,
+    bytes: text.length,
+    updatedAt: new Date(),
+    ...(inline ? { datasets } : {}),
+  };
+  let switched = false;
+  try {
+    if (expectedGeneration == null) {
+      await primaryStore().insertOne({ _id: "primary", ...head });
+      switched = true;
+    } else {
+      const res = await primaryStore().updateOne(
+        expectedGeneration === 0
+          ? { _id: "primary", $or: [{ generation: { $exists: false } }, { generation: 0 }] }
+          : { _id: "primary", generation: expectedGeneration },
+        inline ? { $set: head } : { $set: head, $unset: { datasets: "" } },
+      );
+      switched = res.matchedCount === 1;
+    }
+  } catch (error) {
+    if ((error as { code?: number }).code !== 11000) {
+      await primaryChunks().deleteMany({ _id: { $in: chunkIds } }).catch(() => undefined);
+      throw error;
+    }
+  }
+  if (!switched) {
+    await primaryChunks().deleteMany({ _id: { $in: chunkIds } }).catch(() => undefined);
+    throw new PrimaryStoreConflict(
+      "Another server instance saved first; reload before writing",
+    );
+  }
+  // Keep the previous generation for a reader that fetched the old head a
+  // moment ago; anything older is no longer reachable.
+  await primaryChunks()
+    .deleteMany({ generation: { $lt: next - 1 } })
+    .catch(() => undefined);
+  return next;
 }
 
 export async function mongoRememberUcwSession(

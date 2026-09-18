@@ -33,7 +33,7 @@ escrow releases as long as the hot role wallets are healthy.
 | Contract | Address | Admin |
 |---|---|---|
 | IdentityRegistryV2 | `0xb14355288fcE19811cccaF1589ea85e3791320a0` | Admin Safe |
-| PaymentEscrowV2 | `0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805` | Admin Safe |
+| PaymentEscrowV3 | `0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39` | Admin Safe |
 
 The replacement escrow held zero funds when activated. Six stored identities
 were migrated to IdentityRegistryV2 with no conflicts. The previous contracts

@@ -30,14 +30,23 @@ import {
   withPatientConfirmations,
 } from "./appKit.js";
 import { readChainTokenBalance } from "./arc-balances.js";
-import { flushPrimaryStore } from "./primary-store.js";
 import {
+  flushPrimaryStore,
+  markPrimaryStoreDirty,
+  registerPrimaryStoreReloader,
+} from "./primary-store.js";
+import {
+  abandonedBridgeDue,
+  bridgeAbandonWindowMs,
+  bridgeRelayRecord,
   decideExpiredJobAbandon,
   decideRunnerFailure,
   fundsIntactMessage,
   isTokenMessengerAddress,
+  landedAfterFastFee,
   parseBalance,
   sourceFundsMoved,
+  type BridgeRelayRecord,
   type ChallengeExpiryState,
   type JobStage,
 } from "./appKitJobExpiry.js";
@@ -48,7 +57,14 @@ import {
   planBridgeHop,
 } from "./appKitBridgeRoute.js";
 import { circleAppId, readChallengeSettlement } from "./circle-ucw.js";
-import { cctpCompleteBridge, fetchCctpAttestation } from "./cctp.js";
+import {
+  cctpCompleteBridge,
+  fastTransferFeeBps,
+  fetchCctpAttestation,
+  readOpsGasBalance,
+  readTxTimestampMs,
+} from "./cctp.js";
+import { alertUser } from "./notifyUser.js";
 import { platformFeeEnabled } from "./platformFee.js";
 
 // ─── Job store (UCW challenge relay for long-running kit ops) ──────────────
@@ -93,6 +109,12 @@ export type AppKitJobMeta = {
   stage?: JobStage;
   /** A failed bridge was re-checked for a stranded burn (checked once). */
   reviveCheckedAt?: string;
+  /** Block time of the burn on the source chain. */
+  burnAt?: string;
+  /** The person left and the server finished the bridge for them. */
+  serverCompletedAt?: string;
+  /** What finishing it cost, and the charge that was waived. */
+  relay?: BridgeRelayRecord;
 };
 
 export type AppKitJob = {
@@ -144,6 +166,7 @@ function persistJobs() {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 500);
     writeJsonAtomic(JOBS_PATH, list);
+    markPrimaryStoreDirty();
   } catch (e) {
     console.warn("app-kit jobs persist:", e instanceof Error ? e.message : e);
   }
@@ -151,6 +174,16 @@ function persistJobs() {
 
 // Warm cache on module load
 loadJobsFromDisk();
+// Another instance saved: take its view of every job this process is not
+// itself driving. A runner alive here holds the freshest state of its own job.
+registerPrimaryStoreReloader(() => {
+  for (const id of [...jobs.keys()]) {
+    if (!liveRunners.has(id)) jobs.delete(id);
+  }
+  const live = new Map([...jobs.entries()]);
+  loadJobsFromDisk();
+  for (const [id, job] of live) jobs.set(id, job);
+});
 
 function upsertJob(job: AppKitJob) {
   jobs.set(job.id, job);
@@ -1733,6 +1766,233 @@ async function closeIfSettledOnChain(job: AppKitJob): Promise<boolean> {
   return true;
 }
 
+/**
+ * Finishes bridges people walked away from.
+ *
+ * The rule, set by the product owner: once the burn has landed, the person
+ * has about 40 minutes to finish it themselves. After that the server submits
+ * the destination mint from the ops wallet. CCTP pays the USDC to the
+ * recipient fixed at burn time, so finishing someone else's bridge can only
+ * deliver their own money to them.
+ *
+ * One attempt per bridge per call, with no long wait: on a serverless host
+ * the function would be cut off mid-poll. An attestation that is not ready
+ * yet is simply tried again on the next pass.
+ *
+ * The rule also says the person pays twice the gas the server spent. Nothing
+ * is collected: the product owner waived it on testnet, and collecting from a
+ * wallet that needs its owner's PIN is still to be decided. The figure is
+ * recorded on the job so the decision can be made from real numbers.
+ */
+export async function completeAbandonedBridges(opts?: {
+  onlyUserId?: string;
+  now?: number;
+}): Promise<{ checked: number; completed: number; waiting: number; errors: string[] }> {
+  const nowMs = opts?.now ?? Date.now();
+  const windowMs = bridgeAbandonWindowMs();
+  if (jobs.size === 0) loadJobsFromDisk();
+  const candidates = [...jobs.values()].filter(
+    (j) =>
+      j.op === "bridge" &&
+      j.status === "running" &&
+      !liveRunners.has(j.id) &&
+      !bridgeCompletions.has(j.id) &&
+      (!opts?.onlyUserId || j.userId === opts.onlyUserId),
+  );
+  const result = { checked: 0, completed: 0, waiting: 0, errors: [] as string[] };
+
+  for (const job of candidates) {
+    result.checked += 1;
+    const destDomain = job.meta?.toChain
+      ? APPKIT_CHAIN_TO_DOMAIN[job.meta.toChain]
+      : undefined;
+    const sourceDomain = job.meta?.fromChain
+      ? APPKIT_CHAIN_TO_DOMAIN[job.meta.fromChain]
+      : undefined;
+    if (destDomain == null) continue;
+    try {
+      const burn = await findBurnMessage(job);
+      // Nothing burned means nothing is between chains; the expired-PIN
+      // logic in maybeAbandonExpiredJob handles those.
+      if (!burn) continue;
+      if (burn.destinationCaller && !ZERO_BYTES32.test(burn.destinationCaller)) {
+        // Only the person's own wallet may submit this mint.
+        patchJobMeta(job.id, {
+          stage: "sent",
+          recoverHint: "This transfer has to be finished from your wallet. Tap Continue and enter your PIN.",
+        });
+        continue;
+      }
+
+      let burnAtMs = job.meta?.burnAt ? Date.parse(job.meta.burnAt) : null;
+      if (burnAtMs == null && sourceDomain != null) {
+        burnAtMs = await readTxTimestampMs(sourceDomain, burn.hash);
+        if (burnAtMs) patchJobMeta(job.id, { burnAt: new Date(burnAtMs).toISOString() });
+      }
+      if (
+        !abandonedBridgeDue({
+          burnAtMs,
+          jobCreatedAtMs: Date.parse(job.createdAt),
+          nowMs,
+          windowMs,
+        })
+      ) {
+        result.waiting += 1;
+        continue;
+      }
+
+      const mint = await cctpCompleteBridge({
+        burnTxHash: burn.hash,
+        destinationDomain: destDomain,
+        sourceDomain,
+        timeoutMs: 8_000,
+        pollMs: 4_000,
+      });
+      const alreadyMinted =
+        !mint.ok && /nonce already used|already (been )?(used|received)/i.test(mint.error || "");
+      if (mint.ok || alreadyMinted) {
+        touchJob(job.id, { status: "succeeded", result: mint });
+        patchJobMeta(job.id, {
+          stage: "arrived",
+          recoverHint: undefined,
+          serverCompletedAt: new Date(nowMs).toISOString(),
+          ...(mint.ok
+            ? {
+                lastTxHash: mint.mintTx,
+                relay: bridgeRelayRecord({
+                  gasCostWei: mint.gasCostWei,
+                  nativeSymbol: mint.nativeSymbol,
+                  nativeDecimals: mint.nativeDecimals,
+                  deploymentEnv: config.deploymentEnv,
+                }),
+              }
+            : {}),
+        });
+        const done = getAppKitJob(job.id);
+        if (done) {
+          finishJobActivity(
+            done,
+            "completed",
+            mint.ok ? mint.mintTx : burn.hash,
+            mint.ok ? `Arrived on ${mint.chain} · finished for you` : "Arrived",
+          );
+        }
+        alertUser(job.userId, {
+          kind: "bridge_arrived",
+          title: "Your money arrived",
+          body: `${job.meta?.amount ? `${job.meta.amount} USDC` : "Your money"} is on ${mint.ok ? mint.chain : "the other network"}. You left before it finished, so we finished it for you.`,
+          jobId: job.id,
+          ...(mint.ok ? { txHash: mint.mintTx } : {}),
+        });
+        if (mint.ok && config.deploymentEnv === "production") {
+          console.warn(
+            `[app-kit ${job.id.slice(0, 8)}] finished an abandoned bridge; the 2x gas charge is recorded but NOT collected — collection is not decided yet`,
+          );
+        }
+        result.completed += 1;
+        continue;
+      }
+      patchJobMeta(job.id, {
+        stage: "sent",
+        recoverHint:
+          mint.status === "attested_mint_failed"
+            ? "We couldn't finish this yet. We'll keep trying."
+            : "Still confirming on the network. It will finish on its own.",
+      });
+      if (mint.status === "attested_mint_failed") {
+        result.errors.push(`${job.id}: ${mint.error}`);
+      } else {
+        result.waiting += 1;
+      }
+    } catch (e) {
+      result.errors.push(`${job.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return result;
+}
+
+/**
+ * Least gas the ops wallet must hold on a destination for the server to be
+ * able to finish a bridge there. Enough for a few mints, not a precise quote.
+ */
+const RELAY_GAS_FLOOR_WEI: Record<string, bigint> = {
+  ETH: 500_000_000_000_000n, // 0.0005 ETH
+  USDC: 50_000_000_000_000_000n, // 0.05 USDC (Arc native, 18 decimals)
+};
+
+const relayCache = new Map<number, { atMs: number; funded: boolean | null }>();
+const RELAY_CACHE_MS = 2 * 60 * 1000;
+
+/**
+ * Whether the server could finish a bridge landing on `toChain`: true, false,
+ * or null when the balance could not be read.
+ *
+ * The person's own wallet signs the destination mint in the normal flow; the
+ * ops wallet only finishes bridges someone walked away from. So this never
+ * takes a route away from anyone — every configured route stays offered, by
+ * the product owner's decision. It exists to tell operators, loudly, that the
+ * walk-away rescue for a destination has no gas.
+ */
+export async function bridgeRelayFunded(
+  toChain: string | number,
+): Promise<boolean | null> {
+  let domain: number | undefined;
+  try {
+    domain = APPKIT_CHAIN_TO_DOMAIN[resolveAppKitChain(toChain)];
+  } catch {
+    return null;
+  }
+  if (domain == null) return null;
+  const cached = relayCache.get(domain);
+  if (cached && Date.now() - cached.atMs < RELAY_CACHE_MS) return cached.funded;
+  const balance = await readOpsGasBalance(domain);
+  const floor = balance ? RELAY_GAS_FLOOR_WEI[balance.symbol] : undefined;
+  const funded = balance && floor != null ? balance.wei >= floor : null;
+  relayCache.set(domain, { atMs: Date.now(), funded });
+  return funded;
+}
+
+const relayWarnedAt = new Map<string, number>();
+
+/**
+ * Tells operators when a bridge starts towards a destination the ops wallet
+ * cannot mint on, so they top it up before anyone walks away from one. At
+ * most once an hour per destination. Never blocks or changes the bridge.
+ */
+export async function warnIfRelayUnfunded(toChain: string | number): Promise<void> {
+  try {
+    if ((await bridgeRelayFunded(toChain)) !== false) return;
+    const key = String(toChain);
+    const last = relayWarnedAt.get(key) ?? 0;
+    if (Date.now() - last < 60 * 60 * 1000) return;
+    relayWarnedAt.set(key, Date.now());
+    console.warn(
+      `!! [bridge] ops wallet has no gas on ${key}: a bridge someone abandons there cannot be finished by the server until it is topped up`,
+    );
+    for (const operator of config.auth.operatorUserIds) {
+      alertUser(operator, {
+        kind: "review_needed",
+        title: "Top up the ops wallet",
+        body: `A bridge to ${key} just started and the ops wallet has no gas there to finish it if it is abandoned.`,
+      });
+    }
+  } catch {
+    // A warning must never get in the way of the bridge itself.
+  }
+}
+
+/** Per configured destination: can the server finish an abandoned bridge there? */
+export async function bridgeRelayHealth(
+  routes: string[],
+): Promise<Record<string, boolean | null>> {
+  const out: Record<string, boolean | null> = {};
+  for (const route of routes) {
+    const to = route.split(":")[1];
+    if (to && !(to in out)) out[to] = await bridgeRelayFunded(to);
+  }
+  return out;
+}
+
 export async function reconcileStaleAppKitJobs(input: {
   userId: string;
   userToken?: string;
@@ -1741,6 +2001,16 @@ export async function reconcileStaleAppKitJobs(input: {
   await reviveStrandedBridges(input.userId).catch((e) =>
     console.warn("[app-kit] revive stranded bridges:", e instanceof Error ? e.message : e),
   );
+  // The person is back: finish anything of theirs past its window now rather
+  // than waiting for the next scheduled pass.
+  await completeAbandonedBridges({ onlyUserId: input.userId }).catch((e) =>
+    console.warn("[app-kit] abandoned bridges:", e instanceof Error ? e.message : e),
+  );
+  await import("./gatewayTracker.js")
+    .then((m) => m.runGatewayTracker({ onlyUserId: input.userId }))
+    .catch((e) =>
+      console.warn("[app-kit] gateway tracker:", e instanceof Error ? e.message : e),
+    );
   const running = listAppKitJobsForUser(input.userId).filter((j) => {
     if (j.status !== "running") return false;
     if (input.jobId) return j.id === input.jobId;
@@ -2005,7 +2275,12 @@ export async function quoteAppKitBridge(input: {
   tokenIn: string;
   amountOut: number;
   tokenOut: string;
+  /** The Evabob fee, paid on top of the amount. */
   fee?: string;
+  /** Circle's Fast Transfer fee, taken from the amount on the way. */
+  networkFee: number;
+  /** False when Circle's fee table could not be read and amountOut is the amount sent. */
+  networkFeeKnown: boolean;
   note: string;
 }> {
   const fromChain = resolveAppKitChain(input.fromChain);
@@ -2017,18 +2292,28 @@ export async function quoteAppKitBridge(input: {
     toChain,
   });
   const usdcToBridge = Number(amount);
+  // The Evabob fee is added on top (the wallet signs for amount + fee), so it
+  // never reduces what lands. Circle's Fast Transfer fee is taken from the
+  // amount itself; that is the only difference between sent and received.
   const fee = buildBridgeFee(String(usdcToBridge));
-  const feeN = fee ? Number(fee.value) : 0;
-  const amountOut = Math.max(0, usdcToBridge - (Number.isFinite(feeN) ? feeN : 0));
+  const fromDomain = APPKIT_CHAIN_TO_DOMAIN[fromChain];
+  const toDomain = APPKIT_CHAIN_TO_DOMAIN[toChain];
+  const bps =
+    fromDomain != null && toDomain != null
+      ? await fastTransferFeeBps(fromDomain, toDomain)
+      : null;
+  const { fee: networkFee, landed } = landedAfterFastFee(usdcToBridge, bps ?? 0);
   return {
     ok: true,
     bridgeable: true,
     route: hop.kind,
     amountIn: amount,
     tokenIn: hop.tokenIn,
-    amountOut,
+    amountOut: landed,
     tokenOut: hop.tokenOut,
     fee: fee?.value,
+    networkFee,
+    networkFeeKnown: bps != null,
     note: hopNote(hop),
   };
 }

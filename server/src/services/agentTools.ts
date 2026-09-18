@@ -1,7 +1,7 @@
 /**
  * Read-only tools for the Evabob Agent.
  *
- * The agent used to be a classifier: one Groq call produced an `intent`
+ * The agent used to be a classifier: one model call produced an `intent`
  * string, and the server ran one of three canned lookups (balance, activity,
  * invoices) or replied with a hardcoded help menu. It could not decide to look
  * something up, so it could not answer "did Maya pay me?" or "why is my bridge
@@ -31,7 +31,7 @@ export type ToolResult =
   | { ok: true; data: unknown }
   | { ok: false; error: string };
 
-/** OpenAI/Groq-compatible function schema plus its executor. */
+/** OpenAI-compatible function schema plus its executor. */
 type ReadTool = {
   description: string;
   parameters: {
@@ -893,7 +893,7 @@ export const PROPOSE_TOOLS: Record<string, ReadTool> = {
   },
 };
 
-/** Function schemas in the shape Groq's tools parameter expects. */
+/** Function schemas in the OpenAI-compatible shape the model's tools parameter expects. */
 export function readToolDefinitions() {
   return Object.entries({ ...READ_TOOLS, ...PROPOSE_TOOLS }).map(
     ([name, tool]) => ({

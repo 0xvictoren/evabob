@@ -205,7 +205,7 @@ phone is no longer a payee or profile field.
 |--------|------|
 | `GET` | `/chat/threads` · `/chat/threads/:id/messages` |
 | `POST` | `/chat/threads` · `/chat/threads/:id/messages` · `/send-command` · `/money-command` |
-| `POST` | `/agent/parse` · `/agent/message` · `/agent/confirm` — Groq-backed NLU, never moves money |
+| `POST` | `/agent/parse` · `/agent/message` · `/agent/confirm` — DeepSeek-backed NLU, never moves money |
 | `GET` | `/agent/thread` · `/payment-requests` · `/payment-requests/:id` |
 | `POST` | `/payment-requests` · `/payment-requests/:id/mark` |
 | `POST` | `/pusher/auth` · `/pusher/config` |
@@ -247,7 +247,7 @@ Paid calls require `Authorization: Bearer sk_evabob_…` and an
 |----------|---------|
 | **Admin Safe (2-of-3)** | [`0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2`](https://testnet.arcscan.app/address/0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2) |
 | **IdentityRegistryV2** | [`0xb14355288fcE19811cccaF1589ea85e3791320a0`](https://testnet.arcscan.app/address/0xb14355288fcE19811cccaF1589ea85e3791320a0) |
-| **PaymentEscrowV2** | [`0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805`](https://testnet.arcscan.app/address/0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805) |
+| **PaymentEscrowV3** | [`0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39`](https://testnet.arcscan.app/address/0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39) |
 | USDC (ERC-20) | `0x3600000000000000000000000000000000000000` |
 | EURC | `0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a` |
 | Gateway Wallet | `0x0077777d7EBA4688BDeF3E311b846F25870A19B9` |
@@ -303,7 +303,7 @@ IDENTITY_LINKER_PRIVATE_KEY=0x...
 ESCROW_ATTESTOR_PRIVATE_KEY=0x...
 ADMIN_SAFE_ADDRESS=0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2
 IDENTITY_REGISTRY=0xb14355288fcE19811cccaF1589ea85e3791320a0
-PAYMENT_ESCROW=0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805
+PAYMENT_ESCROW=0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39
 ARC_RPC_URL=https://rpc.testnet.arc.network
 
 # Optional — without SYNTHRA_API_KEY, Buy cannot execute on-chain

@@ -30,6 +30,7 @@ import {
   mongoReady,
   mongoSaveEscrow,
   mongoUpdateEscrow,
+  type HeldPurpose,
   type ProtectedEscrowRecord,
 } from "./mongo.js";
 import {
@@ -39,7 +40,11 @@ import {
   arcTestnet,
 } from "./arc-wallet.js";
 import type { Address } from "viem";
-import { flushPrimaryStore, markPrimaryStoreDirty } from "./primary-store.js";
+import {
+  flushPrimaryStore,
+  markPrimaryStoreDirty,
+  registerPrimaryStoreReloader,
+} from "./primary-store.js";
 
 /** JSON-backed fallback when Mongo is off. Survives restarts. */
 const ESCROW_FILE = dataPath("protected-escrows.json");
@@ -61,6 +66,10 @@ function loadLocal(): Map<string, ProtectedEscrowRecord> {
 }
 
 const localEscrows = loadLocal();
+registerPrimaryStoreReloader(() => {
+  localEscrows.clear();
+  for (const [id, row] of loadLocal()) localEscrows.set(id, row);
+});
 
 function saveLocal(): void {
   try {
@@ -73,6 +82,30 @@ function saveLocal(): void {
       e instanceof Error ? e.message : e,
     );
   }
+}
+
+/**
+ * True when a record's transfer lives on the escrow contract this server is
+ * configured for. Transfer ids restart at 1 on every deployment, so acting on
+ * a record from an older contract against the current one would touch a
+ * different person's hold. Records written before the contract address was
+ * stored are treated as belonging to an older contract.
+ */
+export function isOnCurrentContract(record: ProtectedEscrowRecord): boolean {
+  const current = (config.arc.paymentEscrow ?? "").toLowerCase();
+  return Boolean(
+    current &&
+      record.contractAddress &&
+      record.contractAddress.toLowerCase() === current,
+  );
+}
+
+/** How a new hold reads in the payer's activity feed. */
+function holdDescription(purpose: HeldPurpose | undefined, row: ProtectedEscrowRecord): string {
+  if (purpose === "job" && row.holdLinkId) return "Set aside until your order arrives";
+  if (purpose === "job") return "Held until the work arrives";
+  if (purpose === "cooling_off") return "Sending in 10 minutes · you can cancel until then";
+  return `Waiting for them to join · returns ${row.expiresAt.slice(0, 10)} if unclaimed`;
 }
 
 export function trackProtectedEscrow(
@@ -88,6 +121,8 @@ export function trackProtectedEscrow(
   const row: ProtectedEscrowRecord = {
     id: input.id || randomUUID(),
     onChainTransferId: input.onChainTransferId,
+    contractAddress: input.contractAddress ?? (config.arc.paymentEscrow || undefined),
+    purpose: input.purpose ?? "claim_link",
     fromUserId: input.fromUserId,
     recipientKind: input.recipientKind,
     recipientId: input.recipientId,
@@ -97,6 +132,8 @@ export function trackProtectedEscrow(
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + expiresIn).toISOString(),
     createTx: input.createTx,
+    ...(input.releaseAt ? { releaseAt: input.releaseAt } : {}),
+    ...(input.holdLinkId ? { holdLinkId: input.holdLinkId } : {}),
   };
   localEscrows.set(row.id, row);
   saveLocal();
@@ -106,7 +143,7 @@ export function trackProtectedEscrow(
     userId: input.fromUserId,
     kind: "send",
     title: input.recipientId,
-    description: `Protected transfer · claim by ${row.expiresAt.slice(0, 10)}`,
+    description: holdDescription(row.purpose, row),
     amountUsdc: -input.amountUsdc,
     counterparty: input.recipientId,
     txHash: input.createTx,
@@ -120,8 +157,21 @@ export function trackProtectedEscrow(
   return { ...row, activityId: activity.id };
 }
 
+/** Every hold this server has recorded, on any contract, for history and reputation. */
+export function listAllTracked(): ProtectedEscrowRecord[] {
+  return [...localEscrows.values()];
+}
+
+/** Pending holds on the current contract — the only ones this server acts on. */
 export function listLocalPending(): ProtectedEscrowRecord[] {
-  return [...localEscrows.values()].filter((e) => e.status === "pending");
+  return [...localEscrows.values()].filter(
+    (e) => e.status === "pending" && isOnCurrentContract(e),
+  );
+}
+
+/** Every tracked hold on the current contract, settled or not. */
+export function listTrackedOnCurrentContract(): ProtectedEscrowRecord[] {
+  return [...localEscrows.values()].filter(isOnCurrentContract);
 }
 
 /** The tracked hold behind an on-chain transfer id, if this server has one. */
@@ -129,8 +179,25 @@ export function findTrackedByTransferId(
   transferId: string,
 ): ProtectedEscrowRecord | undefined {
   return [...localEscrows.values()].find(
-    (e) => e.onChainTransferId === transferId,
+    (e) => e.onChainTransferId === transferId && isOnCurrentContract(e),
   );
+}
+
+/**
+ * Applies a change to a tracked hold and persists it locally and in Mongo.
+ * Returns the updated record, or undefined when there is no such record.
+ */
+export function updateTracked(
+  id: string,
+  patch: Partial<Omit<ProtectedEscrowRecord, "id">>,
+): ProtectedEscrowRecord | undefined {
+  const row = localEscrows.get(id);
+  if (!row) return undefined;
+  const next = { ...row, ...patch };
+  localEscrows.set(id, next);
+  saveLocal();
+  void mongoUpdateEscrow(id, patch);
+  return next;
 }
 
 /**
@@ -252,7 +319,11 @@ export async function processExpiredEscrows(): Promise<{
     (e) => new Date(e.expiresAt).getTime() <= Date.now(),
   );
   const byId = new Map<string, ProtectedEscrowRecord>();
-  for (const e of [...fromMongo, ...fromLocal]) byId.set(e.id, e);
+  // Only holds on the current contract: an id from an older deployment names
+  // a different transfer here.
+  for (const e of [...fromMongo, ...fromLocal]) {
+    if (isOnCurrentContract(e)) byId.set(e.id, e);
+  }
   const expired = [...byId.values()];
 
   for (const e of expired) {
@@ -260,21 +331,47 @@ export async function processExpiredEscrows(): Promise<{
       let refundTx: string | null = null;
       if (e.onChainTransferId) {
         refundTx = await refundOnChain(e.onChainTransferId);
+        if (!refundTx) {
+          // The record must say what the contract says. This used to mark the
+          // hold refunded even when the refund reverted, so the app told the
+          // payer their money was back while the contract still held it. Ask
+          // the contract, and leave the record pending if it still is.
+          const { readTransfer } = await import("./protectedEscrow.js");
+          const onChain = await readTransfer(e.onChainTransferId).catch(() => null);
+          if (!onChain || onChain.status === "Pending") {
+            errors.push(`${e.id}: refund did not complete; still held`);
+            continue;
+          }
+          if (onChain.status === "Claimed") {
+            e.status = "claimed";
+            localEscrows.set(e.id, e);
+            saveLocal();
+            await mongoUpdateEscrow(e.id, { status: "claimed" });
+            continue;
+          }
+        }
       }
       e.status = "refunded";
       e.refundTx = refundTx || undefined;
+      e.settledBy = "expired";
+      e.settledAt = new Date().toISOString();
       localEscrows.set(e.id, e);
       saveLocal();
       await mongoUpdateEscrow(e.id, {
         status: "refunded",
         refundTx: e.refundTx,
+        settledBy: e.settledBy,
+        settledAt: e.settledAt,
       });
 
       store.addActivity({
         userId: e.fromUserId,
         kind: "system",
-        title: "Protected transfer refunded",
-        description: `${e.amountUsdc} USDC returned — unclaimed by ${e.recipientId}`,
+        title: "Money returned",
+        description:
+          e.purpose === "job"
+            ? `${e.amountUsdc} USDC held for ${e.recipientId} came back to you`
+            : `${e.amountUsdc} USDC came back — ${e.recipientId} didn't claim it`,
         amountUsdc: e.amountUsdc,
         counterparty: e.recipientId,
         txHash: e.refundTx,

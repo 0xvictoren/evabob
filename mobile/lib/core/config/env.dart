@@ -35,6 +35,23 @@ class Env {
   );
   static bool get demoEnabled => kDebugMode && _allowDemo;
 
+  // ─── Firebase Cloud Messaging (push to a closed app; optional) ────────
+  //
+  // Public client identifiers from the Firebase console, supplied at build
+  // time (dart_defines.json). No google-services.json is needed: the app
+  // initialises Firebase from these. Leave them empty and push stays off —
+  // in-app alerts over Pusher still work.
+  static const firebaseApiKey = String.fromEnvironment('FIREBASE_API_KEY');
+  static const firebaseProjectId =
+      String.fromEnvironment('FIREBASE_PROJECT_ID');
+  static const firebaseMessagingSenderId =
+      String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID');
+  static const firebaseAndroidAppId =
+      String.fromEnvironment('FIREBASE_ANDROID_APP_ID');
+  static const firebaseIosAppId = String.fromEnvironment('FIREBASE_IOS_APP_ID');
+  static const firebaseIosBundleId =
+      String.fromEnvironment('FIREBASE_IOS_BUNDLE_ID');
+
   static const apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: 'http://127.0.0.1:8787',
@@ -101,7 +118,7 @@ class Env {
   );
   static const paymentEscrow = String.fromEnvironment(
     'PAYMENT_ESCROW',
-    defaultValue: '0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805',
+    defaultValue: '0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39',
   );
 
   static const circleWalletsAppId = String.fromEnvironment(

@@ -264,6 +264,36 @@ export async function cctpBurnFromArc(input: {
   };
 }
 
+const fastFeeCache = new Map<string, { atMs: number; bps: number }>();
+
+/**
+ * Circle's Fast Transfer fee for one route, in basis points, from its public
+ * fee table. Cached for ten minutes; null when the table cannot be read.
+ */
+export async function fastTransferFeeBps(
+  sourceDomain: number,
+  destinationDomain: number,
+): Promise<number | null> {
+  const key = `${sourceDomain}:${destinationDomain}`;
+  const hit = fastFeeCache.get(key);
+  if (hit && Date.now() - hit.atMs < 10 * 60 * 1000) return hit.bps;
+  try {
+    const res = await fetch(
+      `https://iris-api-sandbox.circle.com/v2/burn/USDC/fees/${sourceDomain}/${destinationDomain}`,
+      { signal: AbortSignal.timeout(4000) },
+    );
+    if (!res.ok) return null;
+    const tiers = (await res.json()) as Array<{ finalityThreshold?: number; minimumFee?: number | string }>;
+    const fast = Array.isArray(tiers) ? tiers.find((t) => t.finalityThreshold === 1000) : undefined;
+    const bps = Number(fast?.minimumFee);
+    if (!Number.isFinite(bps) || bps < 0) return null;
+    fastFeeCache.set(key, { atMs: Date.now(), bps });
+    return bps;
+  } catch {
+    return null;
+  }
+}
+
 /** Fetch CCTP attestation from Circle Iris (sandbox for testnet). */
 export async function fetchCctpAttestation(
   sourceDomain: number,
@@ -368,13 +398,76 @@ export async function cctpReceiveOnDomain(input: {
     attestation: input.attestation,
   });
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // What the ops wallet paid to mint, so a server-finished bridge can be
+  // accounted for (and, off testnet, charged) from the real figure.
+  const gasCostWei =
+    receipt.gasUsed * (receipt.effectiveGasPrice ?? 0n);
   return {
     mintTx: hash,
     blockNumber: receipt.blockNumber.toString(),
     destinationDomain: input.destinationDomain,
     chain: dest.name,
     status: receipt.status,
+    gasCostWei: gasCostWei.toString(),
+    nativeSymbol: dest.chain.nativeCurrency.symbol,
+    nativeDecimals: dest.chain.nativeCurrency.decimals,
   };
+}
+
+/**
+ * When a transaction was mined on a CCTP domain, in ms, or null if it cannot
+ * be read. Used to time the abandoned-bridge window from the burn itself
+ * rather than from whenever the server happened to notice it.
+ */
+export async function readTxTimestampMs(
+  domain: number,
+  txHash: string,
+): Promise<number | null> {
+  const dest = DEST_CHAINS[domain];
+  if (!dest || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) return null;
+  try {
+    const client = createPublicClient({
+      chain: dest.chain,
+      transport: destTransport(dest.rpcUrls),
+    });
+    const receipt = await client.getTransactionReceipt({ hash: txHash as Hex });
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+    return Number(block.timestamp) * 1000;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The ops wallet's gas balance on a CCTP domain. A bridge the server may have
+ * to finish needs the ops wallet able to pay for the mint on the destination;
+ * a route where it cannot is a route where money can strand.
+ */
+export async function readOpsGasBalance(domain: number): Promise<{
+  wei: bigint;
+  symbol: string;
+  decimals: number;
+} | null> {
+  const dest = DEST_CHAINS[domain];
+  const pk = config.arc.privateKey;
+  if (!dest || !pk) return null;
+  try {
+    const account = privateKeyToAccount(
+      (pk.startsWith("0x") ? pk : `0x${pk}`) as Hex,
+    );
+    const client = createPublicClient({
+      chain: dest.chain,
+      transport: destTransport(dest.rpcUrls),
+    });
+    const wei = await client.getBalance({ address: account.address });
+    return {
+      wei,
+      symbol: dest.chain.nativeCurrency.symbol,
+      decimals: dest.chain.nativeCurrency.decimals,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -456,6 +549,9 @@ export async function cctpCompleteBridge(input: {
       chain: mint.chain,
       destinationDomain: input.destinationDomain,
       blockNumber: mint.blockNumber,
+      gasCostWei: mint.gasCostWei,
+      nativeSymbol: mint.nativeSymbol,
+      nativeDecimals: mint.nativeDecimals,
     };
   } catch (e) {
     return {

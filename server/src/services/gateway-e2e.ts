@@ -471,7 +471,7 @@ export async function pickSourceDomainWithBalance(
  * For SCA depositors: `sourceDepositor` = SCA, `sourceSigner` = authorized EOA
  * delegate (platform ops key after user PIN `addDelegate`).
  */
-async function gatewayMintOnEvmDomain(input: {
+export async function gatewayMintOnEvmDomain(input: {
   domain: number;
   attestation: Hex;
   signature: Hex;
@@ -489,6 +489,27 @@ async function gatewayMintOnEvmDomain(input: {
   });
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
+}
+
+/**
+ * One read of a transfer's status from the Gateway API — no waiting. Used by
+ * the tracker, which runs every minute and must not hold a pass open.
+ */
+export async function readGatewayTransfer(transferId: string): Promise<{
+  status: string;
+  mintTx?: string;
+}> {
+  const res = await fetch(`${config.gatewayApiBase}/transfer/${transferId}`, {
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) return { status: `http_${res.status}` };
+  const last = (await res.json()) as Record<string, unknown>;
+  const mintTx =
+    (typeof last.transactionHash === "string" && last.transactionHash) ||
+    (typeof last.txHash === "string" && last.txHash) ||
+    (typeof last.destinationTxHash === "string" && last.destinationTxHash) ||
+    undefined;
+  return { status: String(last.status || last.state || "pending"), mintTx };
 }
 
 export async function pollGatewayTransfer(

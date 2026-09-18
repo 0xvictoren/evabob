@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
 import '../auth/evabob_auth.dart';
 import '../config/env.dart';
+import '../sound/money_sounds.dart';
 import '../../features/wallet/circle_challenge_screen.dart';
 
 String? _circleTxHash(dynamic value, [int depth = 0]) {
@@ -763,9 +764,34 @@ class CircleWalletService extends ChangeNotifier {
     }
   }
 
+  /// Plays the money-out sound for a payment that went through.
+  Map<String, dynamic> _outIfOk(Map<String, dynamic> result) {
+    if (result['ok'] == true) {
+      MoneySounds.instance.playOut(key: result['txHash']?.toString());
+    }
+    return result;
+  }
+
   /// Send via UCW: direct 0x / known user, or escrow for non-users.
   /// [token] is `USDC` (default) or `EURC` on Arc.
   Future<Map<String, dynamic>> send({
+    required BuildContext context,
+    required String to,
+    required double amountUsdc,
+    String token = 'USDC',
+    double? amountNgn,
+    String? memo,
+  }) async =>
+      _outIfOk(await _send(
+        context: context,
+        to: to,
+        amountUsdc: amountUsdc,
+        token: token,
+        amountNgn: amountNgn,
+        memo: memo,
+      ));
+
+  Future<Map<String, dynamic>> _send({
     required BuildContext context,
     required String to,
     required double amountUsdc,
@@ -996,9 +1022,13 @@ class CircleWalletService extends ChangeNotifier {
     if (!context.mounted) return false;
     // Sequential verify so approve+deposit do not race PENDING.
     final ids = _challengeIdsFrom(res);
+    final watchId = res['watchId']?.toString();
     if (ids.isEmpty) {
-      return executeChallengeResponse(context, res);
+      final ok = await executeChallengeResponse(context, res);
+      if (ok) await _confirmTopUp(watchId, null);
+      return ok;
     }
+    String? txHash;
     for (final id in ids) {
       final step = await executeChallengeAndVerify(
         context,
@@ -1011,10 +1041,29 @@ class CircleWalletService extends ChangeNotifier {
         notifyListeners();
         return false;
       }
+      txHash = step['txHash']?.toString() ?? txHash;
     }
+    // Signed: the server now shows it as on its way and tells the person when
+    // Gateway credits it. Before, the row was written before the PIN.
+    await _confirmTopUp(watchId, txHash);
     status = 'Gateway deposit confirmed';
     notifyListeners();
     return true;
+  }
+
+  Future<void> _confirmTopUp(String? watchId, String? txHash) async {
+    if (watchId == null || watchId.isEmpty) return;
+    try {
+      await _api.post('/v1/circle/gateway/deposit/confirm', body: {
+        'watchId': watchId,
+        if (txHash != null && RegExp(r'^0x[a-fA-F0-9]{64}$').hasMatch(txHash))
+          'txHash': txHash,
+      });
+    } catch (e) {
+      // The server also notices the money arriving on its own, so a missed
+      // confirmation only delays the Activity row.
+      debugPrint('confirm top-up: $e');
+    }
   }
 
   /// Pay from **user** Gateway unified USDC balance.
@@ -1023,6 +1072,21 @@ class CircleWalletService extends ChangeNotifier {
   /// source chain that will be burned. After that, Circle's ledger spend is
   /// signed by the platform EOA (no dummy PIN).
   Future<Map<String, dynamic>> gatewayPay({
+    required BuildContext context,
+    required double amountUsdc,
+    required int destinationDomain,
+    required String destinationAddress,
+    int? sourceDomain,
+  }) async =>
+      _outIfOk(await _gatewayPay(
+        context: context,
+        amountUsdc: amountUsdc,
+        destinationDomain: destinationDomain,
+        destinationAddress: destinationAddress,
+        sourceDomain: sourceDomain,
+      ));
+
+  Future<Map<String, dynamic>> _gatewayPay({
     required BuildContext context,
     required double amountUsdc,
     required int destinationDomain,
@@ -2361,17 +2425,40 @@ class CircleWalletService extends ChangeNotifier {
 
   /// Locks money in the escrow contract until it is claimed or released.
   ///
-  /// Two PINs, not one: the contract pulls funds with `transferFrom`, so the
-  /// payer approves and then creates. Only the second transaction matters
-  /// afterwards — its receipt carries the transfer id, and without that id
-  /// nobody can ever claim or refund the hold — so the tx hash is resolved
-  /// from the create challenge alone rather than from whichever finished last.
+  /// One PIN: the server puts the approve, the lock and the Evabob fee in a
+  /// single wallet batch. That batch's receipt carries the transfer id, and
+  /// without that id nobody can ever claim or refund the hold, so the tx hash
+  /// is resolved from the create challenge specifically.
+  ///
+  /// [purpose] is `claim_link` (someone not on Evabob yet), `job` (paid for
+  /// work, released on delivery) or `cooling_off` (a first payment to someone
+  /// new, sent after ten minutes unless cancelled).
   Future<Map<String, dynamic>> holdForRecipient({
     required BuildContext context,
     required String recipient,
     required double amountUsdc,
     String purpose = 'claim_link',
     String? memo,
+    /// Paying through a seller's hold link. The server takes the seller,
+    /// price and delivery window from the link itself.
+    String? holdLinkId,
+  }) async =>
+      _outIfOk(await _holdForRecipient(
+        context: context,
+        recipient: recipient,
+        amountUsdc: amountUsdc,
+        purpose: purpose,
+        memo: memo,
+        holdLinkId: holdLinkId,
+      ));
+
+  Future<Map<String, dynamic>> _holdForRecipient({
+    required BuildContext context,
+    required String recipient,
+    required double amountUsdc,
+    String purpose = 'claim_link',
+    String? memo,
+    String? holdLinkId,
   }) async {
     if (!await ensureReady(context)) {
       return {'ok': false, 'error': 'Wallet not ready'};
@@ -2388,6 +2475,7 @@ class CircleWalletService extends ChangeNotifier {
         'amountUsdc': double.parse(amountUsdc.toStringAsFixed(6)),
         'purpose': purpose,
         if (memo != null && memo.isNotEmpty) 'memo': memo,
+        if (holdLinkId != null) 'holdLinkId': holdLinkId,
       });
       if (!context.mounted) return {'ok': false, 'error': 'Cancelled'};
 
@@ -2400,7 +2488,7 @@ class CircleWalletService extends ChangeNotifier {
         return {'ok': false, 'error': err};
       }
 
-      status = 'Confirm both steps with your PIN…';
+      status = 'Confirm with your PIN…';
       notifyListeners();
       final pinOk = await executeChallengeResponse(
         context,
@@ -2438,6 +2526,7 @@ class CircleWalletService extends ChangeNotifier {
         'recipient': recipient,
         'purpose': purpose,
         if (memo != null && memo.isNotEmpty) 'memo': memo,
+        if (holdLinkId != null) 'holdLinkId': holdLinkId,
       });
       if (record['error'] != null) {
         return {
@@ -2464,6 +2553,234 @@ class CircleWalletService extends ChangeNotifier {
       return {'ok': false, 'error': e.toString()};
     }
   }
+
+  /// Pays an invoice by milestone: one hold per line, all set aside under a
+  /// single PIN. Each is paid to the invoice's sender as that part is
+  /// delivered, under the same rules as any job hold.
+  Future<Map<String, dynamic>> holdMilestones({
+    required BuildContext context,
+    required String paymentRequestId,
+  }) async =>
+      _outIfOk(await _holdMilestones(
+        context: context,
+        paymentRequestId: paymentRequestId,
+      ));
+
+  Future<Map<String, dynamic>> _holdMilestones({
+    required BuildContext context,
+    required String paymentRequestId,
+  }) async {
+    if (!await ensureReady(context)) {
+      return {'ok': false, 'error': 'Wallet not ready'};
+    }
+    await refreshSessionOnly();
+    try {
+      status = 'Preparing milestones…';
+      notifyListeners();
+      final res = await _api.post('/v1/circle/escrow/hold-milestones', body: {
+        'userToken': userToken,
+        'walletId': walletId,
+        'paymentRequestId': paymentRequestId,
+      });
+      if (!context.mounted) return {'ok': false, 'error': 'Cancelled'};
+      final createChallengeId = res['createChallengeId']?.toString();
+      if (createChallengeId == null || _challengeIdsFrom(res).isEmpty) {
+        return {
+          'ok': false,
+          'error': res['error']?.toString() ?? 'Could not prepare the milestones',
+        };
+      }
+      status = 'Confirm with your PIN…';
+      notifyListeners();
+      final pinOk = await executeChallengeResponse(
+        context,
+        res,
+        title: 'Set aside each milestone',
+      );
+      if (!pinOk) {
+        status = 'Cancelled — no funds moved';
+        notifyListeners();
+        return {'ok': false, 'error': 'PIN cancelled — no funds moved'};
+      }
+      status = 'Setting the money aside…';
+      notifyListeners();
+      final verified = await verifyChallengesAndHash(
+        challengeIds: [createChallengeId],
+        resolveTxHash: true,
+      );
+      final createTx = verified['txHash']?.toString();
+      if (createTx == null || createTx.isEmpty) {
+        return {
+          'ok': false,
+          'pending': true,
+          'error': 'Submitted but not confirmed yet. Check Activity in a moment.',
+        };
+      }
+      final recorded = await _api.post(
+        '/v1/payment-requests/$paymentRequestId/milestones-held',
+        body: {'createTx': createTx},
+      );
+      status = 'Held';
+      notifyListeners();
+      return {
+        'ok': true,
+        'txHash': createTx,
+        'transferIds': (recorded['transferIds'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const <String>[],
+      };
+    } catch (e) {
+      debugPrint('holdMilestones: $e');
+      status = 'Milestones failed';
+      notifyListeners();
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  /// One group-money action: the server builds a wallet batch at [path], the
+  /// person confirms with their PIN, and the transaction is handed to
+  /// [confirmPath] (when given) so the server can read what it did.
+  ///
+  /// Returns `ok`, the `groupId`, the `txHash`, and the confirmed `item`.
+  Future<Map<String, dynamic>> _groupAction({
+    required BuildContext context,
+    required String path,
+    required Map<String, dynamic> body,
+    required String title,
+    String Function(String groupId)? confirmPath,
+  }) async {
+    if (!await ensureReady(context)) {
+      return {'ok': false, 'error': 'Wallet not ready'};
+    }
+    await refreshSessionOnly();
+    try {
+      status = 'Preparing…';
+      notifyListeners();
+      final res = await _api.post(path, body: {
+        'userToken': userToken,
+        'walletId': walletId,
+        ...body,
+      });
+      if (!context.mounted) return {'ok': false, 'error': 'Cancelled'};
+      final challengeId = res['createChallengeId']?.toString();
+      final groupId = res['groupId']?.toString() ?? '';
+      if (challengeId == null || _challengeIdsFrom(res).isEmpty) {
+        return {'ok': false, 'error': res['error']?.toString() ?? 'Could not prepare that'};
+      }
+      status = 'Confirm with your PIN…';
+      notifyListeners();
+      if (!await executeChallengeResponse(context, res, title: title)) {
+        status = 'Cancelled — no funds moved';
+        notifyListeners();
+        return {'ok': false, 'error': 'PIN cancelled — no funds moved'};
+      }
+      status = 'Confirming…';
+      notifyListeners();
+      final verified = await verifyChallengesAndHash(
+        challengeIds: [challengeId],
+        resolveTxHash: true,
+      );
+      final txHash = verified['txHash']?.toString();
+      if (txHash == null || txHash.isEmpty) {
+        return {
+          'ok': false,
+          'pending': true,
+          'groupId': groupId,
+          'error': 'Submitted but not confirmed yet. Check again in a moment.',
+        };
+      }
+      Map<String, dynamic>? item;
+      if (confirmPath != null) {
+        final confirmed = await _api.post(confirmPath(groupId), body: {'txHash': txHash});
+        item = confirmed['item'] is Map
+            ? Map<String, dynamic>.from(confirmed['item'] as Map)
+            : null;
+      }
+      status = 'Done';
+      notifyListeners();
+      return {'ok': true, 'groupId': groupId, 'txHash': txHash, 'item': item};
+    } catch (e) {
+      debugPrint('group action: $e');
+      status = 'Failed';
+      notifyListeners();
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  /// Starts a money circle. If the organizer is a member, joining (and the
+  /// approval for their whole commitment) is in the same confirmation.
+  Future<Map<String, dynamic>> createCircle({
+    required BuildContext context,
+    required String name,
+    required double contributionUsdc,
+    required String every,
+    required List<String> members,
+    DateTime? startAt,
+  }) =>
+      _groupAction(
+        context: context,
+        path: '/v1/circle/groups/circles',
+        body: {
+          'name': name,
+          'contributionUsdc': contributionUsdc,
+          'every': every,
+          'members': members,
+          if (startAt != null) 'startAt': startAt.toUtc().toIso8601String(),
+        },
+        title: 'Start the circle',
+        confirmPath: (id) => '/v1/groups/circles/$id/confirm',
+      );
+
+  /// Joins a circle: approves the whole commitment and joins, one PIN.
+  Future<Map<String, dynamic>> joinCircle({
+    required BuildContext context,
+    required String circleId,
+  }) =>
+      _groupAction(
+        context: context,
+        path: '/v1/circle/groups/circles/$circleId/join',
+        body: const {},
+        title: 'Join the circle',
+        confirmPath: (id) => '/v1/groups/circles/$id/sync',
+      );
+
+  Future<Map<String, dynamic>> createPot({
+    required BuildContext context,
+    required String title,
+    String? description,
+    required double targetUsdc,
+    required DateTime deadline,
+    String? beneficiary,
+  }) =>
+      _groupAction(
+        context: context,
+        path: '/v1/circle/groups/pots',
+        body: {
+          'title': title,
+          if (description != null && description.isNotEmpty)
+            'description': description,
+          'targetUsdc': targetUsdc,
+          'deadline': deadline.toUtc().toIso8601String(),
+          if (beneficiary != null && beneficiary.isNotEmpty)
+            'beneficiary': beneficiary,
+        },
+        title: 'Start the collection',
+        confirmPath: (id) => '/v1/groups/pots/$id/confirm',
+      );
+
+  Future<Map<String, dynamic>> contributeToPot({
+    required BuildContext context,
+    required String potId,
+    required double amountUsdc,
+  }) =>
+      _groupAction(
+        context: context,
+        path: '/v1/circle/groups/pots/$potId/contribute',
+        body: {'amountUsdc': double.parse(amountUsdc.toStringAsFixed(6))},
+        title: 'Chip in',
+        confirmPath: (id) => '/v1/groups/pots/$id/contributed',
+      ).then(_outIfOk);
 
   /// Money this user is holding for someone else, newest first.
   ///

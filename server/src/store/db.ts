@@ -4,7 +4,10 @@ import { writeJsonAtomic } from "../utils/write-json-atomic.js";
 import { dirname } from "node:path";
 import { validateHandle } from "../utils/handles.js";
 import { dataPath } from "../utils/data-path.js";
-import { markPrimaryStoreDirty } from "../services/primary-store.js";
+import {
+  markPrimaryStoreDirty,
+  registerPrimaryStoreReloader,
+} from "../services/primary-store.js";
 
 export type UserRecord = {
   id: string;
@@ -43,6 +46,11 @@ export type UserRecord = {
    * a recent window rather than genesis.
    */
   inboundScannedBlock?: number;
+  /**
+   * Payments to contacts marked as family above this many dollars need a code
+   * from the account email first (services/familyCheck.ts). Unset: the default.
+   */
+  familyCheckAbove?: number;
   createdAt: string;
 };
 
@@ -81,6 +89,14 @@ export type ActivityItem = {
   /** Evabob platform fee charged on top of amountToken, in platformFeeToken. */
   platformFee?: number;
   platformFeeToken?: string;
+  /** Note the sender attached. Shown on both receipts; kept apart from description. */
+  memo?: string;
+  /** keccak256 id of this row's Memo event (services/memo.ts memoIdFor). */
+  memoId?: string;
+  /** True when the memo was written on chain with the payment, not just stored. */
+  memoOnchain?: boolean;
+  /** Shared by every row of one multi-recipient payment (one transaction). */
+  batchId?: string;
   /**
    * Receipt lifecycle: `completed` and `pending` appear in history so the
    * user can resume an unfinished bridge/swap. Cancelled stays hidden.
@@ -94,6 +110,11 @@ export type ActivityItem = {
    * same wallet, so the hash alone does not identify a credit.
    */
   logIndex?: number;
+  /**
+   * Set when the payer shares this payment. The only way anyone outside the
+   * payer's account can see it (services/publicReceipts.ts).
+   */
+  publicId?: string;
   createdAt: string;
 };
 
@@ -205,6 +226,8 @@ export type ContactRecord = {
   name: string;
   address: string;
   email?: string;
+  /** Marked as family: large payments to them need the emailed code. */
+  family?: boolean;
   createdAt: string;
 };
 
@@ -247,6 +270,10 @@ function save(db: DbShape) {
 }
 
 let db = load();
+// Another server instance saved: pick up its version before the next request.
+registerPrimaryStoreReloader(() => {
+  db = load();
+});
 
 export const store = {
   resetSeedIfEmpty() {
@@ -620,6 +647,65 @@ export const store = {
     );
   },
 
+  /**
+   * True when a payment between two Evabob users was already written into the
+   * payee's history when the sender's payment was verified.
+   *
+   * That receipt carries the transaction hash but no log index, so
+   * `hasInboundActivity` never matched it and the inbound scan recorded the
+   * same money a second time — the payee saw it arrive twice, and the copy
+   * from the scan had no memo. Token and amount are matched as well, because
+   * one transaction can pay the same person in more than one currency.
+   */
+  hasReceiptForTransfer(input: {
+    userId: string;
+    txHash: string;
+    token: string;
+    amount: number;
+  }): boolean {
+    const hash = input.txHash.toLowerCase();
+    return db.activity.some(
+      (a) =>
+        a.userId === input.userId &&
+        a.kind === "receive" &&
+        a.logIndex == null &&
+        (a.txHash ?? "").toLowerCase() === hash &&
+        (a.token || "USDC") === input.token &&
+        Math.abs((a.amountToken ?? Math.abs(a.amountUsdc)) - input.amount) < 1e-9,
+    );
+  },
+
+  /**
+   * The inbound-scan row for a transfer, if the scan got there first.
+   * The counterpart of `hasReceiptForTransfer`, for the opposite order.
+   */
+  findInboundReceipt(input: {
+    userId: string;
+    txHash: string;
+    token: string;
+    amount: number;
+  }) {
+    const hash = input.txHash.toLowerCase();
+    return (
+      db.activity.find(
+        (a) =>
+          a.userId === input.userId &&
+          a.kind === "receive" &&
+          a.logIndex != null &&
+          (a.txHash ?? "").toLowerCase() === hash &&
+          (a.token || "USDC") === input.token &&
+          Math.abs((a.amountToken ?? Math.abs(a.amountUsdc)) - input.amount) < 1e-9,
+      ) ?? null
+    );
+  },
+
+  /** Every row of one multi-recipient payment, oldest first. */
+  listBatchActivity(userId: string, batchId: string) {
+    return db.activity
+      .filter((a) => a.userId === userId && a.batchId === batchId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  },
+
   /** Patch receipt fields (e.g. txHash / status after PIN challenge confirms). */
   updateActivity(
     id: string,
@@ -637,6 +723,10 @@ export const store = {
         | "status"
         | "jobId"
         | "settlementVerified"
+        | "memo"
+        | "memoId"
+        | "memoOnchain"
+        | "publicId"
       >
     >,
   ) {
@@ -649,6 +739,11 @@ export const store = {
 
   getActivity(id: string) {
     return db.activity.find((a) => a.id === id) ?? null;
+  },
+
+  /** A shared payment, by the id in its public link. */
+  findActivityByPublicId(publicId: string) {
+    return db.activity.find((a) => a.publicId === publicId && a.status !== "cancelled") ?? null;
   },
 
   /** Soft-remove cancelled / failed pre-PIN drafts so they never show. */
@@ -874,6 +969,7 @@ export const store = {
     name: string;
     address: string;
     email?: string;
+    family?: boolean;
   }) {
     if (!db.contacts) db.contacts = [];
     const row: ContactRecord = {
@@ -882,11 +978,31 @@ export const store = {
       name: input.name.trim(),
       address: input.address.trim(),
       email: input.email?.trim(),
+      ...(input.family ? { family: true } : {}),
       createdAt: new Date().toISOString(),
     };
     db.contacts.push(row);
     save(db);
     return row;
+  },
+
+  setContactFamily(ownerUserId: string, id: string, family: boolean) {
+    if (!db.contacts) db.contacts = [];
+    const row = db.contacts.find((c) => c.ownerUserId === ownerUserId && c.id === id);
+    if (!row) return null;
+    if (family) row.family = true;
+    else delete row.family;
+    save(db);
+    return row;
+  },
+
+  setFamilyCheckAbove(userId: string, amount: number) {
+    const user = this.getUser(userId);
+    if (!user) return null;
+    user.familyCheckAbove = amount;
+    save(db);
+    void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
+    return user;
   },
 
   deleteContact(ownerUserId: string, id: string) {
@@ -1139,8 +1255,16 @@ export const store = {
     return { fresh: true, withdrawal: agent.withdrawal };
   },
 
-  isPaymentEvidenceUsed(userId: string, hash: string, exceptId: string) {
+  /**
+   * True when another verified send already claims this transaction.
+   *
+   * Rows of one multi-recipient payment share a transaction by design, so a
+   * row's own batch is exempt. Each of those rows is still verified against
+   * its own recipient and amount, and a batch never pays one address twice.
+   */
+  isPaymentEvidenceUsed(userId: string, hash: string, exceptId: string, batchId?: string) {
     return db.activity.some(a => a.userId === userId && a.id !== exceptId && a.kind === "send"
+      && !(batchId && a.batchId === batchId)
       && a.settlementVerified && a.txHash?.toLowerCase() === hash.toLowerCase());
   },
 

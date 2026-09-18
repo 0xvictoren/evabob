@@ -12,7 +12,9 @@ import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/money_format.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/confirm_action_dialog.dart';
+import '../held/held_payment_screen.dart';
 import '../../core/widgets/confirm_payment_sheet.dart';
+import '../../core/widgets/family_code_sheet.dart';
 import '../../core/widgets/contact_picker_sheet.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/agent_avatar.dart';
@@ -407,6 +409,14 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       ),
     );
     if (!confirmed || !mounted) return;
+    // Family above the chosen amount needs the emailed code first. One code
+    // covers the whole amount, however it leaves (all now, or half held).
+    final handle = (widget.thread.handle ?? '').replaceFirst(RegExp(r'^@'), '').trim();
+    final payee = handle.isEmpty ? widget.thread.title : '@$handle';
+    if (!await passFamilyCheck(context, to: payee, amount: amount, token: token) ||
+        !mounted) {
+      return;
+    }
     await _payRequestMode(m, myId, choice);
   }
 
@@ -955,6 +965,25 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
+                  // A hold on the contract has its own screen with the right
+                  // actions for each side: the worker marks it delivered, the
+                  // payer pays or raises a problem, and silence pays after 7
+                  // days. The two buttons below only serve old ledger rows.
+                  if ((m.meta?['transferId']?.toString() ?? '').isNotEmpty)
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => HeldPaymentScreen(
+                              transferId: m.meta!['transferId'].toString(),
+                            ),
+                          ),
+                        ),
+                        child: Text(mine ? 'See where it stands' : 'Open'),
+                      ),
+                    )
+                  else
                   Row(
                     children: [
                       if (!mine)

@@ -37,6 +37,7 @@ import {
   reconcileStaleAppKitJobs,
   recoverAppKitJob,
   startUcwBridgeJob,
+  warnIfRelayUnfunded,
   startUcwComposeJob,
   startUcwDepositJob,
   startUcwSendJob,
@@ -577,6 +578,7 @@ appKitRoutes.post("/ucw/bridge", async (c) => {
         token: z.string().optional().default("USDC"),
       })
       .parse(await c.req.json());
+    void warnIfRelayUnfunded(body.toChain);
     const job = startUcwBridgeJob({
       userId: userId(c),
       userToken: body.userToken,

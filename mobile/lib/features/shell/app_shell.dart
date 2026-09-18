@@ -17,6 +17,10 @@ import '../bridge/bridge_screen.dart';
 import '../chat/chat_list_screen.dart';
 import '../exchange/exchange_screen.dart';
 import '../gateway/gateway_screen.dart';
+import '../held/held_payment_screen.dart';
+import '../held/operator_reviews_screen.dart';
+import '../groups/groups_screen.dart';
+import '../hold_links/hold_link_pay_screen.dart';
 import '../home/home_screen.dart';
 import '../profile/profile_screen.dart';
 import '../request/request_screen.dart';
@@ -79,6 +83,47 @@ class _AppShellState extends State<AppShell> {
     ];
     if (parts.length >= 2 && parts.first.toLowerCase() == 'pay') {
       setState(() => _overlay = 'pay:${parts[1]}');
+      return;
+    }
+    // A tapped notification about a held payment opens that payment.
+    if (parts.length >= 2 && parts.first.toLowerCase() == 'held') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => HeldPaymentScreen(transferId: parts[1]),
+        ),
+      );
+      return;
+    }
+    // A money circle or collection (from an invite or a shared link).
+    if (parts.length >= 2 && parts.first.toLowerCase() == 'group') {
+      openGroup(context, parts[1]);
+      return;
+    }
+    // A seller's hold link: pay into a hold until the order arrives.
+    if (parts.length >= 2 && parts.first.toLowerCase() == 'hold') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => HoldLinkPayScreen(linkId: parts[1]),
+        ),
+      );
+      return;
+    }
+    if (parts.isNotEmpty && parts.first.toLowerCase() == 'reviews') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const OperatorReviewsScreen()),
+      );
+      return;
+    }
+    if (parts.length >= 2 && parts.first.toLowerCase() == 'review') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => OperatorReviewDetailScreen(transferId: parts[1]),
+        ),
+      );
+      return;
+    }
+    if (parts.isNotEmpty && parts.first.toLowerCase() == 'activity') {
+      setState(() => _overlay = 'activity');
       return;
     }
     if (parts.isNotEmpty && parts.first.toLowerCase() == 'claim') {

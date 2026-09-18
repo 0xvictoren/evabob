@@ -4,7 +4,7 @@
 this file, this file is right. Supersedes the former `new.md` and the progress
 tables that used to live in the README.
 
-Last verified: 2026-09-13 in the testnet-foundation worktree.
+Last verified: 2026-09-18 ("For people" and fix-first batches below); earlier sections 2026-09-13.
 
 ---
 
@@ -30,6 +30,76 @@ and other public testnets. Do not read "live" below as "in production" — it me
 | **Not built** | Referenced somewhere but absent from the code |
 
 ---
+
+## "For people" batch — 2026-09-18 (research report §8.1)
+
+All six built, typechecked and unit-tested. **None has run end to end on
+testnet with real wallets yet.** The public links (`/r`, `/h`, `/g`) only open
+on the development PC until the web app is hosted.
+
+| # | Item | State | What was done / what remains |
+|---|------|-------|------------------------------|
+| 1 | "Paid ✓" receipts | **Built** | Any payment you made can be shared as a link and a QR code (`POST /v1/activity/:id/share` → `/r/{publicId}`). The page shows who paid, how much and when, and re-checks the payment on the Arc network each time it is opened (same-network sends: payer, recipient, token and exact amount in one Transfer event; cached 60 s), with a "check it yourself on Arcscan" link. Nothing is public until the payer shares it; the memo is never shown. Receipt sheet copy: "Show this to the seller — they can check it themselves." Sellers get **Money in** (Home ⋯ menu): payments as they land, with a chime (`assets/sounds/money_in.wav`), today's dollar total (euros shown apart), live from alerts with a 6-second poll behind it. Payments between two Evabob users now alert the payee — they previously never did, because the inbound scan skipped transfers the sender's receipt already covered. |
+| 2 | Hold-until-delivered links | **Built** | Home ⋯ → Sell with a link. A link per item (title, price, delivery window, 14 days by default); public page `/h/{id}` with the seller's track record; `evabob://hold/{id}` opens the pay screen. Orders are job holds tied to the link (`holdLinkId`) and follow the job rules exactly (docs/HELD_PAYMENTS.md). "Escrow" appears nowhere. |
+| 3 | Safe send additions | **Built** | The review sheet shows the payee's photo. **Family check**: mark contacts as family (Profile → Family check) and choose an amount (default $100); a payment to them above it needs a 6-digit code emailed to the sender's own address, entered before the PIN. Enforced by the server on sends, holds and milestone payments, not only in the app; 5 wrong tries lock a code, codes last 10 minutes, one code covers a payment made in parts. The 10-minute cooling-off hold and raw-address warnings were already built. |
+| 4 | Work that pays itself out | **Built** | Invoices can be **paid by milestone** (one hold per line, one PIN, each released as it is delivered), carry a **due date** and a named payer with **automatic reminders** (day before, on the day, 3 days late; the sender told when overdue). Reviews now have a **conversation with evidence** (links and photos) between both people and the reviewer, on both held-payment screens. Delivered → release in 7 days was already built. |
+| 5 | Money circles and group pots | **Built; contracts deployed** | `MoneyCircles` `0x482497289a4F5197f67f98B2535cd23D6238d256` and `GroupPots` `0x3CBDdab2398e06d5FB496a9DbF9424abD449D795` (deploy txs `0x19584dd3…`, `0x0214e964…`), 13 Foundry tests. Neither has an admin; the 0.05% fee goes to the platform fee wallet, taken from payouts and releases. **Circles**: members approve their whole commitment and join (one PIN); each round the server (or anyone) collects and pays the next person in the same transaction. Missed contributions follow the product owner's rules: the round pays out what came in, the member is behind and owes whoever they shorted, their turn moves to the end, and the keeper catches them up as soon as their balance can cover it. **Collections**: a target and a deadline; released the moment the target is reached; if the deadline passes short, the keeper refunds everyone automatically. Public progress page `/g/{id}` (collections only; circles are private). Home ⋯ → Circles and collections. The keeper's transactions are paid by the ops wallet. |
+| 6 | Where the money is | **Built** | The same `/r/{publicId}` link shows Sending → On the way → Done while a payment moves (App Kit job stage for bridges; hold state for holds) and refreshes itself. The review sheet now says what arrives before the PIN: "They receive" for sends, and for bridges the amount after Circle's Fast Transfer fee, read live from Circle's fee table (`/v1/app-kit/bridge/quote` — it used to subtract the Evabob fee, which is charged on top, and ignore Circle's fee, which is not). |
+
+**Money sounds** (product owner's choice, 2026-09-18): `assets/sounds/money_in.mp3`
+plays whenever money reaches the person while the app is open (received,
+released or returned to them, a circle payout, a refund — the server marks
+those alerts `moneyIn`); `assets/sounds/money_out.wav` plays when a payment
+they make goes through (send, hold, milestones, collection, GA payment). One
+payment reported twice chimes once; the switch on Money in turns both off.
+
+The scheduled work now runs from one place, `services/tick.ts`, for both the
+local minute timer and `/internal/cron/tick`: held payments, abandoned
+bridges, Gateway tracking, invoice reminders and the circles/collections
+keeper. Checked 2026-09-18 by booting against the real Atlas snapshot: public
+routes answer without sign-in, `/v1/groups` requires it, and a tick runs all
+five steps without errors.
+
+## Fix-first batch — 2026-09-18
+
+The eight "fix before anything new" items from the September 2026 payments
+research report (`evabob-payments-research-2026-09.pdf`, §7.2).
+
+| # | Item | State | What was done / what remains |
+|---|------|-------|------------------------------|
+| 1 | Notifications that reach a closed app | **Built; needs a Firebase project** | Every alert now goes out through FCM as well as Pusher, with a shared tag so a phone shows one notification (`services/push.ts`, `core/notifications/push_registration.dart`). Devices register on sign-in and unregister on sign-out; a token moves when someone else signs in on that phone. Off until `FIREBASE_SERVICE_ACCOUNT_JSON` (server) and the `FIREBASE_*` dart-defines (app) are set; iPhones also need an APNs key in Firebase and the Push Notifications capability in Xcode. New alerts: work delivered, releases tomorrow, hold expiring, cancelled after delivery, money returned, bridge finished for you, review needed (operators). |
+| 2 | Two-sided job escrow | **Built; contract deployed; operator screen built** | Worker marks delivered → payer has 7 days → silence releases to the worker. Cancel before delivery refunds at once; cancel after delivery requires a reconciliation form and goes to manual review by an operator. Rules, including the reviewer criteria, in `docs/HELD_PAYMENTS.md` — confirmed 2026-09-18. Operators (`OPERATOR_USER_IDS`) decide reviews in the app: Profile → Held-payment reviews, or by tapping a "review needed" notification; the screen shows both sides, the delivered work, and the written criteria, and requires a note both people see. Needs **PaymentEscrowV3** (below). |
+| 3 | No stranded money | **Built** | Bridges burned and left for 40 minutes are finished by the server from the ops wallet, one attempt per pass, timed from the burn's block time. The 2× gas charge is recorded on the job and **not collected** (waived on testnet; collection method undecided). Bridge jobs are now in the Mongo snapshot — on Vercel they previously lived on one instance's temp disk. Gateway (the GA) is finished rather than hidden — see the money-movement table. Every configured bridge route stays offered — routes are never hidden over ops-wallet gas (product owner's decision). If the ops wallet cannot pay a destination mint, bridges still start, operators get an alert, and `/v1/health` shows it under `bridgeRelay`. The ops wallet (`0x164d01fD…A971`) was funded with 0.1 ETH on Base Sepolia and on Ethereum Sepolia on 2026-09-18. Gateway stays behind `FEATURE_GATEWAY`. |
+| 4 | Safe-send guardrails | **Built** | `GET /v1/payees/check` resolves who a payee really is, whether this sender has paid them, and flags raw addresses that are not Evabob accounts and addresses that only resemble one already paid (address poisoning). The review sheet shows those cautions and, for USDC to an Evabob user, a "wait 10 minutes before it goes" switch, on by default for a first payment. That sends through a cooling-off hold the sender can cancel from a countdown screen; it releases after 10 minutes, or refunds after 24 hours if the server never acts. |
+| 5 | Agent path | **Wired; honestly off on testnet** | `GET /v1/agents/services` lists what an agent wallet can pay: Circle catalog sellers that are GET, Gateway-batched and on this network. `AGENT_RESOURCE_ORIGINS` accepts `circle-marketplace` to allow them. The catalog (1,143 endpoints on 2026-09-18) has 323 payable endpoints, all on Arc mainnet, none on Arc Testnet, so the app now says nothing is payable here yet. `runParallelSources()` and the curated Polymarket/Reddit/X/YouTube list were deleted — unwired, and they invented costs. |
+| 6 | Assistant capacity | **Done** | The Evabob Agent now uses DeepSeek (`DEEPSEEK_API_KEY`, default model `deepseek-flash`, thinking off) through one client, `services/llm.ts`. Groq and `GROQ_*` are removed. DeepSeek caches the repeated system prompts automatically. |
+| 7 | Production hygiene | **Partly done** | Mongo snapshot split into chunks under an atomically switched head (no 16 MB ceiling), with generation-checked saves and per-request refresh so several instances cannot overwrite each other. Profile photos stored in Mongo. The refund sweep no longer marks a hold refunded when the refund failed. Flutter tests were not blocked (the `Inter.ttf` note below was stale): 36 pass. **Remaining:** per-record Mongo documents before real traffic, and an external contract audit. |
+| 8 | The ramp decision | **Deferred (2026-09-18)** | Parked by the product owner for now. When it is taken up, the choice is: wallet-to-wallet only, or cash-in/out through a licensed partner under Nigeria's August 2026 framework (₦2bn / ₦300m capital tiers, 1.5% stamp duty on crypto-to-fiat). Record the choice and its dates here. |
+
+### PaymentEscrowV3 — deployed 2026-09-18
+
+`0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39` · deploy tx `0xb45652f0…` ·
+admin is the 2-of-3 Safe from the first block, attestor is the existing
+escrow attestor, recipients resolve through IdentityRegistryV2.
+
+V2 plus two attestor-only functions: `refundWithAttestation` returns a
+pending hold to its **original sender only**, before expiry; `extendExpiry`
+moves expiry later, never past a year after creation. Neither can pay anyone
+new. 17 new Foundry tests including a 256-run fuzz that money only ever
+reaches the worker or the payer. V2 (`0xd6b5cbCD…`) had created no transfers
+(`nextTransferId` was 1), so it was retired with nothing to migrate. Records
+now store their contract address and are never acted on against a different
+one, because transfer ids restart at 1 on every deployment.
+
+**Running this batch:** the API is not hosted anywhere yet; it runs locally on
+the development PC. `server/.env` already has `PAYMENT_ESCROW` (V3),
+`CRON_SECRET` and `OPERATOR_USER_IDS`; restart the server to pick them up.
+The in-process timer runs held-payment releases, abandoned-bridge completion
+and reminders every minute, so no external cron is needed locally. The first
+save converts the Mongo snapshot to the chunked format; it keeps an inline
+copy for older builds, so an older checkout still reads it. Verified
+2026-09-18: the server boots against the real Atlas snapshot, reports ready,
+and offers all four bridge routes.
 
 ## Testnet foundation batch — 2026-09-13
 
@@ -60,7 +130,7 @@ and other public testnets. Do not read "live" below as "in production" — it me
 | Circle UCW onboarding + PIN challenges | **Works** | SCA wallets on `ARC-TESTNET`, `ETH-SEPOLIA`, `BASE-SEPOLIA` — three chains, not six. Multi-challenge runner verifies COMPLETE and retries only still-PENDING ids. |
 | App Kit send / swap / deposit / spend / compose | **Works** | Ops (server-signed) and UCW (PIN relay) paths, jobs persisted with expiry/recover. |
 | Bridge (App Kit → CCTP) | **Partial** | Burn + attestation work. **Mint on Base Sepolia is blocked on ops-wallet ETH for gas.** This flow was re-declared "working" four times during August; treat any single success as anecdotal until it runs repeatedly. |
-| Gateway unified balance | **Partial** | Server routes work; **the product UI is paused**. Deposit credits after an ~8s delay plus polling. |
+| Gateway unified balance (GA) | **Built — 2026-09-18; live run remains** | Top-up and Pay work from the GA screen (Home ⋯ menu, behind `FEATURE_GATEWAY`). Money in flight is now tracked (`services/gatewayTracker.ts`): a payment whose destination mint did not land in the request is recorded with its attestation and minted by the ops wallet while the attestation is valid (~10 min), otherwise its status is read from Circle; the person is told when it arrives or that it did not go through. A top-up's activity row is written only once it is signed and flips to "arrived" when Gateway credits it (seconds on Arc, ~40 min Base Sepolia, hours Ethereum Sepolia), with an alert. Fixed on the way: every successful GA payment used to overwrite the payer's email with `<id>@evabob.app` and their name with their id; and a cancelled top-up used to leave a "Gateway deposit" row. Not yet exercised end to end on testnet. The GA delegate that signs burn intents is the ops key — a separate delegate key would narrow what a leaked ops key could reach. |
 | Swap via Synthra | **Partial** | Real quotes and on-chain swap when `SYNTHRA_API_KEY` is set. Without it, `/v1/circle/swap` returns 503 and quote endpoints fall back to hardcoded approximate FX that is **not a market price**. |
 | `POST /v1/transfers/send` and `/v1/exchange` | **Retired** | Return 410 so an old client cannot fabricate completed payment or swap history. |
 | Chat invoice pay (100% / 50+50 / 100% escrow) | **Works** | Direct portions require verified ERC-20 receipts; held portions require a `TransferCreated` event from the deployed escrow contract. |
@@ -180,7 +250,7 @@ two-PIN contract lock the claim link uses, with `purpose: "job"`.
 |---|--------|-----|
 | Where the money sits | Platform hold wallet, with a JSON row asserting it | The escrow contract, funded by the payer |
 | Releasing | Ops wallet paid the recipient | Contract pays the identity it was locked for |
-| Nobody releases | Nothing happens; the row sits "funded" forever | Refunds to the payer automatically at expiry |
+| Nobody releases | Nothing happens; the row sits "funded" forever | Refunds to the payer automatically at expiry — **superseded 2026-09-18:** once the worker marks delivered, silence releases to the worker after 7 days (see `docs/HELD_PAYMENTS.md`) |
 | Hold length | 3 days | 90 days, ceiling 365 |
 
 `POST /v1/escrow/job`, `/:id/complete` and `/:id/reject` are **410
@@ -249,7 +319,7 @@ automatically. `AGENT_RESOURCE_ORIGINS` remains empty by default, so paid calls
 stay disabled until exact seller origins are chosen. Existing shared-custody
 agents are rejected with `AGENT_WALLET_MIGRATION_REQUIRED`.
 
-`runParallelSources()` and `getMarketplaceServices()` remain defined and unwired.
+`runParallelSources()` and `getMarketplaceServices()` were deleted on 2026-09-18; `GET /v1/agents/services` replaces them with the list of sellers an agent can actually pay.
 
 ---
 
@@ -261,7 +331,7 @@ software. The routes differ by one letter: `/v1/agent/*` versus `/v1/agents/*`.
 
 | Item | State |
 |------|-------|
-| Tool-calling loop (`services/agentChat.ts`) | **Works** — Groq decides which read tools to call, then answers from the results |
+| Tool-calling loop (`services/agentChat.ts`) | **Works** — the model (DeepSeek since 2026-09-18) decides which read tools to call, then answers from the results |
 | Read tools (`services/agentTools.ts`) | **Works** — 10 tools: help search, balance, activity, one transaction, pending operations, invoices, receiving details, contacts, agent wallets, profile |
 | Knowledge base (`knowledge/evabob-kb.ts`) | **Works** — 18 topics, keyword retrieval, exposed as the `search_help` tool |
 | Propose tools | **Works** — `propose_send`, `propose_swap`, `propose_bridge`, `propose_topup`, `propose_request` |
@@ -310,11 +380,10 @@ vector database, and a keyword match is inspectable when an answer looks wrong.
 must return, since an entry the search never returns is one the model never
 sees.
 
-Rate limit is 8,000 tokens/minute on every tool-capable Groq model available on
-the current key, and a turn costs roughly 2,400. That is about three questions a
-minute — fine for one person typing, not enough for a demo with several users at
-once. On a 429 the turn degrades to the pre-tool canned reply rather than
-failing.
+~~Rate limit is 8,000 tokens/minute on every tool-capable Groq model~~ — the
+Groq limit (about three questions a minute across all users) is gone: the
+assistant moved to DeepSeek on 2026-09-18. Any error or rate limit still
+degrades to the pre-tool canned reply rather than failing.
 
 Turns are capped at three tool rounds and identical tool calls are answered from
 a per-turn cache; one diagnosis question had asked for the same activity lookup
@@ -335,10 +404,10 @@ The server now emits a Pusher event on a channel named after the user
 transfer detected on chain, and a held payment released to someone who has
 just signed up.
 
-**What it does not do.** It reaches the user while the app is running or
-backgrounded, not while it is force-quit. Waking a closed app needs FCM or
-APNs and a Firebase project, which is a separate piece of work. Calling this
-"push notifications" would overstate it.
+**What it does not do.** Pusher reaches the user while the app is running or
+backgrounded, not while it is force-quit. Since 2026-09-18 the same alerts
+also go through FCM, which does reach a closed app — once a Firebase project
+is configured (see the fix-first batch above).
 
 **Channel authorisation.** The channel name is the user's id, and the server
 signs it only for the session that owns it — an exact match, not a prefix, so
@@ -646,9 +715,9 @@ generated one written into a `.env`.
 | Gap | Impact |
 |-----|--------|
 | Safe owners currently use soft wallets | 2-of-3 prevents a single-key takeover, but keeping enough owners on one device or in one backup account can collapse that protection. Move owners to separate hardware wallets when available. |
-| Mongo primary store is a single snapshot document | Cross-record changes are atomic and failover restores before route import. Mongo's 16 MB document limit means collections should be normalized before production scale. |
+| Mongo primary store is one snapshot | Chunked since 2026-09-18, so the 16 MB document cap no longer applies, and saves are generation-checked across instances. Still one snapshot rather than per-record documents, so concurrent writes on different instances contend and the loser gets a 503. |
 | Operator allowlist is empty locally | Treasury, test-email, and maintenance routes fail closed until the operator's Dynamic user id is added to `OPERATOR_USER_IDS`. |
-| x402 origin allowlist is empty | Paid execution is fail-closed until exact seller origins are added; legacy agents also require new-wallet migration. |
+| No x402 sellers on Arc Testnet | Circle's catalog has payable sellers only on Arc mainnet. `AGENT_RESOURCE_ORIGINS=circle-marketplace` will pick them up there; on testnet paid execution stays off and the app says so. |
 | No deployed TLS endpoint | Production startup now requires exact HTTPS API/app origins, explicit HTTPS CORS and MongoDB; HSTS/security headers are set, but a TLS reverse proxy/host must still be deployed. |
 | Circle SDK transitive dependency advisories | Direct Hono, Node adapter and Nodemailer advisories are patched. `npm audit` still reports advisories through Circle App Kit's Ethers/Solana dependency graph; npm offers only a breaking App Kit downgrade, so these need upstream Circle releases or a separately tested SDK upgrade. |
 | No independent contract audit | Foundry regression and fuzz tests pass, but they are not an external audit. |
@@ -671,9 +740,9 @@ generated one written into a `.env`.
 
 | Suite | Count |
 |-------|-------|
-| Server (`npm test` in `server/`) | 218 pass |
-| Mobile (`flutter test --no-pub` in `mobile/`) | Blocked before tests: `pubspec.yaml` still references the currently deleted `assets/Inter/Inter.ttf` |
-| Contracts (`forge test`) | 34 pass |
+| Server (`npm test` in `server/`) | 310 pass |
+| Mobile (`flutter test --no-pub` in `mobile/`) | 38 pass (the `Inter.ttf` blocker was already fixed; this row was stale) |
+| Contracts (`forge test`) | 60 pass |
 
 `mobile/test/widget_test.dart` is skipped: it boots all 13 services and the
 Dynamic SDK, so it cannot pass under the test binding. Enabling it requires
@@ -687,7 +756,8 @@ Dynamic SDK, so it cannot pass under the test binding. Enabling it requires
 |----------|---------|
 | Admin Safe (2-of-3) | `0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2` |
 | IdentityRegistryV2 | `0xb14355288fcE19811cccaF1589ea85e3791320a0` |
-| PaymentEscrowV2 | `0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805` |
+| PaymentEscrowV3 | `0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39` |
+| PaymentEscrowV2 (retired 2026-09-18, never used) | `0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805` |
 
 Ops signer, identity linker, and escrow attestor use separate EOAs and neither
 hot service signer is an administrator. `/v1/health` verifies the complete role

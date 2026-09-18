@@ -8,7 +8,12 @@ if (!apiOrigin || !cronSecret) {
 
 let endpoint;
 try {
-  const url = new URL("/internal/cron/escrow-refunds", apiOrigin);
+  // The route may be passed as an argument (or CRON_PATH), so one script
+  // drives any internal cron route — e.g. "/internal/cron/tick?refunds=1".
+  const url = new URL(
+    process.argv[2]?.trim() || process.env.CRON_PATH?.trim() || "/internal/cron/escrow-refunds",
+    apiOrigin,
+  );
   if (url.protocol !== "https:" || url.origin !== apiOrigin) {
     throw new Error("API_PUBLIC_URL must be an exact HTTPS origin");
   }

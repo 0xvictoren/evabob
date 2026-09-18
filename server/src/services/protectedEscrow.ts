@@ -60,7 +60,22 @@ export const JOB_EXPIRY_SECONDS = 90 * 24 * 60 * 60;
 /** Long enough for someone to notice an email and sign up. */
 export const CLAIM_LINK_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
 
-export type EscrowPurpose = "claim_link" | "job";
+/**
+ * The window in which a sender may take back a first payment to someone new.
+ * Scam calls push people to pay before they can think; ten minutes is enough
+ * to hang up, check, and cancel.
+ */
+export const COOLING_OFF_SECONDS = 10 * 60;
+
+/**
+ * On-chain expiry for a cooling-off hold. The server releases it after
+ * COOLING_OFF_SECONDS; this is only the safety net. If the server never
+ * releases it — down, misconfigured, out of gas — the money returns to the
+ * sender after a day rather than sitting with nobody watching.
+ */
+export const COOLING_OFF_EXPIRY_SECONDS = 24 * 60 * 60;
+
+export type EscrowPurpose = "claim_link" | "job" | "cooling_off";
 
 export class EscrowError extends Error {}
 
@@ -123,11 +138,15 @@ export function planProtectedEscrow(input: {
   if (!(input.amountUsdc > 0)) throw new EscrowError("Amount must be positive");
   const { kind, normalized, key } = escrowRecipientKey(input.recipientId);
 
+  // A cooling-off hold always uses its fixed expiry: a longer one would leave
+  // the money stuck longer if the server never releases it.
   const requested =
-    input.expirySeconds ??
-    (input.purpose === "claim_link"
-      ? CLAIM_LINK_EXPIRY_SECONDS
-      : JOB_EXPIRY_SECONDS);
+    input.purpose === "cooling_off"
+      ? COOLING_OFF_EXPIRY_SECONDS
+      : input.expirySeconds ??
+        (input.purpose === "claim_link"
+          ? CLAIM_LINK_EXPIRY_SECONDS
+          : JOB_EXPIRY_SECONDS);
   const expirySeconds = Math.min(requested, MAX_EXPIRY_SECONDS);
 
   const { steps } = buildEscrowCreateCalldata({
@@ -161,13 +180,19 @@ export function planProtectedEscrow(input: {
  * lock nobody can release. Taken from the event rather than from a counter
  * read afterwards, which would race with anyone else creating a transfer.
  */
-export async function readCreatedTransferId(txHash: string): Promise<{
+export type CreatedTransfer = {
   transferId: string;
   amountUsdc: number;
   recipientKey: Hex;
   sender: Address;
   expiresAt: string;
-}> {
+};
+
+/**
+ * Every hold one transaction created on the current contract, in the order
+ * they were created. A milestone invoice creates several in one batch.
+ */
+export async function readCreatedTransferIds(txHash: string): Promise<CreatedTransfer[]> {
   if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
     throw new EscrowError("Not a transaction hash");
   }
@@ -177,7 +202,7 @@ export async function readCreatedTransferId(txHash: string): Promise<{
     throw new EscrowError("That transaction did not succeed");
   }
   const escrow = (config.arc.paymentEscrow ?? "").toLowerCase();
-
+  const out: CreatedTransfer[] = [];
   for (const log of receipt.logs) {
     if (log.address.toLowerCase() !== escrow) continue;
     let decoded;
@@ -198,17 +223,71 @@ export async function readCreatedTransferId(txHash: string): Promise<{
       amount: bigint;
       expiresAt: bigint;
     };
-    return {
+    out.push({
       transferId: args.transferId.toString(),
       amountUsdc: Number(args.amount) / 1e6,
       recipientKey: args.recipientKey,
       sender: args.sender,
       expiresAt: new Date(Number(args.expiresAt) * 1000).toISOString(),
-    };
+    });
   }
-  throw new EscrowError(
-    "That transaction did not create a held payment on this contract",
-  );
+  return out;
+}
+
+export async function readCreatedTransferId(txHash: string): Promise<CreatedTransfer> {
+  const [first] = await readCreatedTransferIds(txHash);
+  if (!first) {
+    throw new EscrowError(
+      "That transaction did not create a held payment on this contract",
+    );
+  }
+  return first;
+}
+
+/**
+ * The calls that lock several milestone holds for one person under a single
+ * PIN: one approval for the total, then one hold per milestone. Each hold is
+ * released on its own, as that milestone is delivered.
+ */
+export function planMilestoneHolds(input: {
+  recipientId: string;
+  milestones: Array<{ amountUsdc: number; memo: string }>;
+  expirySeconds?: number;
+}): { recipientKey: Hex; totalUsdc: number; calls: Array<{ to: Address; data: Hex }> } {
+  if (input.milestones.length < 2 || input.milestones.length > 10) {
+    throw new EscrowError("Split the work into 2 to 10 milestones");
+  }
+  const { key } = escrowRecipientKey(input.recipientId);
+  const expirySeconds = Math.min(input.expirySeconds ?? JOB_EXPIRY_SECONDS, MAX_EXPIRY_SECONDS);
+  let totalUnits = 0n;
+  const creates: Array<{ to: Address; data: Hex }> = [];
+  let approveTo: Address | null = null;
+  for (const m of input.milestones) {
+    if (!(m.amountUsdc > 0)) throw new EscrowError("Every milestone needs an amount");
+    const { steps } = buildEscrowCreateCalldata({
+      recipientKey: key,
+      amountUsdc: m.amountUsdc,
+      memo: m.memo.slice(0, 120),
+      expirySeconds,
+    });
+    approveTo = steps[0]!.to as Address;
+    creates.push({ to: steps[1]!.to as Address, data: steps[1]!.data as Hex });
+    totalUnits += BigInt(Math.round(m.amountUsdc * 1e6));
+  }
+  const totalUsdc = Number(totalUnits) / 1e6;
+  const { steps: approveSteps } = buildEscrowCreateCalldata({
+    recipientKey: key,
+    amountUsdc: totalUsdc,
+    expirySeconds,
+  });
+  return {
+    recipientKey: key,
+    totalUsdc,
+    calls: [
+      { to: (approveTo ?? approveSteps[0]!.to) as Address, data: approveSteps[0]!.data as Hex },
+      ...creates,
+    ],
+  };
 }
 
 /** Live contract state for one transfer. */
@@ -372,8 +451,14 @@ export function claimHeldPaymentsInBackground(input: {
         "./escrow-jobs.js"
       );
       const { normalized } = escrowRecipientKey(input.verifiedEmail);
+      // Claim links only. A job hold addressed to the same email must wait for
+      // delivery; releasing it because the worker signed in would pay for work
+      // nobody has seen.
       const waiting = listLocalPending().filter(
-        (e) => e.recipientId === normalized && e.onChainTransferId,
+        (e) =>
+          e.recipientId === normalized &&
+          e.onChainTransferId &&
+          (e.purpose ?? "claim_link") === "claim_link",
       );
       if (waiting.length === 0) return;
 
@@ -412,6 +497,7 @@ export function claimHeldPaymentsInBackground(input: {
           });
           alertUser(input.userId, {
             kind: "hold_released",
+            moneyIn: true,
             title: "Money claimed",
             body: `${out.amountUsdc} USDC that was waiting for you`,
             amountUsdc: out.amountUsdc,

@@ -166,6 +166,27 @@ class AgentService extends ChangeNotifier {
     return _api.get('/v1/agents/$id/custody');
   }
 
+  /// What an agent wallet can actually pay for on this network, from Circle's
+  /// catalog, filtered to sellers the server's payer can settle with. On the
+  /// test network the list is empty, and [note] says so in plain words.
+  Future<AgentServices> services() async {
+    final res = await _api.get('/v1/agents/services');
+    final items = (res['items'] as List?) ?? const [];
+    return AgentServices(
+      paidExecution: res['paidExecution'] == true,
+      note: res['note']?.toString(),
+      items: items
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .where((e) => e['allowed'] == true)
+          .map((e) => (
+                provider: e['provider']?.toString() ?? '',
+                description: e['description']?.toString() ?? '',
+                priceUsdc: (e['priceUsdc'] as num?)?.toDouble() ?? 0,
+              ))
+          .toList(growable: false),
+    );
+  }
+
   /// Sponsor an x402 call with the agent API key.
   Future<Map<String, dynamic>> x402Pay({
     required String apiKey,
@@ -178,4 +199,16 @@ class AgentService extends ChangeNotifier {
       'apiKey': apiKey,
     });
   }
+}
+
+class AgentServices {
+  const AgentServices({
+    required this.paidExecution,
+    required this.items,
+    this.note,
+  });
+
+  final bool paidExecution;
+  final String? note;
+  final List<({String provider, String description, double priceUsdc})> items;
 }

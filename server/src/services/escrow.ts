@@ -103,6 +103,60 @@ export async function claimProtectedTransfer(
   return { claimTx: hash };
 }
 
+/**
+ * Returns a pending hold to the person who funded it, before it expires.
+ *
+ * V3 only. The contract fixes the destination to the original sender, so the
+ * attestor chooses only the moment — used when a sender cancels inside a
+ * cooling-off window, a worker agrees to refund, or a reviewed dispute is
+ * decided for the payer.
+ */
+export async function refundProtectedTransferEarly(transferId: bigint) {
+  const publicClient = getPublicClient();
+  const account = getEscrowAttestorAccount();
+  const wallet = getEscrowAttestorWalletClient();
+  const hash = await wallet.writeContract({
+    address: escrowAddress(),
+    abi: paymentEscrowAbi,
+    functionName: "refundWithAttestation",
+    args: [transferId],
+    account,
+    chain: arcTestnet,
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") {
+    throw new Error("The early refund did not go through on chain");
+  }
+  return { refundTx: hash };
+}
+
+/**
+ * Moves a pending hold's expiry later so a payer cannot wait out a manual
+ * review and take the refund that opens at expiry. The contract only accepts
+ * a later time, capped at a year after the hold was created.
+ */
+export async function extendProtectedTransferExpiry(
+  transferId: bigint,
+  newExpiresAtSeconds: bigint,
+) {
+  const publicClient = getPublicClient();
+  const account = getEscrowAttestorAccount();
+  const wallet = getEscrowAttestorWalletClient();
+  const hash = await wallet.writeContract({
+    address: escrowAddress(),
+    abi: paymentEscrowAbi,
+    functionName: "extendExpiry",
+    args: [transferId, newExpiresAtSeconds],
+    account,
+    chain: arcTestnet,
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") {
+    throw new Error("The expiry extension did not go through on chain");
+  }
+  return { extendTx: hash };
+}
+
 export function buildEscrowCreateCalldata(input: {
   recipientKey: Hex;
   amountUsdc: number;

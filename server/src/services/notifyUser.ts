@@ -6,14 +6,16 @@
  * whenever they next happened to look. Chat has had a real-time channel since
  * the beginning; money never did.
  *
- * This is a Pusher event on a channel named after the user, which the app
- * turns into a system notification. It reaches them while the app is running
- * or backgrounded, and not while it is force-quit — that needs FCM or APNs and
- * a Firebase project. Worth being plain about the limit rather than calling
- * this "push notifications" and letting someone assume it wakes a closed app.
+ * Two channels carry every alert. A Pusher event on a channel named after the
+ * user reaches the app while it is running or backgrounded. A push through
+ * FCM (services/push.ts) reaches the phone when the app is closed, once a
+ * Firebase project is configured. Both carry the same tag, so a phone that
+ * gets both shows one notification.
  */
 
+import { randomUUID } from "node:crypto";
 import { pusherTrigger } from "./pusher.js";
+import { sendPush } from "./push.js";
 
 /**
  * Channel namespace for a single user's alerts.
@@ -26,13 +28,51 @@ export const USER_CHANNEL_PREFIX = "private-user-";
 
 export type UserAlert = {
   /** What happened, so the client can pick wording and a screen to open. */
-  kind: "money_in" | "hold_released" | "hold_waiting";
+  kind:
+    | "money_in"
+    | "hold_released"
+    | "hold_waiting"
+    /** The worker marked a job delivered; the payer has 7 days to object. */
+    | "hold_delivered"
+    /** One day left before a delivered job releases on its own. */
+    | "hold_release_soon"
+    /** A job hold expires within a week and nothing was marked delivered. */
+    | "hold_expiring"
+    /** The payer cancelled after delivery; a person will review it. */
+    | "hold_under_review"
+    /** Money that was held went back to the payer. */
+    | "hold_refunded"
+    /** An operator has a cancellation to review. */
+    | "review_needed"
+    /** A bridge the person left unfinished was completed by the server. */
+    | "bridge_arrived"
+    /** A GA payment that was still on its way has arrived. */
+    | "ga_payment_done"
+    /** A GA payment did not go through, or cannot be confirmed yet. */
+    | "ga_payment_failed"
+    /** A GA top-up has been credited and can be spent. */
+    | "ga_topup_arrived"
+    /** An invoice is due tomorrow, today, or is overdue. */
+    | "invoice_due"
+    /** Something happened in a money circle or group pot. */
+    | "group_update";
   title: string;
   body: string;
   amountUsdc?: number;
   token?: string;
   counterparty?: string;
   txHash?: string;
+  /** Held-payment transfer id, so a tap can open that hold. */
+  transferId?: string;
+  /** App Kit job id, so a tap can open that bridge. */
+  jobId?: string;
+  /** An evabob:// link a tap opens, for alerts about anything else. */
+  link?: string;
+  /**
+   * Money has just reached this person — received, released to them,
+   * refunded to them, paid out to them. The app plays its money-in sound.
+   */
+  moneyIn?: boolean;
 };
 
 /**
@@ -45,8 +85,23 @@ export type UserAlert = {
  */
 export function alertUser(userId: string, alert: UserAlert): void {
   if (!userId) return;
+  const tag = `${alert.kind}:${alert.transferId ?? alert.jobId ?? alert.txHash ?? alert.link ?? randomUUID()}`;
+  void sendPush(userId, {
+    title: alert.title,
+    body: alert.body,
+    tag,
+    data: {
+      kind: alert.kind,
+      transferId: alert.transferId,
+      jobId: alert.jobId,
+      txHash: alert.txHash,
+      link: alert.link,
+      moneyIn: alert.moneyIn ? "1" : undefined,
+    },
+  });
   void pusherTrigger(`${USER_CHANNEL_PREFIX}${userId}`, "alert", {
     ...alert,
+    tag,
     at: new Date().toISOString(),
   }).catch((e) => {
     console.warn(

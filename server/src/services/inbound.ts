@@ -22,6 +22,7 @@ import { getPublicClient } from "./arc-wallet.js";
 import { store } from "../store/db.js";
 import { alertUser } from "./notifyUser.js";
 import { flushPrimaryStore } from "./primary-store.js";
+import { memoForTransfer } from "./memo.js";
 
 const TRANSFER_EVENT = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 value)",
@@ -89,7 +90,36 @@ export type InboundTransfer = {
   from: Address;
   token: string;
   amount: number;
+  /** Base units, for matching the transfer's exact calldata to a memo. */
+  units: bigint;
+  tokenAddress: Address;
 };
+
+/**
+ * The memo a sender attached to this transfer, read from its receipt.
+ *
+ * Best-effort by design: a receipt the RPC will not serve right now costs the
+ * row its memo, never the row itself.
+ */
+async function inboundMemo(
+  client: ReturnType<typeof getPublicClient>,
+  t: InboundTransfer,
+  to: string,
+): Promise<string | undefined> {
+  try {
+    const receipt = await client.getTransactionReceipt({
+      hash: t.txHash as `0x${string}`,
+    });
+    return memoForTransfer(receipt.logs, {
+      token: t.tokenAddress,
+      from: t.from,
+      to,
+      units: t.units,
+    });
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * How a sender is named in a receipt.
@@ -158,6 +188,8 @@ export async function scanInbound(input: {
         from: log.args.from as Address,
         token: token.symbol,
         amount: Number(formatUnits(log.args.value, token.decimals)),
+        units: log.args.value,
+        tokenAddress: token.address,
       });
     }
     cursor = end + 1n;
@@ -250,12 +282,27 @@ export async function syncInboundForUser(input: {
     // A transfer from the user's own wallet is their own send looping back,
     // not money arriving.
     if (t.from.toLowerCase() === address.toLowerCase()) continue;
+    // Paid by another Evabob user: their verified send already wrote this
+    // receipt, memo and all.
+    if (
+      store.hasReceiptForTransfer({
+        userId: input.userId,
+        txHash: t.txHash,
+        token: t.token,
+        amount: t.amount,
+      })
+    ) {
+      continue;
+    }
+
+    const memo = await inboundMemo(client, t, address);
 
     // Written in the words a person uses, because this row is the receipt they
     // read. The raw address and hash are still on the record for the details
     // view; they just do not belong in the headline.
     const shown = Math.round(t.amount * 100) / 100;
     store.addActivity({
+      ...(memo ? { memo, memoOnchain: true } : {}),
       userId: input.userId,
       kind: "receive",
       title: "Money received",
@@ -278,6 +325,7 @@ export async function syncInboundForUser(input: {
     if (head - BigInt(t.blockNumber) <= ALERT_WINDOW_BLOCKS) {
       alertUser(input.userId, {
         kind: "money_in",
+        moneyIn: true,
         title: "Money received",
         body: `${t.amount} ${t.token} arrived`,
         amountUsdc: t.token === "USDC" ? t.amount : undefined,
