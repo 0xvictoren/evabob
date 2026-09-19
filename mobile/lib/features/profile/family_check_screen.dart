@@ -9,6 +9,7 @@ import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Which contacts are family, and above what amount paying them needs the
 /// code from email.
@@ -59,7 +60,8 @@ class _FamilyCheckScreenState extends State<FamilyCheckScreen> {
       FocusScope.of(context).unfocus();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(friendlyError(e)),
           behavior: SnackBarBehavior.floating,
@@ -76,7 +78,8 @@ class _FamilyCheckScreenState extends State<FamilyCheckScreen> {
       await context.read<ContactsService>().setFamily(c.id, family);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(friendlyError(e)),
           behavior: SnackBarBehavior.floating,
@@ -185,8 +188,9 @@ class _FamilyCheckScreenState extends State<FamilyCheckScreen> {
                           child: SwitchListTile(
                             contentPadding: EdgeInsets.zero,
                             value: c.family,
-                            onChanged:
-                                _busy.contains(c.id) ? null : (v) => _toggle(c, v),
+                            onChanged: _busy.contains(c.id)
+                                ? null
+                                : (v) => _toggle(c, v),
                             activeThumbColor: EvabobColors.emerald,
                             title: Text(c.name,
                                 style: Type.body

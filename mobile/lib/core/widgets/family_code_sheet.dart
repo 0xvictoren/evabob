@@ -9,6 +9,7 @@ import '../theme/evabob_colors.dart';
 import '../theme/evabob_tokens.dart';
 import '../utils/money_format.dart';
 import '../utils/text_safe.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// The family check, run between the review sheet and the PIN.
 ///
@@ -33,7 +34,8 @@ Future<bool> passFamilyCheck(
     });
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(friendlyError(e,
               fallback: 'Could not check this payment. Try again.')),
@@ -243,7 +245,9 @@ class _FamilyCodeSheetState extends State<_FamilyCodeSheet> {
                     child: TextButton(
                       onPressed: _busy || _resendIn > 0 ? null : _resend,
                       child: Text(
-                        _resendIn > 0 ? 'New code in ${_resendIn}s' : 'Send a new code',
+                        _resendIn > 0
+                            ? 'New code in ${_resendIn}s'
+                            : 'Send a new code',
                       ),
                     ),
                   ),

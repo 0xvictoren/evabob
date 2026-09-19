@@ -20,11 +20,13 @@ import '../../core/widgets/confirm_action_dialog.dart';
 import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
 import '../auth/app_lock_screen.dart';
+import '../chat/chat_list_screen.dart';
 import '../held/operator_reviews_screen.dart';
 import 'family_check_screen.dart';
 // Gateway parked for later.
 // import '../gateway/gateway_screen.dart';
 import '../wallet/circle_onboard_sheet.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Profile: identity, wallet, appearance, sign out.
 class ProfileScreen extends StatelessWidget {
@@ -69,7 +71,8 @@ class ProfileScreen extends StatelessWidget {
         await auth.setDisplayName(ctrl.text.trim());
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          showTopSnack(
+            context,
             SnackBar(
               content: Text(friendlyError(e)),
               behavior: SnackBarBehavior.floating,
@@ -79,7 +82,8 @@ class ProfileScreen extends StatelessWidget {
         return;
       }
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           const SnackBar(
             content: Text('Display name updated'),
             behavior: SnackBarBehavior.floating,
@@ -102,7 +106,7 @@ class ProfileScreen extends StatelessWidget {
             labelText: 'Handle for sends (not your display name)',
             prefixText: '@',
             helperText:
-                'For sends. Not your display name. First change free, then every 2 months.',
+                'For sends. Not your display name. You can change it once every three months.',
           ),
         ),
         actions: [
@@ -120,7 +124,8 @@ class ProfileScreen extends StatelessWidget {
     if (ok != true || !context.mounted) return;
     final handle = ctrl.text.trim().replaceAll('@', '').toLowerCase();
     if (handle.length < 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Handle must be at least 3 characters'),
           behavior: SnackBarBehavior.floating,
@@ -134,7 +139,8 @@ class ProfileScreen extends StatelessWidget {
       // Only update handle — display name stays independent.
       await auth.setHandle(handle);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             content: Text('Handle set to @$handle'),
             behavior: SnackBarBehavior.floating,
@@ -143,7 +149,8 @@ class ProfileScreen extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             content: Text(friendlyError(e)),
             behavior: SnackBarBehavior.floating,
@@ -151,6 +158,235 @@ class ProfileScreen extends StatelessWidget {
         );
       }
     }
+  }
+
+  Future<void> _showTerms(BuildContext context) {
+    return _showProfileSheet(
+      context,
+      icon: Icons.description_outlined,
+      title: 'Terms',
+      body:
+          'Use Evabob only for money you are allowed to move. Payments can be final once they arrive, so check the person and amount before you confirm.',
+      footnote:
+          'Evabob never asks for your PIN, API key, recovery phrase, or private key.',
+      primaryLabel: 'Done',
+    );
+  }
+
+  Future<void> _showHelp(BuildContext context) {
+    return _showProfileSheet(
+      context,
+      icon: Icons.chat_bubble_outline_rounded,
+      title: 'Get help',
+      body:
+          'Ask Evabob about a payment, your balance, moving money, or anything that looks unfamiliar.',
+      footnote:
+          'For account recovery or a lost phone, contact support from a device you still control.',
+      primaryLabel: 'Open Chat',
+      onPrimary: () {
+        Navigator.of(context).pop();
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const ChatListScreen()),
+        );
+      },
+    );
+  }
+
+  Future<void> _showDeleteAccount(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: EvabobColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: EvabobColors.hairline,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const SizedBox(height: 28),
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: EvabobColors.alert.withValues(alpha: .1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: EvabobColors.alert,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Delete your account?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Numans',
+                  fontSize: 24,
+                  height: 32 / 24,
+                  letterSpacing: -.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Your profile, chats, and Evabob history will be removed. Money already in your wallet is not deleted.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  height: 18 / 14,
+                  color: EvabobColors.inkMuted,
+                ),
+              ),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    showTopSnack(
+                      context,
+                      const SnackBar(
+                        content: Text(
+                          'Account deletion is handled by support while your wallet still has money.',
+                        ),
+                      ),
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: EvabobColors.alert,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Continue with support'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                child: const Text('Keep my account'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showProfileSheet(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String body,
+    required String footnote,
+    required String primaryLabel,
+    VoidCallback? onPrimary,
+  }) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: EvabobColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: EvabobColors.hairline,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 28),
+              Container(
+                width: 64,
+                height: 64,
+                decoration: const BoxDecoration(
+                  color: EvabobColors.blueSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: EvabobColors.ink, size: 28),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontFamily: 'Numans',
+                  fontSize: 24,
+                  height: 32 / 24,
+                  letterSpacing: -.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                body,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  height: 20 / 14,
+                  color: EvabobColors.ink,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: EvabobColors.pageBg,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  footnote,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    height: 16 / 12,
+                    color: EvabobColors.inkMuted,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 56,
+                child: FilledButton(
+                  onPressed: onPrimary ?? () => Navigator.pop(sheetContext),
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: Text(primaryLabel),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _pickAvatar(BuildContext context) async {
@@ -168,7 +404,8 @@ class ProfileScreen extends StatelessWidget {
       final bytes = await file.readAsBytes();
       if (bytes.lengthInBytes > _maxAvatarBytes) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          showTopSnack(
+            context,
             const SnackBar(
               content: Text('Photo must be 256 KB or smaller'),
               behavior: SnackBarBehavior.floating,
@@ -199,7 +436,8 @@ class ProfileScreen extends StatelessWidget {
       }
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           const SnackBar(
             content: Text('Profile photo updated'),
             behavior: SnackBarBehavior.floating,
@@ -208,7 +446,8 @@ class ProfileScreen extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
               content: Text(friendlyError(e)),
               behavior: SnackBarBehavior.floating),
@@ -346,8 +585,8 @@ class ProfileScreen extends StatelessWidget {
               children: [
                 _tile(
                   Icons.badge_outlined,
-                  'Display name',
-                  name,
+                  'Edit profile',
+                  'Name, photo, and account details',
                   () => _editDisplayName(context, auth),
                 ),
                 const Divider(height: 1),
@@ -392,7 +631,8 @@ class ProfileScreen extends StatelessWidget {
                         onPressed: () async {
                           await Clipboard.setData(ClipboardData(text: wallet));
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            showTopSnack(
+                              context,
                               const SnackBar(
                                 content: Text('Address copied'),
                                 behavior: SnackBarBehavior.floating,
@@ -536,22 +776,18 @@ class ProfileScreen extends StatelessWidget {
                 Divider(
                     height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
                 _tile(
+                  Icons.description_outlined,
+                  'Terms',
+                  'How Evabob and payments work',
+                  () => _showTerms(context),
+                ),
+                Divider(
+                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                _tile(
                   Icons.help_outline_rounded,
                   'Get help',
                   'Ask Evabob anything about your money',
-                  () {
-                    // This tile did nothing at all — its onTap was an empty
-                    // function. The assistant is where help actually lives.
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Open Chat and ask Evabob — it can see your balance '
-                          'and your payments.',
-                        ),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  },
+                  () => _showHelp(context),
                 ),
               ],
             ),
@@ -586,6 +822,14 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+          TextButton(
+            onPressed: () => _showDeleteAccount(context),
+            style: TextButton.styleFrom(
+              foregroundColor: EvabobColors.alert,
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text('Delete account'),
           ),
           const SizedBox(height: 12),
           const Text(
@@ -653,8 +897,8 @@ class _OperatorReviewsTileState extends State<_OperatorReviewsTile> {
         Divider(height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
         ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.gavel_rounded,
-              color: EvabobColors.emeraldDeep),
+          leading:
+              const Icon(Icons.gavel_rounded, color: EvabobColors.emeraldDeep),
           title: const Text(
             'Held-payment reviews',
             style: TextStyle(
@@ -700,12 +944,14 @@ class _BiometricConfirmTileState extends State<_BiometricConfirmTile> {
 
   Future<void> _toggle(bool on) async {
     setState(() => _busy = true);
-    final error =
-        await context.read<CircleWalletService>().setBiometricConfirm(context, on);
+    final error = await context
+        .read<CircleWalletService>()
+        .setBiometricConfirm(context, on);
     if (!mounted) return;
     setState(() => _busy = false);
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(content: Text(error), behavior: SnackBarBehavior.floating),
       );
     }

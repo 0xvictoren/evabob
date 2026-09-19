@@ -26,8 +26,11 @@ import '../home/home_screen.dart';
 import '../profile/profile_screen.dart';
 import '../request/request_screen.dart';
 import '../request/payment_link_screen.dart';
+import '../notifications/notifications_screen.dart';
 import '../send/send_screen.dart';
 import '../wallet/circle_onboard_sheet.dart';
+import '../agent_tasks/agent_tasks_screen.dart';
+import '../paywalls/paywalls_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -98,6 +101,29 @@ class _AppShellState extends State<AppShell> {
     // A money circle or collection (from an invite or a shared link).
     if (parts.length >= 2 && parts.first.toLowerCase() == 'group') {
       openGroup(context, parts[1]);
+      return;
+    }
+    // An agent: from an approval or pause notification, or its money.
+    if (parts.isNotEmpty && parts.first.toLowerCase() == 'agents') {
+      if (!_enabled('agents', context.read<AppFeatures>())) return;
+      setState(
+          () => _overlay = parts.length >= 2 ? 'agents:${parts[1]}' : 'agents');
+      return;
+    }
+    // A task an agent will pay a person for.
+    if (parts.length >= 2 && parts.first.toLowerCase() == 'task') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => AgentTaskScreen(taskId: parts[1]),
+        ),
+      );
+      return;
+    }
+    // Something the person sells to software: a sale or a booking.
+    if (parts.isNotEmpty && parts.first.toLowerCase() == 'paywall') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const PaywallsScreen()),
+      );
       return;
     }
     // A seller's hold link: pay into a hold until the order arrives.
@@ -199,6 +225,13 @@ class _AppShellState extends State<AppShell> {
         onBack: _close,
       );
     }
+    if (overlay != null && overlay.startsWith('agents:')) {
+      return AgentsScreen(
+        key: ValueKey(overlay),
+        onBack: _close,
+        initialAgentId: overlay.substring(7),
+      );
+    }
     if (overlay != null && overlay.startsWith('claim:')) {
       return ClaimLinkScreen(
         key: ValueKey(overlay),
@@ -242,7 +275,17 @@ class _AppShellState extends State<AppShell> {
           title: 'Convert',
         );
       case 'activity':
-        return ActivityScreen(key: const ValueKey('act'), onBack: _close);
+        return ActivityScreen(
+          key: const ValueKey('act'),
+          onBack: _close,
+          onSend: () => _open('send'),
+          onTopUp: () => _open('fund'),
+        );
+      case 'notifications':
+        return NotificationsScreen(
+          key: const ValueKey('notifications'),
+          onBack: _close,
+        );
       case 'profile':
         return ProfileScreen(
           key: const ValueKey('profile'),
@@ -270,7 +313,11 @@ class _AppShellState extends State<AppShell> {
       case 1:
         return const ChatListScreen(key: ValueKey('chat'));
       case 3:
-        return const ActivityScreen(key: ValueKey('act-tab'));
+        return ActivityScreen(
+          key: const ValueKey('act-tab'),
+          onSend: () => _open('send'),
+          onTopUp: () => _open('fund'),
+        );
       case 4:
         return AssetsScreen(
           key: const ValueKey('assets-tab'),
@@ -285,6 +332,7 @@ class _AppShellState extends State<AppShell> {
           onFund: () => _open('fund'),
           onExchange: () => _open('buy'),
           onActivity: () => _open('activity'),
+          onNotifications: () => _open('notifications'),
           onProfile: () => _open('profile'),
           onBridge: () => _open('bridge'),
           onAgents: () => _open('agents'),

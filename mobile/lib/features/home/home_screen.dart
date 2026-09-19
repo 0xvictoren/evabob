@@ -24,6 +24,8 @@ import '../activity/incomplete_jobs_banner.dart';
 import '../activity/receipt_sheet.dart';
 import '../groups/groups_screen.dart';
 import '../hold_links/hold_links_screen.dart';
+import '../agent_tasks/agent_tasks_screen.dart';
+import '../paywalls/paywalls_screen.dart';
 import 'action_row.dart';
 import 'home_menu.dart';
 import 'income_card.dart';
@@ -36,6 +38,7 @@ class HomeScreen extends StatefulWidget {
     required this.onFund,
     required this.onExchange,
     required this.onActivity,
+    this.onNotifications,
     required this.onProfile,
     required this.onBridge,
     required this.onAgents,
@@ -48,6 +51,7 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onFund;
   final VoidCallback onExchange;
   final VoidCallback onActivity;
+  final VoidCallback? onNotifications;
   final VoidCallback onProfile;
   final VoidCallback onBridge;
   final VoidCallback onAgents;
@@ -134,6 +138,14 @@ class _HomeScreenState extends State<HomeScreen> {
         Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const HoldLinksScreen()),
         );
+      case HomeMenuAction.paywalls:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const PaywallsScreen()),
+        );
+      case HomeMenuAction.agentTasks:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const AgentTasksScreen()),
+        );
       case HomeMenuAction.groups:
         Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const GroupsScreen()),
@@ -166,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _Hero(
             wallet: wallet,
             onMore: _openMenu,
-            onNotifications: widget.onActivity,
+            onNotifications: widget.onNotifications ?? widget.onActivity,
             onProfile: widget.onProfile,
             onSend: widget.onSend,
             onScan: () => AddressScanSheet.open(context),
@@ -512,7 +524,9 @@ class _MoneyCard extends StatelessWidget {
       case HeldStage.waitingForDelivery:
         return h.isPayer ? 'Until they deliver' : 'Mark it delivered when done';
       case HeldStage.delivered:
-        return h.isPayer ? 'Delivered · confirm or it pays itself' : 'Delivered · waiting for them';
+        return h.isPayer
+            ? 'Delivered · confirm or it pays itself'
+            : 'Delivered · waiting for them';
       case HeldStage.underReview:
         return 'Being reviewed';
       case HeldStage.waitingToClaim:
@@ -569,10 +583,8 @@ class _MoneyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final pendingTopUp = wallet.gatewayPendingUsdc;
     // All clear only when nothing at all is in motion.
-    final clear = jobs.isEmpty &&
-        pendingTopUp <= 0 &&
-        held.isEmpty &&
-        gaInFlight.isEmpty;
+    final clear =
+        jobs.isEmpty && pendingTopUp <= 0 && held.isEmpty && gaInFlight.isEmpty;
 
     Widget row({
       required String title,
@@ -643,7 +655,7 @@ class _MoneyCard extends StatelessWidget {
           icon: Icons.check_rounded,
           trailing: formatMoney(0),
         ),
-      for (final job in jobs)
+      for (final job in jobs.take(4))
         row(
           title: _title(job),
           subtitle: _stage(job),
@@ -664,7 +676,7 @@ class _MoneyCard extends StatelessWidget {
           subtitle: 'Confirming on the network',
           icon: Icons.account_balance_wallet_outlined,
         ),
-      for (final h in held)
+      for (final h in held.take(4))
         row(
           title: _heldTitle(h),
           subtitle: _heldStage(h),
@@ -673,7 +685,7 @@ class _MoneyCard extends StatelessWidget {
               : Icons.lock_clock_outlined,
           onTap: () => onOpenHeld(h),
         ),
-      for (final e in gaInFlight)
+      for (final e in gaInFlight.take(4))
         row(
           title: 'Paying ${formatMoney(e.displayAmount)} from your GA',
           subtitle: e.mode == 'gateway_pay_scheduled'
@@ -821,7 +833,9 @@ class _ActivityRow extends StatelessWidget {
               // Nothing has left the wallet while a payment is on hold, so
               // don't show it as money already taken.
               Text(
-                entry.isPending ? 'On hold' : '${entry.positive ? '+' : ''}$amount',
+                entry.isPending
+                    ? 'On hold'
+                    : '${entry.positive ? '+' : ''}$amount',
                 style: entry.isPending
                     ? Type.label.copyWith(color: EvabobColors.inkMuted)
                     : Type.amount.copyWith(

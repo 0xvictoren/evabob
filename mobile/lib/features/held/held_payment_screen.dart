@@ -16,6 +16,7 @@ import '../../core/widgets/confirm_action_dialog.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
 import 'review_conversation.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// One held payment: where it stands, what happens next, and what this person
 /// can do about it.
@@ -118,7 +119,8 @@ class _HeldPaymentScreenState extends State<HeldPaymentScreen> {
   }
 
   void _snack(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    showTopSnack(
+      context,
       SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
     );
   }
@@ -312,6 +314,38 @@ class _HeldPaymentScreenState extends State<HeldPaymentScreen> {
           ],
         ),
       ),
+      if (h.payerAgent != null && !h.isPayer) ...[
+        const SizedBox(height: Space.md),
+        Glass(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.lock_clock_outlined,
+                  color: EvabobColors.emeraldDeep),
+              const SizedBox(width: Space.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('The money is set aside before you start',
+                        style:
+                            Type.body.copyWith(color: EvabobColors.nearBlack)),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${h.payerAgent!.byline} hired you, and the fee is '
+                      'locked for you. Mark the work delivered and it is '
+                      'yours within 7 days, unless the agent disputes it and '
+                      'the person who reviews it agrees.',
+                      style:
+                          Type.caption.copyWith(color: EvabobColors.navyMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
       if (h.isCoolingOff && h.stage == HeldStage.coolingOff) ...[
         const SizedBox(height: Space.md),
         _Countdown(until: h.releaseAt),

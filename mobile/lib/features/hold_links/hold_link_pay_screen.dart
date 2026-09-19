@@ -16,6 +16,7 @@ import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/family_code_sheet.dart';
 import '../../core/widgets/glass.dart';
 import '../held/held_payment_screen.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// A buyer paying through a seller's link. Opened from `evabob://hold/{id}`.
 ///
@@ -91,7 +92,8 @@ class _HoldLinkPayScreenState extends State<HoldLinkPayScreen> {
       );
       if (!mounted) return;
       if (res['ok'] != true) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             content: Text(friendlyError(
               res['error'],
@@ -109,7 +111,8 @@ class _HoldLinkPayScreenState extends State<HoldLinkPayScreen> {
       await context.read<ActivityService>().refresh();
       final transferId = res['transferId']?.toString();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
               'Paid. Your money is set aside for $name until your order arrives.'),
@@ -188,8 +191,7 @@ class _HoldLinkPayScreenState extends State<HoldLinkPayScreen> {
                                       children: [
                                         Text(l.sellerName,
                                             style: Type.body.copyWith(
-                                                color:
-                                                    EvabobColors.nearBlack)),
+                                                color: EvabobColors.nearBlack)),
                                         Text(
                                           [
                                             l.sellerHandle,

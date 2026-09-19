@@ -150,7 +150,7 @@ class _PostSignupOnboardingState extends State<PostSignupOnboarding> {
                   ),
                   const SizedBox(height: 44),
                   Text(
-                    _walletReady ? 'Choose your handle' : 'Set up your wallet',
+                    _walletReady ? 'Choose your name' : 'Set up your wallet',
                     style: Type.title,
                   ),
                   const SizedBox(height: 8),

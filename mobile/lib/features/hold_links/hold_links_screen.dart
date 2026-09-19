@@ -12,6 +12,7 @@ import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// For people who sell on WhatsApp and Instagram: one link per thing sold.
 ///
@@ -64,8 +65,7 @@ class _HoldLinksScreenState extends State<HoldLinksScreen> {
     if (mounted) _showQr(link);
   }
 
-  String _shareText(HoldLink l) =>
-      '${l.title} — ${formatMoney(l.amount)}.\n'
+  String _shareText(HoldLink l) => '${l.title} — ${formatMoney(l.amount)}.\n'
       'Pay safely: your money is set aside for me until your order arrives.\n'
       '${l.url}';
 
@@ -83,7 +83,8 @@ class _HoldLinksScreenState extends State<HoldLinksScreen> {
   Future<void> _copy(HoldLink l) async {
     await Clipboard.setData(ClipboardData(text: l.url));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    showTopSnack(
+      context,
       const SnackBar(
         content: Text('Link copied. Paste it in a chat, a post or your bio.'),
         behavior: SnackBarBehavior.floating,
@@ -138,7 +139,8 @@ class _HoldLinksScreenState extends State<HoldLinksScreen> {
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(friendlyError(e)),
           behavior: SnackBarBehavior.floating,
@@ -171,8 +173,8 @@ class _HoldLinksScreenState extends State<HoldLinksScreen> {
               child: RefreshIndicator(
                 onRefresh: _load,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(
-                      Space.page, 0, Space.page, 96),
+                  padding:
+                      const EdgeInsets.fromLTRB(Space.page, 0, Space.page, 96),
                   children: [
                     Text(
                       'Paste a link in WhatsApp, Instagram or your bio. A '
@@ -199,8 +201,8 @@ class _HoldLinksScreenState extends State<HoldLinksScreen> {
                                         color: EvabobColors.nearBlack)),
                                 Text(
                                   _record.summary,
-                                  style: Type.caption.copyWith(
-                                      color: EvabobColors.navyMuted),
+                                  style: Type.caption
+                                      .copyWith(color: EvabobColors.navyMuted),
                                 ),
                                 if (_record.inProgress > 0)
                                   Text(
@@ -231,8 +233,8 @@ class _HoldLinksScreenState extends State<HoldLinksScreen> {
                         child: Text(
                           'No links yet. Make one for the next thing you sell.',
                           textAlign: TextAlign.center,
-                          style: Type.body
-                              .copyWith(color: EvabobColors.navyMuted),
+                          style:
+                              Type.body.copyWith(color: EvabobColors.navyMuted),
                         ),
                       ),
                     for (final l in items ?? const <HoldLink>[])

@@ -11,6 +11,7 @@ import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/agent_avatar.dart';
 import 'chat_thread_screen.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -82,7 +83,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     final picked = await ContactPickerSheet.open(ctx);
                     if (picked != null && picked.isNotEmpty && ctx.mounted) {
                       if (!picked.contains('@') || picked.startsWith('@')) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
+                        showTopSnack(
+                          ctx,
                           const SnackBar(
                             content: Text(
                               'Pick a contact with an email. Phone is not a payee.',
@@ -125,7 +127,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content:
               Text(friendlyError(e, fallback: 'Could not open that chat.')),

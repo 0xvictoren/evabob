@@ -152,6 +152,7 @@ class HeldPayment {
     this.releaseAt,
     this.settledBy,
     this.review,
+    this.payerAgent,
   });
 
   factory HeldPayment.fromJson(Map<String, dynamic> j) => HeldPayment(
@@ -172,6 +173,10 @@ class HeldPayment {
         settledBy: j['settledBy']?.toString(),
         review: j['review'] is Map
             ? HeldReview.fromJson(Map<String, dynamic>.from(j['review'] as Map))
+            : null,
+        payerAgent: j['payerAgent'] is Map
+            ? PayerAgent.fromJson(
+                Map<String, dynamic>.from(j['payerAgent'] as Map))
             : null,
       );
 
@@ -199,6 +204,9 @@ class HeldPayment {
   final DateTime? releaseAt;
   final String? settledBy;
   final HeldReview? review;
+
+  /// Set when an agent put this money aside; its owner answers for it.
+  final PayerAgent? payerAgent;
 
   bool get isPayer => role == 'payer';
   bool get isJob => purpose == 'job';
@@ -300,4 +308,22 @@ class HeldPaymentsApi {
 
   static HeldPayment _hold(Map<String, dynamic> res) =>
       HeldPayment.fromJson(Map<String, dynamic>.from(res['hold'] as Map));
+}
+
+/// The agent that put a hold's money aside, and the person who owns it.
+class PayerAgent {
+  const PayerAgent({required this.label, this.handle, this.owner});
+
+  factory PayerAgent.fromJson(Map<String, dynamic> j) => PayerAgent(
+        label: j['label']?.toString() ?? 'An agent',
+        handle: j['handle']?.toString(),
+        owner: j['owner']?.toString(),
+      );
+
+  final String label;
+  final String? handle;
+  final String? owner;
+
+  /// "Research agent · owned by @ada".
+  String get byline => owner == null ? label : '$label · owned by $owner';
 }

@@ -42,6 +42,16 @@ class CircleWalletService extends ChangeNotifier {
   final EvabobAuth _auth;
 
   String? userToken;
+
+  /// When [userToken] was issued. Circle sessions last 60 minutes and the
+  /// server stops accepting one after 55, so a payment made after about an
+  /// hour of use failed with "Refresh your Circle session". A session older
+  /// than 45 minutes is renewed before it is used.
+  DateTime? _sessionAt;
+  bool get _sessionStale =>
+      userToken == null ||
+      _sessionAt == null ||
+      DateTime.now().difference(_sessionAt!) > const Duration(minutes: 45);
   String? encryptionKey;
   String? walletId;
   String? address;
@@ -109,10 +119,11 @@ class CircleWalletService extends ChangeNotifier {
     }
     if (!context.mounted) return null;
     if (!await ensureReady(context)) return 'Set up your wallet first.';
-    if (userToken == null || encryptionKey == null) await refreshSessionOnly();
+    if (_sessionStale || encryptionKey == null) await refreshSessionOnly();
     final token = userToken;
     final key = encryptionKey;
-    if (token == null || key == null) return 'Your session ended. Open the app again.';
+    if (token == null || key == null)
+      return 'Your session ended. Open the app again.';
     FocusManager.instance.primaryFocus?.unfocus();
     final out = await CircleNativeSdk.enableBiometrics(
       appId: appId,
@@ -120,7 +131,9 @@ class CircleWalletService extends ChangeNotifier {
       encryptionKey: key,
     );
     if (!out.ok) {
-      return out.canceled ? null : (out.error ?? 'Fingerprint or Face ID was not set up.');
+      return out.canceled
+          ? null
+          : (out.error ?? 'Fingerprint or Face ID was not set up.');
     }
     biometricConfirm = true;
     final prefs = await SharedPreferences.getInstance();
@@ -155,6 +168,7 @@ class CircleWalletService extends ChangeNotifier {
     }
     return true;
   }
+
   String? _lastVerifiedTxHash;
 
   String? get lastVerifiedTxHash => _lastVerifiedTxHash;
@@ -246,6 +260,7 @@ class CircleWalletService extends ChangeNotifier {
       });
       userToken = _str(session['userToken']);
       encryptionKey = _str(session['encryptionKey']);
+      _sessionAt = userToken == null ? null : DateTime.now();
       return userToken != null && encryptionKey != null;
     } catch (e) {
       debugPrint('refreshSessionOnly: $e');
@@ -263,8 +278,9 @@ class CircleWalletService extends ChangeNotifier {
         address != null &&
         walletId != null &&
         _boundUserId == _userId) {
-      // Soft refresh token for operations — no PIN
-      if (userToken == null || encryptionKey == null) {
+      // Soft refresh token for operations — no PIN. Also when it is old: an
+      // hour-old session is refused and the payment fails.
+      if (_sessionStale || encryptionKey == null) {
         await refreshSessionOnly();
       }
       return userToken != null && encryptionKey != null;
@@ -328,6 +344,7 @@ class CircleWalletService extends ChangeNotifier {
 
       userToken = _str(prep['userToken']);
       encryptionKey = _str(prep['encryptionKey']);
+      _sessionAt = userToken == null ? null : DateTime.now();
       final resolvedAppId = _str(prep['appId']);
       if (resolvedAppId != null) _serverAppId = resolvedAppId;
       if (userToken == null ||
@@ -518,7 +535,11 @@ class CircleWalletService extends ChangeNotifier {
 
     // ONE WebView for all steps — avoids reopening and feels like a single confirm.
     final raw = native != null
-        ? {'ok': native, 'cancelled': native == false, 'completedIds': native ? uniqueIds : <String>[]}
+        ? {
+            'ok': native,
+            'cancelled': native == false,
+            'completedIds': native ? uniqueIds : <String>[]
+          }
         : await Navigator.of(context).push<Object?>(
             MaterialPageRoute(
               builder: (_) => CircleChallengeScreen(
@@ -803,7 +824,7 @@ class CircleWalletService extends ChangeNotifier {
     // settle. A 60s ceiling reported healthy Arc burns as stuck PENDING.
     int timeoutMs = 180000,
   }) async {
-    if (userToken == null) await refreshSessionOnly();
+    if (_sessionStale) await refreshSessionOnly();
     if (userToken == null || challengeIds.isEmpty) {
       return {'ok': false, 'error': 'Your session ended. Open the app again.'};
     }
@@ -916,8 +937,9 @@ class CircleWalletService extends ChangeNotifier {
         'error': 'Wallet not ready — set up your PIN in Profile first',
       };
     }
-    // Soft refresh Circle session without PIN when possible.
-    if (userToken == null || encryptionKey == null) {
+    // Soft refresh Circle session without PIN when possible — also when it
+    // is old enough that the server would refuse it.
+    if (_sessionStale || encryptionKey == null) {
       final okSession = await refreshSessionOnly();
       if (!okSession) {
         return {
@@ -1085,7 +1107,7 @@ class CircleWalletService extends ChangeNotifier {
     String chain = 'Arc_Testnet',
   }) async {
     if (!await ensureReady(context)) return false;
-    if (userToken == null) await refreshSessionOnly();
+    if (_sessionStale) await refreshSessionOnly();
     if (!context.mounted) return false;
     // Prefer App Kit unifiedBalance.deposit (never a plain ERC-20 transfer).
     final kit = await appKitDeposit(
@@ -1191,7 +1213,7 @@ class CircleWalletService extends ChangeNotifier {
     if (!await ensureReady(context)) {
       return {'ok': false, 'error': 'Wallet not ready'};
     }
-    if (userToken == null) await refreshSessionOnly();
+    if (_sessionStale) await refreshSessionOnly();
     if (userToken == null || walletId == null) {
       return {'ok': false, 'error': 'Your session ended. Open the app again.'};
     }
@@ -1242,7 +1264,7 @@ class CircleWalletService extends ChangeNotifier {
           }
           justApproved = true;
           await Future<void>.delayed(const Duration(seconds: 4));
-          if (userToken == null) await refreshSessionOnly();
+          if (_sessionStale) await refreshSessionOnly();
           continue;
         }
 
@@ -2441,7 +2463,7 @@ class CircleWalletService extends ChangeNotifier {
     required int destinationDomain,
     String? activityId,
   }) async {
-    if (userToken == null) await refreshSessionOnly();
+    if (_sessionStale) await refreshSessionOnly();
     try {
       final res = await _api.post(
         '/v1/circle/cctp/finish',
@@ -2543,6 +2565,7 @@ class CircleWalletService extends ChangeNotifier {
     required double amountUsdc,
     String purpose = 'claim_link',
     String? memo,
+
     /// Paying through a seller's hold link. The server takes the seller,
     /// price and delivery window from the link itself.
     String? holdLinkId,
@@ -2691,7 +2714,8 @@ class CircleWalletService extends ChangeNotifier {
       if (createChallengeId == null || _challengeIdsFrom(res).isEmpty) {
         return {
           'ok': false,
-          'error': res['error']?.toString() ?? 'Could not prepare the milestones',
+          'error':
+              res['error']?.toString() ?? 'Could not prepare the milestones',
         };
       }
       status = 'Confirm with your PIN…';
@@ -2717,7 +2741,8 @@ class CircleWalletService extends ChangeNotifier {
         return {
           'ok': false,
           'pending': true,
-          'error': 'Submitted but not confirmed yet. Check Activity in a moment.',
+          'error':
+              'Submitted but not confirmed yet. Check Activity in a moment.',
         };
       }
       final recorded = await _api.post(
@@ -2770,7 +2795,10 @@ class CircleWalletService extends ChangeNotifier {
       final challengeId = res['createChallengeId']?.toString();
       final groupId = res['groupId']?.toString() ?? '';
       if (challengeId == null || _challengeIdsFrom(res).isEmpty) {
-        return {'ok': false, 'error': res['error']?.toString() ?? 'Could not prepare that'};
+        return {
+          'ok': false,
+          'error': res['error']?.toString() ?? 'Could not prepare that'
+        };
       }
       status = 'Confirm with your PIN…';
       notifyListeners();
@@ -2796,7 +2824,8 @@ class CircleWalletService extends ChangeNotifier {
       }
       Map<String, dynamic>? item;
       if (confirmPath != null) {
-        final confirmed = await _api.post(confirmPath(groupId), body: {'txHash': txHash});
+        final confirmed =
+            await _api.post(confirmPath(groupId), body: {'txHash': txHash});
         item = confirmed['item'] is Map
             ? Map<String, dynamic>.from(confirmed['item'] as Map)
             : null;

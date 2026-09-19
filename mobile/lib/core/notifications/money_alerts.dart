@@ -40,6 +40,12 @@ class MoneyAlerts {
   /// Money in screen chimes on `money_in` instead of waiting for its next poll.
   Stream<Map<String, dynamic>> get events => _events.stream;
 
+  /// Opens the platform permission prompt from an explanatory in-app screen.
+  ///
+  /// Safe to call after startup: initialization and permission requests are
+  /// idempotent on both supported mobile platforms.
+  Future<void> requestPermission() => _ensureReady();
+
   /// Android needs a channel declared before anything can be posted to it, and
   /// its importance is fixed at creation — raising it later is ignored, so it
   /// is set high here to make sure a payment actually surfaces. Push from the
@@ -137,7 +143,14 @@ class MoneyAlerts {
         alert['kind'] == 'money_in';
     final tag = alert['tag']?.toString();
     final payload = jsonEncode({
-      for (final k in ['kind', 'transferId', 'jobId', 'txHash', 'link', 'threadId'])
+      for (final k in [
+        'kind',
+        'transferId',
+        'jobId',
+        'txHash',
+        'link',
+        'threadId'
+      ])
         if (alert[k] != null) k: alert[k].toString(),
     });
     try {
@@ -157,7 +170,8 @@ class MoneyAlerts {
           android: AndroidNotificationDetails(
             (moneyIn ? _moneyInChannel : _channel).id,
             (moneyIn ? _moneyInChannel : _channel).name,
-            channelDescription: (moneyIn ? _moneyInChannel : _channel).description,
+            channelDescription:
+                (moneyIn ? _moneyInChannel : _channel).description,
             importance: Importance.high,
             priority: Priority.high,
             tag: tag,

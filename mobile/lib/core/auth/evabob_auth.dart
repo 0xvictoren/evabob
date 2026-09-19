@@ -24,7 +24,11 @@ class EvabobAuth extends ChangeNotifier {
   /// See SessionStore -- it used to be plain text in SharedPreferences.
   final SessionStore _session = SessionStore();
 
-  EvabobAuth({ApiClient? api}) : _api = api;
+  EvabobAuth({ApiClient? api}) : _api = api {
+    // The server says a sign-in has ended (401 SESSION_EXPIRED): stop, and
+    // ask the person to sign in again, instead of retrying a dead token.
+    api?.onSessionExpired = () => unawaited(endExpiredSession());
+  }
 
   final ApiClient? _api;
   String _resolvedDynamicEnvironmentId = Env.dynamicEnvironmentId;
@@ -46,6 +50,13 @@ class EvabobAuth extends ChangeNotifier {
   int? _avatarBundleIndex;
   String? _pendingEmail;
   DynamicSDK? _sdk;
+
+  /// Set when a sign-in ended because it expired, not because the person
+  /// signed out. The sign-in screen uses it to say so and fill in the email.
+  String? _sessionEndedEmail;
+  String? get sessionEndedEmail => _sessionEndedEmail;
+  Timer? _expiryTimer;
+  bool _endingSession = false;
   StreamSubscription<UserProfile?>? _userSub;
   StreamSubscription<String?>? _tokenSub;
   StreamSubscription<String?>? _minTokenSub;
@@ -192,6 +203,9 @@ class EvabobAuth extends ChangeNotifier {
         _demoMode = true;
       }
       _ready = true;
+      // A saved sign-in may have expired while the app was closed: end it
+      // here rather than let the first screen fire requests with it.
+      _scheduleExpiry();
     } catch (e, st) {
       debugPrint('EvabobAuth.init: $e\n$st');
       _ready = true;
@@ -239,7 +253,9 @@ class EvabobAuth extends ChangeNotifier {
       onboardingRequired: switched ? null : _user?.onboardingRequired,
     );
     _demoMode = false;
+    _sessionEndedEmail = null;
     _loadAvatarForUser(_user!.id);
+    _scheduleExpiry();
     _persist();
     notifyListeners();
   }
@@ -271,8 +287,75 @@ class EvabobAuth extends ChangeNotifier {
       onboardingRequired: switched ? null : _user?.onboardingRequired,
     );
     _demoMode = false;
+    _sessionEndedEmail = null;
     _loadAvatarForUser(_user!.id);
+    _scheduleExpiry();
     _persist();
+    notifyListeners();
+  }
+
+  // ─── When a sign-in ends ────────────────────────────────────────────────
+
+  /// When the sign-in token stops working, from its own `exp` claim.
+  DateTime? _tokenExpiry(String? token) {
+    if (token == null || token.isEmpty) return null;
+    final exp = _jwtPayload(token)?['exp'];
+    if (exp is num) {
+      return DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000);
+    }
+    return null;
+  }
+
+  /// True once the current sign-in token is past its expiry.
+  bool get sessionExpired {
+    if (_demoMode || _user == null) return false;
+    final exp = _tokenExpiry(_user!.authToken);
+    return exp != null && !DateTime.now().isBefore(exp);
+  }
+
+  /// Ends the session the moment the token expires, instead of waiting for
+  /// the server to refuse a burst of requests with it.
+  void _scheduleExpiry() {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+    if (_demoMode || _user == null) return;
+    final exp = _tokenExpiry(_user!.authToken);
+    if (exp == null) return;
+    final wait = exp.difference(DateTime.now());
+    if (wait <= Duration.zero) {
+      unawaited(endExpiredSession());
+      return;
+    }
+    _expiryTimer = Timer(wait, () => unawaited(endExpiredSession()));
+  }
+
+  /// Timers do not run while the phone sleeps: check again on the way back.
+  void checkSessionExpiry() {
+    if (sessionExpired) unawaited(endExpiredSession());
+  }
+
+  /// The sign-in has ended. Signs out once — however many requests notice at
+  /// the same moment — and remembers the email, so the sign-in screen can
+  /// explain and have it ready. Nothing about the wallet or money changes.
+  Future<void> endExpiredSession() async {
+    if (_endingSession || _user == null || _demoMode) return;
+    _endingSession = true;
+    // Set before signing out, so the sign-in screen has it the moment it
+    // appears. signOut leaves it alone.
+    final email = _user!.email;
+    _sessionEndedEmail = email.isNotEmpty ? email : null;
+    try {
+      await signOut();
+    } finally {
+      _endingSession = false;
+      notifyListeners();
+    }
+  }
+
+  /// The person chose to use a different email on the sign-in screen.
+  void dismissSessionEnded() {
+    if (_sessionEndedEmail == null) return;
+    _sessionEndedEmail = null;
     notifyListeners();
   }
 
@@ -527,6 +610,8 @@ class EvabobAuth extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
     final priorId = _user?.id;
     _user = null;
     _demoMode = false;
@@ -810,6 +895,11 @@ class EvabobAuth extends ChangeNotifier {
     final display = user['displayName']?.toString();
     final evm = user['evmAddress']?.toString();
     final onboardingRequired = user['onboardingRequired'];
+    // The server decides which account this sign-in opens. When Dynamic
+    // issues a new id for the same email, that is still the person's original
+    // account, and everything keyed on the id (chat, alerts) must follow it.
+    final serverId = user['id']?.toString().trim() ?? '';
+    final nextId = serverId.isNotEmpty ? serverId : _user!.id;
     final nextSmart = (evm != null && evm.startsWith('0x') && evm.length == 42)
         ? evm
         : _user!.smartAccount;
@@ -822,7 +912,8 @@ class EvabobAuth extends ChangeNotifier {
     final nextOnboardingRequired = onboardingRequired is bool
         ? onboardingRequired
         : _user!.onboardingRequired;
-    final unchanged = nextSmart == _user!.smartAccount &&
+    final unchanged = nextId == _user!.id &&
+        nextSmart == _user!.smartAccount &&
         nextHandle == _user!.handle &&
         nextDisplay == _user!.displayName &&
         nextPhone == _user!.phone &&
@@ -831,6 +922,7 @@ class EvabobAuth extends ChangeNotifier {
         nextOnboardingRequired == _user!.onboardingRequired;
     if (unchanged) return;
     _user = _user!.copyWith(
+      id: nextId,
       phone: nextPhone,
       phoneLinked: nextLinked,
       phoneLinkedAt: nextLinkedAt,

@@ -8,6 +8,7 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/evabob_ui.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,6 +22,14 @@ class _LoginScreenState extends State<LoginScreen> {
   final _code = TextEditingController();
   bool _codeSent = false;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Back after a sign-in ended: the email is already known.
+    final ended = context.read<EvabobAuth>().sessionEndedEmail;
+    if (ended != null) _email.text = ended;
+  }
 
   @override
   void dispose() {
@@ -98,7 +107,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       : () async {
                           await auth.resendEmailCode();
                           if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          showTopSnack(
+                            context,
                             const SnackBar(content: Text('New code sent')),
                           );
                         },
@@ -106,6 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
               : _EmailView(
                   key: const ValueKey('email'),
                   controller: _email,
+                  sessionEnded: auth.sessionEndedEmail != null,
                   error: auth.error,
                   loading: loading,
                   onContinue: () => _primary(auth),
@@ -127,9 +138,13 @@ class _EmailView extends StatelessWidget {
     required this.loading,
     required this.onContinue,
     required this.onDemo,
+    this.sessionEnded = false,
   });
 
   final TextEditingController controller;
+
+  /// The person was signed in, and their sign-in ran out.
+  final bool sessionEnded;
   final String? error;
   final bool loading;
   final VoidCallback onContinue;
@@ -150,11 +165,18 @@ class _EmailView extends StatelessWidget {
         const SizedBox(height: 16),
         Semantics(
           header: true,
-          child: Text("Let's get you in", style: Type.title),
+          child: Text(
+            sessionEnded ? 'Welcome back' : "Let's get you in",
+            style: Type.title,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
-          "We'll email you a six-digit code",
+          sessionEnded
+              ? 'Your sign-in ended, so we need to check it is you. We will '
+                  'email you a six-digit code. Your wallet and money are just '
+                  'as you left them.'
+              : "We'll email you a six-digit code",
           style: Type.body.copyWith(color: EvabobColors.inkMuted),
         ),
         const SizedBox(height: 42),

@@ -100,7 +100,16 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
     if (raw.isEmpty) return;
     final parsed = _parse(raw);
     if (parsed == null) {
-      setState(() => _error = 'No wallet address in that code');
+      _handled = true;
+      await _controller.stop();
+      if (!mounted) return;
+      await _showBadCode();
+      if (!mounted) return;
+      setState(() {
+        _handled = false;
+        _error = null;
+      });
+      await _controller.start();
       return;
     }
     _handled = true;
@@ -115,6 +124,85 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
     }
     final chosen = await _pickEvmNetwork(parsed);
     if (mounted) Navigator.pop(context, chosen ?? parsed);
+  }
+
+  Future<void> _showBadCode() {
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: EvabobColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: EvabobColors.hairline,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const SizedBox(height: 28),
+              Container(
+                width: 88,
+                height: 88,
+                decoration: const BoxDecoration(
+                  color: EvabobColors.blueSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.qr_code_2_rounded,
+                  color: EvabobColors.ink,
+                  size: 40,
+                ),
+              ),
+              const SizedBox(height: 28),
+              const Text(
+                "That code won't work",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Numans',
+                  fontSize: 24,
+                  height: 32 / 24,
+                  letterSpacing: -.4,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Scan an Evabob code or a wallet address. Nothing was changed.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  height: 18 / 14,
+                  color: EvabobColors.inkMuted,
+                ),
+              ),
+              const SizedBox(height: 28),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(sheetContext),
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Scan another code'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<ScannedPayee?> _pickEvmNetwork(ScannedPayee parsed) async {

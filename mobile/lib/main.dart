@@ -90,6 +90,10 @@ class EvabobServices {
     final chat = ChatService(fx, api, notify: notify);
     moneyAlerts.events.listen(chat.onAlert);
     moneyAlerts.shouldNotify = chat.shouldNotify;
+    // Agent wallets: the allowance meter moves live as an agent spends, and
+    // approvals and pauses refresh the list.
+    final agents = AgentService(api);
+    moneyAlerts.events.listen(agents.onAlert);
     return EvabobServices(
       api: api,
       fx: fx,
@@ -98,7 +102,7 @@ class EvabobServices {
       wallet: WalletService(api, auth),
       circle: CircleWalletService(api, auth),
       activity: ActivityService(api, fx),
-      agents: AgentService(api),
+      agents: agents,
       contacts: ContactsService(api),
       theme: ThemeController(),
       pusher: pusher,
@@ -200,8 +204,13 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
       // Startup may have raced an unreachable API; never stay fail-closed
       // for the rest of the session once the server is back.
       _features.refresh();
+      // A sign-in that expired while the phone slept ends now, before the
+      // refreshes below would send it.
+      _auth.checkSessionExpiry();
     }
-    if (state == AppLifecycleState.resumed && _auth.user != null) {
+    if (state == AppLifecycleState.resumed &&
+        _auth.user != null &&
+        !_auth.sessionExpired) {
       _circle.refreshOpenJobs();
       _activity.refresh();
     }
@@ -367,13 +376,7 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
             home: Consumer2<EvabobAuth, AppLockService>(
               builder: (context, auth, lock, _) {
                 if (!auth.isReady || !lock.ready) {
-                  return const Scaffold(
-                    body: Center(
-                      child: CircularProgressIndicator(
-                        color: EvabobColors.blue,
-                      ),
-                    ),
-                  );
+                  return const _SplashScreen();
                 }
                 if (!auth.isSignedIn) return const LoginScreen();
                 // First-layer app lock (local PIN / biometrics) before shell.
@@ -386,6 +389,69 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: EvabobColors.blue,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox.square(
+                    dimension: 88,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: EvabobColors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Image(
+                          image: AssetImage('assets/logo.png'),
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 20),
+                  Text(
+                    'evabob',
+                    style: TextStyle(
+                      fontSize: 30,
+                      height: 1,
+                      color: EvabobColors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 32,
+              child: Center(
+                child: SizedBox.square(
+                  dimension: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: EvabobColors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

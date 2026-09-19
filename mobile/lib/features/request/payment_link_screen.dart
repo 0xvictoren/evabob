@@ -15,6 +15,7 @@ import '../../core/widgets/confirm_payment_sheet.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/family_code_sheet.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 class PaymentLinkScreen extends StatefulWidget {
   const PaymentLinkScreen({
@@ -192,7 +193,8 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
           .holdMilestones(context: context, paymentRequestId: widget.requestId);
       if (!mounted) return;
       if (res['ok'] != true) {
-        throw Exception(res['error']?.toString() ?? 'The milestones were not set aside');
+        throw Exception(
+            res['error']?.toString() ?? 'The milestones were not set aside');
       }
       await Future.wait([
         context.read<ActivityService>().refresh(),
@@ -201,7 +203,8 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
             ),
       ]);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text('Set aside in $lines parts. Each is paid as it is '
               'delivered — follow them in Activity.'),

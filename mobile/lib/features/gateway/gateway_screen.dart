@@ -19,6 +19,7 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/address_scan_sheet.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 class GatewayScreen extends StatefulWidget {
   const GatewayScreen({
@@ -175,7 +176,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
     // The Evabob fee is added on top of the top-up.
     final platformFee = features.platformFeeFor(amt);
     if (_sourceDomain == 26 && amt + platformFee > wallet.usdcWallet + 1e-9) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
             platformFee > 0
@@ -238,7 +240,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
           DepositWatch.stillSettling =>
             '${formatUsdc(amt)} on its way. ${_settlementHint(_sourceDomain)}',
         };
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             content: Text(message),
             behavior: SnackBarBehavior.floating,
@@ -248,7 +251,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             // circle.status is an internal progress/debug string — it says
             // things like "Challenge FAILED" and "Burn may have succeeded".
@@ -263,7 +267,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
             content: Text(friendlyError(e)),
             behavior: SnackBarBehavior.floating),
@@ -279,7 +284,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
     if (amt == null || amt <= 0 || dest.isEmpty || _busy) return;
     final evmOk = RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(dest);
     if (!evmOk) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Enter a valid 0x payee address'),
           behavior: SnackBarBehavior.floating,
@@ -294,7 +300,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
         : wallet.gatewayUsdc;
     final need = amt + context.read<AppFeatures>().platformFeeFor(amt);
     if (need > spendable + 1e-9) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
             'Your GA has ${formatUsdc(spendable)} ready — you need '
@@ -354,7 +361,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
             .join(' + ');
         if (sourceNote.isNotEmpty) sourceNote = ' · $sourceNote';
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
             ok
@@ -370,7 +378,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
             content: Text(friendlyError(e)),
             behavior: SnackBarBehavior.floating),

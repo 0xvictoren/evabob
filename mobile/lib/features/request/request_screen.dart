@@ -13,6 +13,7 @@ import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/motion.dart';
 import 'invoice_history.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Getting paid, two ways.
 ///
@@ -194,7 +195,8 @@ class _CopyRow extends StatelessWidget {
           ? () async {
               await Clipboard.setData(ClipboardData(text: copyable!));
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
+              showTopSnack(
+                context,
                 SnackBar(
                   content: Text('$label copied'),
                   behavior: SnackBarBehavior.floating,
@@ -338,8 +340,8 @@ class _InvoiceTabState extends State<_InvoiceTab> {
     );
     if (picked == null || !mounted) return;
     // End of the chosen day, so "due today" means all of today.
-    setState(() => _dueAt =
-        DateTime(picked.year, picked.month, picked.day, 23, 59));
+    setState(
+        () => _dueAt = DateTime(picked.year, picked.month, picked.day, 23, 59));
   }
 
   double get _total => _lines.fold(0, (sum, l) => sum + l.value);
@@ -349,6 +351,75 @@ class _InvoiceTabState extends State<_InvoiceTab> {
   void _removeLine(int i) {
     if (_lines.length == 1) return;
     setState(() => _lines.removeAt(i).dispose());
+  }
+
+  Future<void> _showSent(String link) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        padding: EdgeInsets.fromLTRB(
+          Space.page,
+          Space.sm,
+          Space.page,
+          Space.page + MediaQuery.paddingOf(sheetContext).bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: EvabobColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.xl)),
+          boxShadow: Shadows.sheet,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: EvabobColors.hairline,
+                borderRadius: BorderRadius.circular(Radii.pill),
+              ),
+            ),
+            const SizedBox(height: 40),
+            const CircleAvatar(
+              radius: 44,
+              backgroundColor: EvabobColors.blueSoft,
+              child: Icon(
+                Icons.north_east_rounded,
+                size: 36,
+                color: EvabobColors.ink,
+              ),
+            ),
+            const SizedBox(height: Space.xl),
+            Text('Request sent', style: Type.title),
+            const SizedBox(height: Space.sm),
+            Text(
+              'The payment link is copied. Share it with the person you asked, then follow its progress in request history.',
+              textAlign: TextAlign.center,
+              style: Type.body.copyWith(color: EvabobColors.inkMuted),
+            ),
+            const SizedBox(height: Space.xxl),
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: FilledButton.icon(
+                onPressed: () => SharePlus.instance.share(
+                  ShareParams(text: link, subject: 'Evabob request'),
+                ),
+                icon: const Icon(Icons.ios_share_rounded),
+                label: const Text('Share request'),
+              ),
+            ),
+            const SizedBox(height: Space.sm),
+            TextButton(
+              onPressed: () => Navigator.pop(sheetContext),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _generate() async {
@@ -397,21 +468,11 @@ class _InvoiceTabState extends State<_InvoiceTab> {
         _historyToken++;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Invoice ready — link copied'),
-          action: SnackBarAction(
-            label: 'Share',
-            onPressed: () => SharePlus.instance.share(
-              ShareParams(text: link, subject: 'Evabob invoice'),
-            ),
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      await _showSent(link);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
               friendlyError(e, fallback: 'Could not create that invoice.')),
@@ -502,7 +563,8 @@ class _InvoiceTabState extends State<_InvoiceTab> {
             borderRadius: Radii.all(Radii.md),
             boxShadow: Shadows.subtle,
           ),
-          padding: const EdgeInsets.fromLTRB(Space.lg, Space.sm, Space.lg, Space.sm),
+          padding:
+              const EdgeInsets.fromLTRB(Space.lg, Space.sm, Space.lg, Space.sm),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -556,15 +618,13 @@ class _InvoiceTabState extends State<_InvoiceTab> {
                       ? (v) => setState(() => _milestones = v)
                       : null,
                   title: Text('Paid by milestone',
-                      style:
-                          Type.body.copyWith(color: EvabobColors.nearBlack)),
+                      style: Type.body.copyWith(color: EvabobColors.nearBlack)),
                   subtitle: Text(
                     _milestonesPossible
                         ? 'Each line is set aside separately and paid to you '
                             'as you deliver it.'
                         : 'Add 2 to 10 lines in dollars, one per milestone.',
-                    style:
-                        Type.caption.copyWith(color: EvabobColors.navyMuted),
+                    style: Type.caption.copyWith(color: EvabobColors.navyMuted),
                   ),
                 ),
               ),
@@ -604,7 +664,7 @@ class _InvoiceTabState extends State<_InvoiceTab> {
               padding: const EdgeInsets.symmetric(vertical: 18),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: EvabobColors.forest,
+                color: EvabobColors.primary,
                 borderRadius: Radii.all(Radii.md),
               ),
               child: Text(

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/config/app_features.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/money_format.dart';
@@ -14,6 +15,7 @@ import '../../core/utils/text_safe.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Buy / swap on Arc: USDC · EURC · cirBTC · custom CA via Synthra + UCW PIN.
 /// Simple amount field + % chips (no calculator — calculator is send-only).
@@ -153,22 +155,17 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         toDecimals: _decTo(),
       );
       final out = (q['amountOut'] as num?)?.toDouble();
-      final route = q['routeString']?.toString();
-      final source = q['source']?.toString() ?? 'quote';
       if (!mounted) return;
       setState(() {
         _quotedOut = out;
-        _quoteLine = out != null
-            ? '≈ ${out.toStringAsFixed(6)} ${_label(_toPreset, _toCa)} · $source'
-                '${route != null && route.isNotEmpty ? '\n$route' : ''}'
-            : 'Quote unavailable ($source)';
+        // Only the fee: where the rate comes from is not the person's concern.
+        _quoteLine = out != null ? _feeLine(amount) : _noRate;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _quotedOut = null;
-        _quoteLine =
-            friendlyError(e, fallback: 'Could not get a rate just now.');
+        _quoteLine = _plain(friendlyError(e, fallback: _noRate));
       });
     }
   }
@@ -182,7 +179,8 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
     }
     if (_fromPreset == 'CUSTOM' &&
         !RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(from)) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Paste a valid spend token contract (0x…)'),
           behavior: SnackBarBehavior.floating,
@@ -191,7 +189,8 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
       return;
     }
     if (_toPreset == 'CUSTOM' && !RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(to)) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Paste a valid receive token contract (0x…)'),
           behavior: SnackBarBehavior.floating,
@@ -206,7 +205,8 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
     // Only enforce balance for known treasury tokens
     if (['USDC', 'EURC', 'CIRBTC'].contains(from.toUpperCase()) &&
         amountIn > avail + 1e-9) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
             'Insufficient ${_label(_fromPreset, _fromCa)} '
@@ -254,26 +254,19 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         );
         if (!mounted) return;
         final out = (q['amountOut'] as num?)?.toDouble();
-        final route = q['routeString']?.toString();
-        final source = q['source']?.toString() ?? 'quote';
         final err = q['error']?.toString();
         if (out == null || out <= 0) {
+          final said = _plain(err != null && err.isNotEmpty
+              ? friendlyError(err, fallback: _noRate)
+              : _noRate);
           setState(() {
             _quotedOut = null;
-            _quoteLine = err != null && err.isNotEmpty
-                ? friendlyError(err, fallback: 'Could not get a rate just now.')
-                : 'No route for this pair ($source)';
+            _quoteLine = said;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
+          showTopSnack(
+            context,
             SnackBar(
-              content: Text(
-                shortUiText(
-                  err != null && err.isNotEmpty
-                      ? err
-                      : 'No swap route — try another pair or amount',
-                  max: 160,
-                ),
-              ),
+              content: Text(shortUiText(said, max: 160)),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -281,15 +274,12 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         }
         setState(() {
           _quotedOut = out;
-          _quoteLine = shortUiText(
-            '≈ ${out.toStringAsFixed(6)} ${_label(_toPreset, _toCa)} · $source'
-            '${route != null && route.isNotEmpty ? '\n$route' : ''}',
-            max: 200,
-          );
+          _quoteLine = _feeLine(amountIn);
         });
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             content: Text(
                 friendlyError(e, fallback: 'Could not get a rate just now.')),
@@ -315,17 +305,14 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         await wallet.refreshBalances(addressOverride: circle.address);
         if (!mounted) return;
         final outHint = _quotedOut != null
-            ? ' ≈ ${_quotedOut!.toStringAsFixed(6)} ${_label(_toPreset, _toCa)}'
+            ? ' ≈ ${_quotedOut!.toStringAsFixed(_dp(_toPreset))} ${_label(_toPreset, _toCa)}'
             : '';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Swap confirmed · $amountIn ${_label(_fromPreset, _fromCa)} → '
-              '${_label(_toPreset, _toCa)}$outHint',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
+        await _showDone(
+          context,
+          '$amountIn ${_label(_fromPreset, _fromCa)} was converted to '
+          '${_label(_toPreset, _toCa)}$outHint.',
         );
+        if (!mounted) return;
         widget.onBack?.call();
       } else {
         final err = shortUiText(
@@ -337,7 +324,8 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         setState(() {
           _quoteLine = err;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             content: Text(err),
             behavior: SnackBarBehavior.floating,
@@ -346,7 +334,8 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
             content: Text(friendlyError(e)),
             behavior: SnackBarBehavior.floating),
@@ -442,6 +431,21 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
     _amountCtrl.dispose();
     super.dispose();
   }
+
+  static const _noRate = 'No rate for this pair right now. Try another amount.';
+
+  /// Dollars and euros to the cent; Bitcoin needs more places.
+  static int _dp(String preset) => preset == 'CIRBTC' ? 6 : 2;
+
+  /// The fee, and nothing about where the rate comes from.
+  String _feeLine(double amount) {
+    final fee = context.read<AppFeatures>().platformFeeFor(amount);
+    return 'Evabob fee ${formatMoney(fee, _fromPreset == 'EURC' ? 'EURC' : 'USDC')}';
+  }
+
+  /// Provider names are not for people.
+  static String _plain(String text) =>
+      RegExp('synthra', caseSensitive: false).hasMatch(text) ? _noRate : text;
 
   @override
   Widget build(BuildContext context) {
@@ -648,7 +652,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                         Text(
                           amount <= 0
                               ? '0 ${_label(_toPreset, _toCa)}'
-                              : '${converted.toStringAsFixed(6)} ${_label(_toPreset, _toCa)}',
+                              : '${converted.toStringAsFixed(_dp(_toPreset))} ${_label(_toPreset, _toCa)}',
                           style:
                               EvabobTheme.amountDisplay.copyWith(fontSize: 48),
                         )
@@ -682,4 +686,65 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
       ),
     );
   }
+}
+
+Future<void> _showDone(BuildContext context, String detail) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => Container(
+      padding: EdgeInsets.fromLTRB(
+        Space.page,
+        Space.sm,
+        Space.page,
+        Space.page + MediaQuery.paddingOf(sheetContext).bottom,
+      ),
+      decoration: const BoxDecoration(
+        color: EvabobColors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.xl)),
+        boxShadow: Shadows.sheet,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: EvabobColors.hairline,
+              borderRadius: BorderRadius.circular(Radii.pill),
+            ),
+          ),
+          const SizedBox(height: 40),
+          const CircleAvatar(
+            radius: 44,
+            backgroundColor: EvabobColors.blueSoft,
+            child: Icon(
+              Icons.swap_horiz_rounded,
+              size: 38,
+              color: EvabobColors.ink,
+            ),
+          ),
+          const SizedBox(height: Space.xl),
+          Text('Done', style: Type.title),
+          const SizedBox(height: Space.sm),
+          Text(
+            detail,
+            textAlign: TextAlign.center,
+            style: Type.body.copyWith(color: EvabobColors.inkMuted),
+          ),
+          const SizedBox(height: Space.xxl),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: FilledButton(
+              onPressed: () => Navigator.pop(sheetContext),
+              child: const Text('Done'),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

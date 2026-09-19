@@ -7,6 +7,7 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Incomplete bridge/swap PIN jobs — Continue instead of losing funds.
 class IncompleteJobsBanner extends StatelessWidget {
@@ -43,7 +44,8 @@ class IncompleteJobsBanner extends StatelessWidget {
     final moving = stage == 'sent' || stage == 'confirming';
     final fundsIntact = res['fundsIntact'] == true;
     final notice = circle.takeFundsIntactNotice();
-    ScaffoldMessenger.of(context).showSnackBar(
+    showTopSnack(
+      context,
       SnackBar(
         content: Text(
           fundsIntact

@@ -13,6 +13,7 @@ import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/glass.dart';
 import 'payment_proof_card.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Full-screen receipt for a history item — download + share.
 class ReceiptSheet extends StatefulWidget {
@@ -112,7 +113,8 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
       }
     } catch (err) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
               content: Text(friendlyError(err)),
               behavior: SnackBarBehavior.floating),
@@ -145,7 +147,8 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
       setState(() {
         _actionHint = 'Saved to device';
       });
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text('Receipt saved · $_fileName'),
           behavior: SnackBarBehavior.floating,
@@ -158,7 +161,8 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
       );
     } catch (err) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
               content: Text(friendlyError(err)),
               behavior: SnackBarBehavior.floating),
@@ -173,7 +177,8 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
     await Clipboard.setData(ClipboardData(text: e.receiptText()));
     if (!mounted) return;
     setState(() => _actionHint = 'Receipt text copied');
-    ScaffoldMessenger.of(context).showSnackBar(
+    showTopSnack(
+      context,
       const SnackBar(
         content: Text('Receipt copied to clipboard'),
         behavior: SnackBarBehavior.floating,
@@ -187,6 +192,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
     final df = DateFormat('EEE, MMM d, yyyy · HH:mm');
     final positive = e.amountUsdc > 0;
     final zero = e.amountUsdc == 0;
+    final failed = e.didNotLand;
     final h = MediaQuery.sizeOf(context).height * 0.88;
 
     return Container(
@@ -252,17 +258,20 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: EvabobColors.emerald.withValues(
-                                  alpha: 0.14,
-                                ),
+                                color: (failed
+                                        ? EvabobColors.alert
+                                        : EvabobColors.emerald)
+                                    .withValues(alpha: 0.14),
                                 borderRadius: BorderRadius.circular(99),
                               ),
                               child: Text(
-                                kindLabel(e.kind),
-                                style: const TextStyle(
+                                failed ? "Didn't land" : kindLabel(e.kind),
+                                style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w400,
-                                  color: EvabobColors.emeraldDeep,
+                                  color: failed
+                                      ? EvabobColors.alert
+                                      : EvabobColors.emeraldDeep,
                                   letterSpacing: 0.6,
                                 ),
                               ),
@@ -280,7 +289,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          e.title,
+                          failed ? "Didn't land" : e.title,
                           style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w400,
@@ -302,9 +311,11 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                             style: TextStyle(
                               fontSize: 48,
                               fontWeight: FontWeight.w400,
-                              color: positive
-                                  ? EvabobColors.emeraldDeep
-                                  : EvabobColors.navy,
+                              color: failed
+                                  ? EvabobColors.alert
+                                  : positive
+                                      ? EvabobColors.emeraldDeep
+                                      : EvabobColors.navy,
                             ),
                           ),
                         ],
@@ -313,6 +324,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                         const SizedBox(height: 8),
                         _row('Date', df.format(e.createdAt.toLocal())),
                         _row('Amount', e.amountLine),
+                        if (failed) _row('Status', "Didn't land"),
                         if ((e.platformFee ?? 0) > 0)
                           _row(
                             'Evabob fee',
@@ -338,7 +350,9 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                           'Reference',
                           (e.txHash != null && e.txHash!.isNotEmpty)
                               ? displayData(e.txHash)
-                              : 'Confirmed',
+                              : failed
+                                  ? 'No transaction'
+                                  : 'Confirmed',
                           fullValue: e.txHash,
                         ),
                         const SizedBox(height: 12),
@@ -349,10 +363,11 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                             color: EvabobColors.sand.withValues(alpha: 0.5),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Text(
-                            'This is your official Evabob payment receipt. '
-                            'Download or share it anytime from history.',
-                            style: TextStyle(
+                          child: Text(
+                            failed
+                                ? 'This payment did not land. Nothing was recorded as delivered; check Activity before trying again.'
+                                : 'This is your official Evabob payment receipt. Download or share it anytime from history.',
+                            style: const TextStyle(
                               fontSize: 10,
                               color: EvabobColors.navyMuted,
                               height: 1.35,

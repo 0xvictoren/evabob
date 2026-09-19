@@ -12,6 +12,7 @@ import '../../core/widgets/confirm_action_dialog.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
 import 'review_conversation.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 String _day(DateTime? t) =>
     t == null ? '—' : DateFormat('EEE d MMM, HH:mm').format(t.toLocal());
@@ -231,7 +232,8 @@ class _OperatorReviewDetailScreenState
     try {
       await _api.decide(r.transferId, release: release, note: note);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(release
               ? 'Paid ${r.recipient}. Both people have been told.'
@@ -242,7 +244,8 @@ class _OperatorReviewDetailScreenState
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(friendlyError(e, fallback: 'That did not go through.')),
           behavior: SnackBarBehavior.floating,

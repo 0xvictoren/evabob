@@ -19,6 +19,8 @@ import 'package:provider/provider.dart';
 enum HomeMenuAction {
   request,
   sellWithLink,
+  paywalls,
+  agentTasks,
   groups,
   convert,
   ga,
@@ -53,6 +55,18 @@ class _Menu extends StatelessWidget {
       Icons.add_link_rounded,
       'Sell with a link',
       "Buyers' money is set aside until their order arrives"
+    ),
+    (
+      HomeMenuAction.paywalls,
+      Icons.sell_outlined,
+      'Get paid by agents',
+      'Charge software for a dataset, photos, your API or your time'
+    ),
+    (
+      HomeMenuAction.agentTasks,
+      Icons.handshake_outlined,
+      'Work from agents',
+      'Tasks software will pay you for, money set aside first'
     ),
     (
       HomeMenuAction.groups,
@@ -93,6 +107,8 @@ class _Menu extends StatelessWidget {
       return switch (item.$1) {
         HomeMenuAction.request => features.requests,
         HomeMenuAction.sellWithLink => true,
+        HomeMenuAction.paywalls => true,
+        HomeMenuAction.agentTasks => true,
         HomeMenuAction.groups => true,
         HomeMenuAction.convert => features.conversion,
         HomeMenuAction.ga => features.gateway,

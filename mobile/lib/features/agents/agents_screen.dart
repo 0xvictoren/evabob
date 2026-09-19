@@ -11,19 +11,24 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/platform_fee_note.dart';
+import 'agent_allowance_widgets.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Create an agentic wallet, fund it, and copy the x402 API key.
 class AgentsScreen extends StatefulWidget {
-  const AgentsScreen({super.key, this.onBack});
+  const AgentsScreen({super.key, this.onBack, this.initialAgentId});
 
   final VoidCallback? onBack;
+
+  /// Opens straight onto one agent, e.g. from an approval notification.
+  final String? initialAgentId;
 
   @override
   State<AgentsScreen> createState() => _AgentsScreenState();
 }
 
 class _AgentsScreenState extends State<AgentsScreen> {
-  String? _openId;
+  late String? _openId = widget.initialAgentId;
 
   @override
   void initState() {
@@ -37,69 +42,47 @@ class _AgentsScreenState extends State<AgentsScreen> {
   }
 
   Future<void> _create() async {
-    final label = TextEditingController(text: 'Agent wallet');
-    final limit = TextEditingController(text: '50');
-    final ok = await showDialog<bool>(
+    final picked = await showModalBottomSheet<(String, AgentAllowance)>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create agent wallet'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'A separate pocket of money for software to spend. Put money '
-              'in it, then copy its key.',
-              style: TextStyle(fontSize: 10),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: label,
-              decoration: const InputDecoration(labelText: 'Label'),
-            ),
-            TextField(
-              controller: limit,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Daily limit',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const AllowanceSheet(askLabel: true),
     );
-    if (ok != true || !mounted) return;
-    final key = await context.read<AgentService>().create(
-          label: label.text.trim().isEmpty ? 'Agent wallet' : label.text.trim(),
-          dailyLimitUsdc: double.tryParse(limit.text) ?? 50,
-        );
+    if (picked == null || !mounted) return;
+    String? key;
+    try {
+      key = await context.read<AgentService>().create(
+            label: picked.$1,
+            allowance: picked.$2,
+          );
+    } catch (e) {
+      if (!mounted) return;
+      showTopSnack(
+          context,
+          SnackBar(
+            content: Text(friendlyError(e)),
+            behavior: SnackBarBehavior.floating,
+          ));
+      return;
+    }
     if (!mounted) return;
     try {
       context.read<SectionNotify>().bump('agents');
     } catch (_) {}
-    if (key != null) {
+    final shown = key;
+    if (shown != null) {
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('API key'),
           content: SelectableText(
-            key,
+            shown,
             style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
           ),
           actions: [
             TextButton(
               onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: key));
+                await Clipboard.setData(ClipboardData(text: shown));
                 if (ctx.mounted) Navigator.pop(ctx);
               },
               child: const Text('Copy'),
@@ -111,6 +94,40 @@ class _AgentsScreenState extends State<AgentsScreen> {
           ],
         ),
       );
+    }
+  }
+
+  /// One tap stops every agent. Undo is on the snackbar, not a dialog in
+  /// front of it: the moment you need this is not the moment to confirm.
+  Future<void> _freezeAll() async {
+    final svc = context.read<AgentService>();
+    try {
+      if (svc.anyFrozen && !svc.anyActive) {
+        await svc.unfreezeAll();
+        return;
+      }
+      final n = await svc.freezeAll();
+      if (!mounted) return;
+      showTopSnack(
+          context,
+          SnackBar(
+            content: Text(n == 0
+                ? 'Nothing was spending.'
+                : 'Frozen. ${n == 1 ? 'Your agent' : 'All $n agents'} stopped spending.'),
+            behavior: SnackBarBehavior.floating,
+            action: n == 0
+                ? null
+                : SnackBarAction(
+                    label: 'Undo', onPressed: () => svc.unfreezeAll()),
+          ));
+    } catch (e) {
+      if (!mounted) return;
+      showTopSnack(
+          context,
+          SnackBar(
+            content: Text(friendlyError(e)),
+            behavior: SnackBarBehavior.floating,
+          ));
     }
   }
 
@@ -163,6 +180,20 @@ class _AgentsScreenState extends State<AgentsScreen> {
                   ),
                 ),
               ),
+              if (agents.wallets.isNotEmpty)
+                agents.anyFrozen && !agents.anyActive
+                    ? OutlinedButton.icon(
+                        onPressed: _freezeAll,
+                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        label: const Text('Unfreeze'),
+                      )
+                    : FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                            backgroundColor: EvabobColors.alert),
+                        onPressed: agents.anyActive ? _freezeAll : null,
+                        icon: const Icon(Icons.ac_unit_rounded, size: 18),
+                        label: const Text('Freeze all'),
+                      ),
             ],
           ),
         ),
@@ -246,12 +277,29 @@ class _AgentsScreenState extends State<AgentsScreen> {
                                     color: EvabobColors.navy,
                                   ),
                                 ),
+                                const SizedBox(height: 6),
+                                AllowanceMeter(meter: w.meter, compact: true),
+                                const SizedBox(height: 4),
                                 Text(
-                                  'API key ${w.apiKeyPrefix}••••',
-                                  style: const TextStyle(
-                                    fontFamily: 'monospace',
+                                  w.paused
+                                      ? (w.pauseReason == 'loop'
+                                          ? 'Paused · it repeated one call too often'
+                                          : w.pauseReason == 'freeze'
+                                              ? 'Frozen'
+                                              : 'Paused')
+                                      : w.approvals.isNotEmpty
+                                          ? '${w.approvals.length} waiting for your approval'
+                                          : [
+                                              if (w.handle != null) w.handle!,
+                                              w.allowance.summary,
+                                            ]
+                                              .where((x) => x.isNotEmpty)
+                                              .join(' · '),
+                                  style: TextStyle(
                                     fontSize: 10,
-                                    color: EvabobColors.navyMuted,
+                                    color: w.paused || w.approvals.isNotEmpty
+                                        ? EvabobColors.alert
+                                        : EvabobColors.navyMuted,
                                   ),
                                 ),
                               ],
@@ -366,7 +414,8 @@ class _AgentDetailState extends State<_AgentDetail> {
     } catch (e) {
       if (mounted) {
         setState(() => _revealing = false);
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
               content: Text(friendlyError(e)),
               behavior: SnackBarBehavior.floating),
@@ -381,7 +430,7 @@ class _AgentDetailState extends State<_AgentDetail> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Revoke API key?'),
+        title: const Text('Stop this agent?'),
         content: const Text(
           'Stops this agent spending immediately. The remaining balance stays '
           'here and can still be withdrawn. Rotate later to issue a new key.',
@@ -394,7 +443,7 @@ class _AgentDetailState extends State<_AgentDetail> {
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: EvabobColors.alert),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Revoke'),
+            child: const Text('Stop agent'),
           ),
         ],
       ),
@@ -403,7 +452,8 @@ class _AgentDetailState extends State<_AgentDetail> {
     try {
       await context.read<AgentService>().revoke(widget.walletId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Key revoked — that software can no longer spend'),
           behavior: SnackBarBehavior.floating,
@@ -411,7 +461,8 @@ class _AgentDetailState extends State<_AgentDetail> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
               content: Text(friendlyError(e)),
               behavior: SnackBarBehavior.floating),
@@ -467,7 +518,8 @@ class _AgentDetailState extends State<_AgentDetail> {
     try {
       await context.read<AgentService>().withdraw(widget.walletId, amt);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text('Withdrew ${formatMoney(amt)}'),
           behavior: SnackBarBehavior.floating,
@@ -475,7 +527,8 @@ class _AgentDetailState extends State<_AgentDetail> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
               content: Text(friendlyError(e)),
               behavior: SnackBarBehavior.floating),
@@ -583,7 +636,8 @@ class _AgentDetailState extends State<_AgentDetail> {
         context.read<SectionNotify>().bump('activity');
       } catch (_) {}
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           const SnackBar(
             content: Text('Agent funded'),
             behavior: SnackBarBehavior.floating,
@@ -592,7 +646,8 @@ class _AgentDetailState extends State<_AgentDetail> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
               content: Text(friendlyError(e)),
               behavior: SnackBarBehavior.floating),
@@ -650,14 +705,6 @@ class _AgentDetailState extends State<_AgentDetail> {
                   fontSize: 48,
                   fontWeight: FontWeight.w400,
                   color: EvabobColors.navy,
-                ),
-              ),
-              Text(
-                'Daily limit ${formatMoney(w.dailyLimitUsdc)} · '
-                'Spent today ${formatMoney(w.spentTodayUsdc)}',
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: EvabobColors.navyMuted,
                 ),
               ),
               const SizedBox(height: 12),
@@ -727,13 +774,25 @@ class _AgentDetailState extends State<_AgentDetail> {
                       style: TextButton.styleFrom(
                         foregroundColor: EvabobColors.alert,
                       ),
-                      child: const Text('Revoke'),
+                      child: const Text('Stop this agent'),
                     ),
                 ],
               ),
             ],
           ),
         ),
+        const SizedBox(height: 14),
+        _AllowanceCard(wallet: w),
+        for (final a in w.approvals) ...[
+          const SizedBox(height: 10),
+          ApprovalTile(agentId: w.id, approval: a),
+        ],
+        const SizedBox(height: 14),
+        AgentNameCard(wallet: w),
+        const SizedBox(height: 14),
+        AgentHires(agentId: w.id),
+        const SizedBox(height: 14),
+        AgentPayments(agentId: w.id),
         const SizedBox(height: 14),
         Glass(
           child: Column(
@@ -750,7 +809,8 @@ class _AgentDetailState extends State<_AgentDetail> {
               const SizedBox(height: 4),
               const Text(
                 'It can spend from this wallet only — never your main '
-                'balance — and stops at the limits below. Revoke it any time.',
+                'balance — and stops at its allowance. Pause it, freeze '
+                'everything, or revoke the key any time.',
                 style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
               ),
               const SizedBox(height: 8),
@@ -769,17 +829,11 @@ class _AgentDetailState extends State<_AgentDetail> {
                   color: EvabobColors.chalk,
                 ),
               ),
-              if (w.perCallLimitUsdc != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Up to ${formatMoney(w.perCallLimitUsdc!)} per payment · '
-                  '${formatMoney(w.dailyLimitUsdc)} a day',
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: EvabobColors.navyMuted,
-                  ),
-                ),
-              ],
+              const Text(
+                'Hire a person: POST /v1/agent-api/tasks · '
+                'status: GET /v1/agent-api/me',
+                style: TextStyle(fontSize: 10, color: EvabobColors.chalk),
+              ),
             ],
           ),
         ),
@@ -818,7 +872,7 @@ class _PayableServicesState extends State<_PayableServices> {
   Widget build(BuildContext context) {
     final s = _services;
     if (s == null && !_failed) return const SizedBox.shrink();
-    final payable = s?.paidExecution == true && s!.items.isNotEmpty;
+    final payable = s != null && s.items.isNotEmpty;
     return Glass(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -836,8 +890,9 @@ class _PayableServicesState extends State<_PayableServices> {
             Text(
               _failed
                   ? 'We could not load the list right now.'
-                  : '${s?.note ?? 'Nothing yet.'} An agent wallet can still '
-                      'hold money, and you can take it out any time.',
+                  : '${s?.note ?? 'Nothing yet.'} People here can sell to '
+                      'agents from Get paid by agents. An agent wallet can '
+                      'still hold money, and you can take it out any time.',
               style: const TextStyle(
                 fontSize: 10,
                 color: EvabobColors.navyMuted,
@@ -851,9 +906,11 @@ class _PayableServicesState extends State<_PayableServices> {
                   children: [
                     Expanded(
                       child: Text(
-                        item.description.isEmpty
-                            ? item.provider
-                            : '${item.provider} · ${item.description}',
+                        [
+                          item.provider,
+                          if (item.description.isNotEmpty) item.description,
+                          if (item.waitsForProof) 'paid after proof',
+                        ].join(' · '),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -872,6 +929,106 @@ class _PayableServicesState extends State<_PayableServices> {
                   ],
                 ),
               ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The allowance, its live meter, and the controls that stop spending.
+class _AllowanceCard extends StatelessWidget {
+  const _AllowanceCard({required this.wallet});
+
+  final AgentWalletModel wallet;
+
+  Future<void> _edit(BuildContext context) async {
+    final picked = await showModalBottomSheet<(String, AgentAllowance)>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AllowanceSheet(initial: wallet.allowance),
+    );
+    if (picked == null || !context.mounted) return;
+    await _run(context,
+        () => context.read<AgentService>().setAllowance(wallet.id, picked.$2));
+  }
+
+  Future<void> _run(
+      BuildContext context, Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (e) {
+      if (!context.mounted) return;
+      showTopSnack(
+          context,
+          SnackBar(
+            content: Text(friendlyError(e)),
+            behavior: SnackBarBehavior.floating,
+          ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w = wallet;
+    final svc = context.read<AgentService>();
+    return Glass(
+      heavy: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  w.allowance.summary.isEmpty
+                      ? 'Allowance'
+                      : w.allowance.summary,
+                  style:
+                      const TextStyle(fontSize: 14, color: EvabobColors.navy),
+                ),
+              ),
+              TextButton(
+                  onPressed: () => _edit(context), child: const Text('Change')),
+            ],
+          ),
+          Text(
+            [
+              'Asks you above ${formatMoney(w.allowance.askAboveUsdc)}',
+              if (w.allowance.proofOnly) 'pays only after proof',
+            ].join(' · '),
+            style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+          ),
+          const SizedBox(height: 10),
+          AllowanceMeter(meter: w.meter),
+          if (w.paused) ...[
+            const SizedBox(height: 10),
+            Text(
+              w.pauseReason == 'loop'
+                  ? 'Paused by the loop breaker: '
+                      '${w.pauseDetail ?? 'it repeated one call too often'}. '
+                      'That is how runaway bills start.'
+                  : w.pauseReason == 'freeze'
+                      ? 'Frozen with everything else.'
+                      : 'Paused by you.',
+              style: const TextStyle(fontSize: 10, color: EvabobColors.alert),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: w.paused
+                ? FilledButton.icon(
+                    onPressed: () => _run(context, () => svc.resume(w.id)),
+                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                    label: const Text('Resume'),
+                  )
+                : OutlinedButton.icon(
+                    onPressed: () => _run(context, () => svc.pause(w.id)),
+                    icon: const Icon(Icons.pause_rounded, size: 18),
+                    label: const Text('Pause'),
+                  ),
+          ),
         ],
       ),
     );

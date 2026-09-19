@@ -72,12 +72,20 @@ class ActivityEntry {
   final double? platformFee;
   final String? platformFeeToken;
 
-  bool get isPending => status == 'pending';
+  bool get isPending => status?.toLowerCase() == 'pending';
+
+  bool get didNotLand => const {
+        'failed',
+        'error',
+        'cancelled',
+        'canceled',
+        'declined',
+        'reverted',
+      }.contains(status?.toLowerCase());
 
   /// Payments this person made can be shared as a public link.
   bool get shareable =>
-      (kind == 'send' || kind == 'withdraw' || kind == 'bridge') &&
-      status != 'cancelled';
+      (kind == 'send' || kind == 'withdraw' || kind == 'bridge') && !didNotLand;
   bool get resumable => isPending && jobId != null && jobId!.isNotEmpty;
 
   /// Inflow when amountUsdc > 0; for non-USDC (e.g. cirBTC swap) use token sign.
@@ -151,6 +159,8 @@ class ActivityEntry {
     }
     if (txHash != null && txHash!.isNotEmpty) {
       buf.writeln('Tx hash    : $txHash');
+    } else if (didNotLand) {
+      buf.writeln('Tx hash    : not sent');
     } else {
       buf.writeln('Tx hash    : confirmed (indexing)');
     }

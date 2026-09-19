@@ -38,6 +38,7 @@ dependencies:
   firebase_messaging: ^16.7.0
   qr_flutter: ^4.1.0
   audioplayers: ^6.8.1
+  file_picker: ^10.3.10
 
 dev_dependencies:
   flutter_test:

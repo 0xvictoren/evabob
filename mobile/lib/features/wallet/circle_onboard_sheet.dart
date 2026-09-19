@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Ensure spendable wallet is ready (PIN + multi-chain addresses).
 Future<bool> openCircleWalletOnboarding(
@@ -22,7 +23,8 @@ Future<bool> openCircleWalletOnboarding(
     }
     if (!context.mounted) return ok;
     if (!silent) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
             ok && circle.address != null
@@ -39,7 +41,8 @@ Future<bool> openCircleWalletOnboarding(
   } catch (e) {
     if (!context.mounted) return false;
     if (!silent) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(_friendly(e)),
           behavior: SnackBarBehavior.floating,

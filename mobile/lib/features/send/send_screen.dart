@@ -18,7 +18,6 @@ import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/address_scan_sheet.dart';
 import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/confirm_payment_sheet.dart';
-import '../../core/widgets/contact_picker_sheet.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/family_code_sheet.dart';
 import '../../core/widgets/glass.dart';
@@ -26,6 +25,7 @@ import '../../core/widgets/platform_fee_note.dart';
 import '../activity/receipt_sheet.dart';
 import '../held/held_payment_screen.dart';
 import 'amount_keypad.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Send flow: amount in real tokens (USDC / EURC), plus token toggle.
 /// Recipient by @username / email / 0x.
@@ -179,6 +179,113 @@ class _SendScreenState extends State<SendScreen> {
     );
   }
 
+  Future<void> _showSendOutcome({
+    required String title,
+    required String message,
+    required IconData icon,
+    bool error = false,
+    String primaryLabel = 'Done',
+    String? secondaryLabel,
+    VoidCallback? onSecondary,
+  }) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        constraints: BoxConstraints(
+          minHeight: MediaQuery.sizeOf(sheetContext).height * .56,
+        ),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          20 + MediaQuery.paddingOf(sheetContext).bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: EvabobColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: EvabobColors.hairline,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 48),
+            CircleAvatar(
+              radius: 44,
+              backgroundColor:
+                  error ? const Color(0x14CF3345) : EvabobColors.blueSoft,
+              child: Icon(
+                icon,
+                size: 38,
+                color: error ? EvabobColors.alert : EvabobColors.ink,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 24,
+                height: 32 / 24,
+                color: EvabobColors.ink,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 18 / 14,
+                color: EvabobColors.inkMuted,
+              ),
+            ),
+            const SizedBox(height: 36),
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                child: Text(primaryLabel),
+              ),
+            ),
+            if (secondaryLabel != null && onSecondary != null) ...[
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(sheetContext);
+                  onSecondary();
+                },
+                child: Text(secondaryLabel),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _hasEnoughMoney(
+    WalletService wallet,
+    AppFeatures features,
+    double amount,
+  ) {
+    final withFee = amount * (1 + features.platformFeeBps / 10000);
+    if (_token == 'EURC') {
+      return wallet.eurcWallet >= withFee &&
+          wallet.usdcWallet >= _arcUsdcGasReserve;
+    }
+    return wallet.usdcWallet >= withFee + _arcUsdcGasReserve;
+  }
+
   static String _shortAddress(String a) =>
       a.length > 16 ? '${a.substring(0, 8)}…${a.substring(a.length - 6)}' : a;
 
@@ -197,10 +304,10 @@ class _SendScreenState extends State<SendScreen> {
     final target = _target;
     // The server's check covers every payment ever made, not just the page of
     // activity loaded on this phone, so it wins when it answered.
+    String bare(String v) =>
+        v.trim().replaceFirst(RegExp(r'^@'), '').toLowerCase();
     final paidBefore = check?.paidBefore ??
-        history.any(
-          (e) => (e.counterparty ?? '').toLowerCase() == target.toLowerCase(),
-        );
+        history.any((e) => bare(e.counterparty ?? '') == bare(target));
 
     final isAddress = target.startsWith('0x');
     // Who it really is, as the server resolved it: a display name with the
@@ -260,14 +367,15 @@ class _SendScreenState extends State<SendScreen> {
     );
     if (!mounted) return;
     if (held['ok'] != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(friendlyError(
-            held['error'],
-            fallback: 'The payment did not go through.',
-          )),
-          behavior: SnackBarBehavior.floating,
+      await _showSendOutcome(
+        title: "Didn't land",
+        message: friendlyError(
+          held['error'],
+          fallback: 'The payment did not go through. Nothing left your wallet.',
         ),
+        icon: Icons.close_rounded,
+        error: true,
+        primaryLabel: 'Try again',
       );
       return;
     }
@@ -338,8 +446,15 @@ class _SendScreenState extends State<SendScreen> {
     final contacts = context.watch<ContactsService>();
     final wallet = context.watch<WalletService>();
     final amount = _tokenAmount(fx);
-    final canSend = amount > 0 && (widget.isFund || _to.text.trim().isNotEmpty);
-    final matches = widget.isFund ? <SavedContact>[] : contacts.match(_to.text);
+    // More than they have: said as they type, not after they press Send.
+    final tooMuch = !widget.isFund &&
+        amount > 0 &&
+        !_hasEnoughMoney(wallet, context.watch<AppFeatures>(), amount);
+    final canSend =
+        amount > 0 && !tooMuch && (widget.isFund || _to.text.trim().isNotEmpty);
+    final query = _to.text.trim();
+    final searching = !widget.isFund && query.isNotEmpty && _picked == null;
+    final matches = searching ? contacts.match(query) : <SavedContact>[];
     final balLabel = _token == 'EURC'
         ? 'Wallet ${formatMoney(wallet.eurcWallet, 'EURC')}'
         : 'Wallet ${formatUsdc(wallet.usdcWallet)}';
@@ -352,36 +467,34 @@ class _SendScreenState extends State<SendScreen> {
         behavior: HitTestBehavior.translucent,
         onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
         child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: EvabobPageHeader(
-                title: widget.isFund ? 'Add money' : 'Send money',
-                onBack: widget.onBack,
-                trailing: PressScale(
-                  onTap: _pickCurrency,
-                  child: const SizedBox.square(
-                    dimension: 44,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: EvabobColors.white,
-                        shape: BoxShape.circle,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: EvabobPageHeader(
+                  title: widget.isFund ? 'Add money' : 'Send money',
+                  onBack: widget.onBack,
+                  trailing: PressScale(
+                    onTap: _pickCurrency,
+                    child: const SizedBox.square(
+                      dimension: 44,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: EvabobColors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.more_vert_rounded, size: 20),
                       ),
-                      child: Icon(Icons.more_vert_rounded, size: 20),
                     ),
                   ),
                 ),
               ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                children: [
-                  if (!widget.isFund) ...[
-                    SizedBox(
-                      height: 96,
-                      child: Glass(
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  children: [
+                    if (!widget.isFund) ...[
+                      Glass(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -431,39 +544,97 @@ class _SendScreenState extends State<SendScreen> {
                                     color: EvabobColors.blue,
                                   ),
                                 ),
-                                IconButton(
-                                  tooltip: 'Phone contacts',
-                                  onPressed: () async {
-                                    final picked =
-                                        await ContactPickerSheet.open(context);
-                                    if (picked != null &&
-                                        picked.isNotEmpty &&
-                                        mounted) {
-                                      setState(() {
-                                        _picked = null;
-                                        _to.text = picked;
-                                      });
-                                    }
-                                  },
-                                  icon: const Icon(
-                                    Icons.contacts_outlined,
-                                    color: EvabobColors.blue,
-                                  ),
-                                ),
                               ],
                             ),
-                            if (matches.isNotEmpty)
+                            if (searching) const Divider(height: 16),
+                            if (searching && contacts.loading)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: LinearProgressIndicator(minHeight: 2),
+                              )
+                            else if (searching && matches.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor: EvabobColors.blueSoft,
+                                      child: Icon(
+                                        Icons.search_off_rounded,
+                                        size: 18,
+                                        color: EvabobColors.ink,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'No saved match',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: EvabobColors.ink,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            query.contains('@') ||
+                                                    query.startsWith('0x')
+                                                ? 'You can still continue with what you entered.'
+                                                : 'Try a handle, email, or wallet address.',
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                              color: EvabobColors.inkTertiary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
                               ...matches.take(5).map(
                                     (c) => ListTile(
                                       dense: true,
+                                      minTileHeight: 56,
                                       contentPadding: EdgeInsets.zero,
-                                      title: Text(c.name),
+                                      leading: CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor: EvabobColors.blueSoft,
+                                        child: Text(
+                                          c.name.isEmpty
+                                              ? '?'
+                                              : c.name[0].toUpperCase(),
+                                          style: const TextStyle(
+                                            color: EvabobColors.ink,
+                                          ),
+                                        ),
+                                      ),
+                                      title: Text(
+                                        c.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                       subtitle: Text(
-                                        _shortAddress(c.address),
+                                        c.email?.isNotEmpty == true
+                                            ? c.email!
+                                            : _shortAddress(c.address),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
                                           fontSize: 10,
-                                          fontFamily: 'monospace',
+                                          color: EvabobColors.inkTertiary,
                                         ),
+                                      ),
+                                      trailing: const Icon(
+                                        Icons.arrow_forward_rounded,
+                                        size: 18,
+                                        color: EvabobColors.blue,
                                       ),
                                       onTap: () {
                                         setState(() {
@@ -476,478 +647,533 @@ class _SendScreenState extends State<SendScreen> {
                           ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  SizedBox(
-                    height: 118,
-                    child: Glass(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _primaryLabel(),
-                            style: EvabobTheme.amountDisplay,
-                          ),
-                          const SizedBox(height: 2),
-                          InkWell(
-                            onTap: _pickCurrency,
-                            borderRadius: BorderRadius.circular(999),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              child: Text(
-                                '${_secondaryLabel(fx)} · tap to change currency',
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: EvabobColors.inkTertiary,
-                                  letterSpacing: .2,
-                                ),
-                              ),
-                            ),
-                          )
-                              .animate(key: ValueKey('${_token}_$amount'))
-                              .fadeIn(duration: 280.ms)
-                              .slideY(
-                                begin: 0.2,
-                                end: 0,
-                                curve: Curves.easeOutCubic,
-                                duration: 320.ms,
-                              ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      for (final q in ['20', '50', '100', 'Max']) ...[
-                        Expanded(
-                          child: PressScale(
-                            onTap: () {
-                              if (q == 'Max') {
-                                // Fees on Arc come out of the same USDC, so
-                                // "Max" meaning the literal whole balance is a
-                                // send that cannot pay for itself. Bridge already
-                                // holds this much back; Send did not.
-                                final available = _token == 'EURC'
-                                    ? (wallet.eurcWallet > 0
-                                        ? wallet.eurcWallet
-                                        : 0.0)
-                                    : (wallet.usdcWallet > _arcUsdcGasReserve
-                                        ? wallet.usdcWallet - _arcUsdcGasReserve
-                                        : 0.0);
-                                // The Evabob fee is added on top, so "all of
-                                // it" is the largest amount that still leaves
-                                // room for its fee — rounded down, never up.
-                                final feeBps =
-                                    context.read<AppFeatures>().platformFeeBps;
-                                final maxVal = ((available /
-                                                (1 + feeBps / 10000)) *
-                                            100)
-                                        .floorToDouble() /
-                                    100;
-                                final s = maxVal == maxVal.roundToDouble()
-                                    ? maxVal.toStringAsFixed(0)
-                                    : maxVal.toStringAsFixed(2);
-                                setState(() {
-                                  _calc = CalcState(
-                                    expression: s,
-                                    display: s,
-                                    value: maxVal,
-                                  );
-                                });
-                              } else {
-                                setState(() {
-                                  _calc = CalcState(
-                                    expression: q,
-                                    display: q,
-                                    value: double.parse(q),
-                                  );
-                                });
-                              }
-                            },
-                            child: Glass(
-                              borderRadius: 999,
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              child: Text(
-                                q == 'Max'
-                                    ? 'All of it'
-                                    : formatMoney(double.parse(q), _token),
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w400,
-                                  color: EvabobColors.navyMuted,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (q != 'Max') const SizedBox(width: 10),
-                      ],
+                      const SizedBox(height: 16),
                     ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (!widget.isFund) ...[
                     SizedBox(
-                      height: 56,
+                      height: 118,
                       child: Glass(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(
-                              Icons.notes_rounded,
-                              size: 19,
-                              color: EvabobColors.blue,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextField(
-                                controller: _memo,
-                                maxLength: 120,
-                                maxLines: 1,
-                                textInputAction: TextInputAction.done,
-                                decoration: const InputDecoration(
-                                  hintText: 'Add a memo (optional)',
-                                  counterText: '',
-                                  border: InputBorder.none,
-                                  enabledBorder: InputBorder.none,
-                                  focusedBorder: InputBorder.none,
-                                  contentPadding: EdgeInsets.zero,
-                                ),
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: EvabobColors.ink,
-                                ),
+                            Text(
+                              _primaryLabel(),
+                              style: EvabobTheme.amountDisplay.copyWith(
+                                color: tooMuch ? EvabobColors.alert : null,
                               ),
                             ),
+                            const SizedBox(height: 2),
+                            if (tooMuch)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text(
+                                  'More than you have · $balLabel',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: EvabobColors.alert,
+                                  ),
+                                ),
+                              ),
+                            InkWell(
+                              onTap: _pickCurrency,
+                              borderRadius: BorderRadius.circular(999),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                child: Text(
+                                  '${_secondaryLabel(fx)} · tap to change currency',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: EvabobColors.inkTertiary,
+                                    letterSpacing: .2,
+                                  ),
+                                ),
+                              ),
+                            )
+                                .animate(key: ValueKey('${_token}_$amount'))
+                                .fadeIn(duration: 280.ms)
+                                .slideY(
+                                  begin: 0.2,
+                                  end: 0,
+                                  curve: Curves.easeOutCubic,
+                                  duration: 320.ms,
+                                ),
                           ],
                         ),
                       ),
                     ),
                     const SizedBox(height: 16),
-                  ],
-                  PressScale(
-                    onTap: _pickCurrency,
-                    child: SizedBox(
-                      height: 72,
-                      child: Glass(
-                        child: Row(
-                          children: [
-                            AssetThumbnail(asset: _token, size: 36),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Paying from your balance',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: EvabobColors.ink,
-                                    ),
+                    Row(
+                      children: [
+                        for (final q in ['20', '50', '100', 'Max']) ...[
+                          Expanded(
+                            child: PressScale(
+                              onTap: () {
+                                if (q == 'Max') {
+                                  // Fees on Arc come out of the same USDC, so
+                                  // "Max" meaning the literal whole balance is a
+                                  // send that cannot pay for itself. Bridge already
+                                  // holds this much back; Send did not.
+                                  final available = _token == 'EURC'
+                                      ? (wallet.eurcWallet > 0
+                                          ? wallet.eurcWallet
+                                          : 0.0)
+                                      : (wallet.usdcWallet > _arcUsdcGasReserve
+                                          ? wallet.usdcWallet -
+                                              _arcUsdcGasReserve
+                                          : 0.0);
+                                  // The Evabob fee is added on top, so "all of
+                                  // it" is the largest amount that still leaves
+                                  // room for its fee — rounded down, never up.
+                                  final feeBps = context
+                                      .read<AppFeatures>()
+                                      .platformFeeBps;
+                                  final maxVal =
+                                      ((available / (1 + feeBps / 10000)) * 100)
+                                              .floorToDouble() /
+                                          100;
+                                  final s = maxVal == maxVal.roundToDouble()
+                                      ? maxVal.toStringAsFixed(0)
+                                      : maxVal.toStringAsFixed(2);
+                                  setState(() {
+                                    _calc = CalcState(
+                                      expression: s,
+                                      display: s,
+                                      value: maxVal,
+                                    );
+                                  });
+                                } else {
+                                  setState(() {
+                                    _calc = CalcState(
+                                      expression: q,
+                                      display: q,
+                                      value: double.parse(q),
+                                    );
+                                  });
+                                }
+                              },
+                              child: Glass(
+                                borderRadius: 999,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 10),
+                                child: Text(
+                                  q == 'Max'
+                                      ? 'All of it'
+                                      : formatMoney(double.parse(q), _token),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w400,
+                                    color: EvabobColors.navyMuted,
                                   ),
-                                  Text(
-                                    '$balLabel available',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      color: EvabobColors.inkTertiary,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
-                            const Icon(
-                              Icons.chevron_right_rounded,
-                              color: EvabobColors.inkTertiary,
-                            ),
-                          ],
+                          ),
+                          if (q != 'Max') const SizedBox(width: 10),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (!widget.isFund) ...[
+                      SizedBox(
+                        height: 56,
+                        child: Glass(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.notes_rounded,
+                                size: 19,
+                                color: EvabobColors.blue,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextField(
+                                  controller: _memo,
+                                  maxLength: 120,
+                                  maxLines: 1,
+                                  textInputAction: TextInputAction.done,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Add a memo (optional)',
+                                    counterText: '',
+                                    border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: EvabobColors.ink,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    PressScale(
+                      onTap: _pickCurrency,
+                      child: SizedBox(
+                        height: 72,
+                        child: Glass(
+                          child: Row(
+                            children: [
+                              AssetThumbnail(asset: _token, size: 36),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Paying from your balance',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: EvabobColors.ink,
+                                      ),
+                                    ),
+                                    Text(
+                                      '$balLabel available',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: EvabobColors.inkTertiary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: EvabobColors.inkTertiary,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  AmountKeypad(
-                    onKey: (k) {
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      setState(() => _calc = applyKey(_calc, k));
-                    },
-                    canSend: canSend,
-                    sendLabel: widget.isFund
-                        ? (amount > 0
-                            ? 'Fund ${formatMoney(amount)}'
-                            : 'Enter amount')
-                        : (amount > 0
-                            ? 'Send ${formatMoney(amount, _token)}'
-                            : 'Enter amount'),
-                    onSend: canSend
-                        ? () async {
-                            final circle = context.read<CircleWalletService>();
-                            final activity = context.read<ActivityService>();
-                            final walletSvc = context.read<WalletService>();
-                            try {
-                              if (widget.isFund) {
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Topping up this way is paused. Open Balances to get your details for receiving money.',
-                                    ),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                                return;
-                              }
-                              // Paying an email nobody has claimed yet is a
-                              // different thing from paying a wallet, so ask
-                              // rather than silently doing one or the other.
-                              // The money is held until they sign up, and
-                              // comes back if they never do.
-                              final payee = _target;
-                              if (payee.contains('@') &&
-                                  !payee.startsWith('@')) {
-                                final st = await circle.recipientStatus(payee);
-                                if (!context.mounted) return;
-                                if (st['ok'] == true &&
-                                    st['registered'] != true) {
-                                  final hold = await _confirmHold(
-                                    payee,
-                                    amount,
-                                    _token,
-                                  );
-                                  if (hold != true || !context.mounted) return;
-                                  final held = await circle.holdForRecipient(
-                                    context: context,
-                                    recipient: payee,
-                                    amountUsdc: amount,
-                                    purpose: 'claim_link',
-                                    memo: _memo.text.trim().isEmpty
-                                        ? null
-                                        : _memo.text.trim(),
-                                  );
-                                  if (!context.mounted) return;
-                                  final ok = held['ok'] == true;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
+                    const SizedBox(height: 20),
+                    AmountKeypad(
+                      onKey: (k) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        setState(() => _calc = applyKey(_calc, k));
+                      },
+                      canSend: canSend,
+                      sendLabel: widget.isFund
+                          ? (amount > 0
+                              ? 'Fund ${formatMoney(amount)}'
+                              : 'Enter amount')
+                          : (amount > 0
+                              ? 'Send ${formatMoney(amount, _token)}'
+                              : 'Enter amount'),
+                      onSend: canSend
+                          ? () async {
+                              final circle =
+                                  context.read<CircleWalletService>();
+                              final activity = context.read<ActivityService>();
+                              final walletSvc = context.read<WalletService>();
+                              try {
+                                if (widget.isFund) {
+                                  if (!mounted) return;
+                                  showTopSnack(
+                                    context,
+                                    const SnackBar(
                                       content: Text(
-                                        ok
-                                            ? (held['emailed'] == true
-                                                ? 'Held for $payee — we emailed them how to claim it'
-                                                : 'Held for $payee — they can claim it once they join')
-                                            : friendlyError(
-                                                held['error'],
-                                                fallback:
-                                                    'Could not hold that payment.',
-                                              ),
+                                        'Topping up this way is paused. Open Balances to get your details for receiving money.',
                                       ),
                                       behavior: SnackBarBehavior.floating,
                                     ),
                                   );
-                                  if (ok) {
-                                    await activity.refresh();
-                                    await walletSvc.refreshBalances();
-                                    if (context.mounted) {
-                                      Navigator.of(context).pop();
-                                    }
-                                  }
                                   return;
                                 }
-                              }
-                              // Who this really is, whether they have been
-                              // paid before, and whether the address only
-                              // looks familiar — asked of the server before
-                              // anything is shown, so the review can say so.
-                              PayeeCheck? check;
-                              try {
-                                check = await checkPayee(
-                                  context.read<ApiClient>(),
-                                  payee,
-                                );
-                              } on ApiException catch (e) {
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(friendlyError(
-                                      e.message,
-                                      fallback:
-                                          'We could not find who that is.',
-                                    )),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                                return;
-                              }
-                              if (!context.mounted) return;
-                              // The PIN screen after this shows a title and
-                              // nothing else — not the amount, not who is
-                              // being paid. This is the last and only place
-                              // both appear together, so it is where the
-                              // "cannot be undone" has to be said.
-                              final choice = await confirmPaymentChoice(
-                                context,
-                                _buildReview(
+                                if (!_hasEnoughMoney(
+                                  walletSvc,
+                                  context.read<AppFeatures>(),
                                   amount,
-                                  activity.items,
-                                  check: check,
-                                ),
-                              );
-                              if (choice == null || !context.mounted) return;
-                              // Family above the chosen amount: the code
-                              // from email, before the PIN. The server
-                              // decides, and refuses the send without it.
-                              if (check == null || check.family) {
-                                final passed = await passFamilyCheck(
-                                  context,
-                                  to: payee,
-                                  amount: amount,
-                                  token: _token,
-                                );
-                                if (!passed || !context.mounted) return;
-                              }
-                              if (choice.coolingOff && check != null) {
-                                await _sendWithCoolingOff(
-                                  circle: circle,
-                                  activity: activity,
-                                  walletSvc: walletSvc,
-                                  check: check,
-                                  amount: amount,
-                                );
-                                return;
-                              }
-                              final res = await circle.send(
-                                context: context,
-                                to: payee,
-                                amountUsdc: amount,
-                                token: _token,
-                                memo: _memo.text.trim().isEmpty
-                                    ? null
-                                    : _memo.text.trim(),
-                              );
-                              if (!context.mounted) return;
-                              if (res['ok'] == true) {
-                                final activityId =
-                                    res['activityId']?.toString();
-                                final txHint = res['txHash']?.toString() ??
-                                    res['transactionHash']?.toString();
-                                if (activityId != null &&
-                                    txHint != null &&
-                                    txHint.isNotEmpty) {
-                                  await activity.attachTxHash(
-                                    activityId,
-                                    txHint,
+                                )) {
+                                  await _showSendOutcome(
+                                    title: 'Not enough money',
+                                    message:
+                                        'Your balance does not cover ${formatMoney(amount, _token)} plus the payment fee and network reserve.',
+                                    icon: Icons.account_balance_wallet_outlined,
+                                    error: true,
+                                    primaryLabel: 'Change amount',
                                   );
+                                  return;
                                 }
-                                await walletSvc.refreshBalances(
-                                  addressOverride: circle.address,
-                                );
-                                await activity.refresh();
-                                final mode = res['mode']?.toString() ?? '';
-                                var msg = res['message']?.toString() ??
-                                    'Sent ${formatMoney(amount, _token)}';
-                                // Surface claim-email result for unregistered email
-                                if (mode == 'escrow') {
-                                  final notify = res['notify'];
-                                  if (notify is Map) {
-                                    final sent = notify['emailSent'] == true;
-                                    final detail =
-                                        notify['detail']?.toString() ?? '';
-                                    if (sent) {
-                                      msg =
-                                          'Waiting for them to join — we sent them an email';
-                                    } else if (detail.isNotEmpty) {
-                                      msg =
-                                          'Held safely — email not sent: ${shortUiText(detail, max: 80)}';
+                                // Paying an email nobody has claimed yet is a
+                                // different thing from paying a wallet, so ask
+                                // rather than silently doing one or the other.
+                                // The money is held until they sign up, and
+                                // comes back if they never do.
+                                final payee = _target;
+                                if (payee.contains('@') &&
+                                    !payee.startsWith('@')) {
+                                  final st =
+                                      await circle.recipientStatus(payee);
+                                  if (!context.mounted) return;
+                                  if (st['ok'] == true &&
+                                      st['registered'] != true) {
+                                    final hold = await _confirmHold(
+                                      payee,
+                                      amount,
+                                      _token,
+                                    );
+                                    if (hold != true || !context.mounted) {
+                                      return;
                                     }
+                                    final held = await circle.holdForRecipient(
+                                      context: context,
+                                      recipient: payee,
+                                      amountUsdc: amount,
+                                      purpose: 'claim_link',
+                                      memo: _memo.text.trim().isEmpty
+                                          ? null
+                                          : _memo.text.trim(),
+                                    );
+                                    if (!context.mounted) return;
+                                    final ok = held['ok'] == true;
+                                    if (ok) {
+                                      await activity.refresh();
+                                      await walletSvc.refreshBalances();
+                                      if (context.mounted) {
+                                        await _showSendOutcome(
+                                          title: 'Held for them',
+                                          message: held['emailed'] == true
+                                              ? 'We emailed $payee a private link. The money stays safe until they claim it.'
+                                              : '$payee can claim the money when they join Evabob.',
+                                          icon: Icons.schedule_rounded,
+                                        );
+                                        widget.onBack?.call();
+                                      }
+                                    } else {
+                                      await _showSendOutcome(
+                                        title: "Didn't land",
+                                        message: friendlyError(
+                                          held['error'],
+                                          fallback:
+                                              'We could not hold that payment. Nothing left your wallet.',
+                                        ),
+                                        icon: Icons.close_rounded,
+                                        error: true,
+                                        primaryLabel: 'Try again',
+                                      );
+                                    }
+                                    return;
                                   }
                                 }
+                                // Who this really is, whether they have been
+                                // paid before, and whether the address only
+                                // looks familiar — asked of the server before
+                                // anything is shown, so the review can say so.
+                                PayeeCheck? check;
+                                try {
+                                  check = await checkPayee(
+                                    context.read<ApiClient>(),
+                                    payee,
+                                  );
+                                } on ApiException catch (e) {
+                                  if (!context.mounted) return;
+                                  await _showSendOutcome(
+                                    title: 'No match',
+                                    message: friendlyError(
+                                      e.message,
+                                      fallback:
+                                          'We could not find anyone with those details. Check the handle, email, or wallet address.',
+                                    ),
+                                    icon: Icons.person_search_outlined,
+                                    error: true,
+                                    primaryLabel: 'Try another search',
+                                  );
+                                  return;
+                                }
                                 if (!context.mounted) return;
-                                // The proof link, one tap from the moment
-                                // the seller asks "has it come?". Opened from
-                                // the root navigator: this screen closes next.
-                                final sent = activity.items
-                                    .where((e) => e.id == activityId)
-                                    .firstOrNull;
-                                final rootNav =
-                                    Navigator.of(context, rootNavigator: true);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(shortUiText(msg, max: 180)),
-                                    behavior: SnackBarBehavior.floating,
-                                    duration: const Duration(seconds: 6),
-                                    action: sent != null && sent.shareable
-                                        ? SnackBarAction(
-                                            label: 'Show proof',
-                                            onPressed: () => ReceiptSheet.open(
+                                // The PIN screen after this shows a title and
+                                // nothing else — not the amount, not who is
+                                // being paid. This is the last and only place
+                                // both appear together, so it is where the
+                                // "cannot be undone" has to be said.
+                                final choice = await confirmPaymentChoice(
+                                  context,
+                                  _buildReview(
+                                    amount,
+                                    activity.items,
+                                    check: check,
+                                  ),
+                                );
+                                if (choice == null || !context.mounted) return;
+                                // Family above the chosen amount: the code
+                                // from email, before the PIN. The server
+                                // decides, and refuses the send without it.
+                                if (check == null || check.family) {
+                                  final passed = await passFamilyCheck(
+                                    context,
+                                    to: payee,
+                                    amount: amount,
+                                    token: _token,
+                                  );
+                                  if (!passed || !context.mounted) return;
+                                }
+                                if (choice.coolingOff && check != null) {
+                                  await _sendWithCoolingOff(
+                                    circle: circle,
+                                    activity: activity,
+                                    walletSvc: walletSvc,
+                                    check: check,
+                                    amount: amount,
+                                  );
+                                  return;
+                                }
+                                final res = await circle.send(
+                                  context: context,
+                                  to: payee,
+                                  amountUsdc: amount,
+                                  token: _token,
+                                  memo: _memo.text.trim().isEmpty
+                                      ? null
+                                      : _memo.text.trim(),
+                                );
+                                if (!context.mounted) return;
+                                if (res['ok'] == true) {
+                                  final activityId =
+                                      res['activityId']?.toString();
+                                  final txHint = res['txHash']?.toString() ??
+                                      res['transactionHash']?.toString();
+                                  if (activityId != null &&
+                                      txHint != null &&
+                                      txHint.isNotEmpty) {
+                                    await activity.attachTxHash(
+                                      activityId,
+                                      txHint,
+                                    );
+                                  }
+                                  await walletSvc.refreshBalances(
+                                    addressOverride: circle.address,
+                                  );
+                                  await activity.refresh();
+                                  final mode = res['mode']?.toString() ?? '';
+                                  var msg = res['message']?.toString() ??
+                                      'Sent ${formatMoney(amount, _token)}';
+                                  // Surface claim-email result for unregistered email
+                                  if (mode == 'escrow') {
+                                    final notify = res['notify'];
+                                    if (notify is Map) {
+                                      final sent = notify['emailSent'] == true;
+                                      final detail =
+                                          notify['detail']?.toString() ?? '';
+                                      if (sent) {
+                                        msg =
+                                            'Waiting for them to join — we sent them an email';
+                                      } else if (detail.isNotEmpty) {
+                                        msg =
+                                            'Held safely — email not sent: ${shortUiText(detail, max: 80)}';
+                                      }
+                                    }
+                                  }
+                                  if (!context.mounted) return;
+                                  // The proof link, one tap from the moment
+                                  // the seller asks "has it come?". Opened from
+                                  // the root navigator: this screen closes next.
+                                  final sent = activity.items
+                                      .where((e) => e.id == activityId)
+                                      .firstOrNull;
+                                  final rootNav = Navigator.of(context,
+                                      rootNavigator: true);
+                                  final dest =
+                                      res['destinationAddress']?.toString();
+                                  final promptSave =
+                                      res['promptSave'] == true ||
+                                          mode == 'direct_evm';
+                                  if (promptSave &&
+                                      dest != null &&
+                                      dest.startsWith('0x')) {
+                                    await _promptSaveContact(dest);
+                                  }
+                                  if (!context.mounted) return;
+                                  final status =
+                                      res['status']?.toString().toLowerCase() ??
+                                          '';
+                                  final onTheWay = const {
+                                    'pending',
+                                    'processing',
+                                    'submitted',
+                                    'in_progress',
+                                  }.contains(status);
+                                  await _showSendOutcome(
+                                    title: mode == 'escrow'
+                                        ? 'Held for them'
+                                        : onTheWay
+                                            ? 'On the way'
+                                            : 'Sent',
+                                    message: shortUiText(msg, max: 180),
+                                    icon: mode == 'escrow' || onTheWay
+                                        ? Icons.arrow_upward_rounded
+                                        : Icons.check_rounded,
+                                    secondaryLabel:
+                                        sent != null && sent.shareable
+                                            ? 'View receipt'
+                                            : null,
+                                    onSecondary: sent != null && sent.shareable
+                                        ? () => ReceiptSheet.open(
                                               rootNav.context,
                                               sent,
-                                            ),
-                                          )
+                                            )
                                         : null,
-                                  ),
-                                );
-                                final dest =
-                                    res['destinationAddress']?.toString();
-                                final promptSave = res['promptSave'] == true ||
-                                    mode == 'direct_evm';
-                                if (promptSave &&
-                                    dest != null &&
-                                    dest.startsWith('0x')) {
-                                  await _promptSaveContact(dest);
+                                  );
+                                  widget.onBack?.call();
+                                } else {
+                                  final err = friendlyError(
+                                    res['error'],
+                                    fallback: 'The payment did not go through.',
+                                  );
+                                  await _showSendOutcome(
+                                    title: "Didn't land",
+                                    message: '$err Nothing left your wallet.',
+                                    icon: Icons.close_rounded,
+                                    error: true,
+                                    primaryLabel: 'Try again',
+                                  );
                                 }
-                                widget.onBack?.call();
-                              } else {
-                                final err = friendlyError(
-                                  res['error'],
-                                  fallback: 'The payment did not go through.',
-                                );
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(err),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
+                              } catch (e) {
+                                if (!context.mounted) return;
+                                await _showSendOutcome(
+                                  title: "Didn't land",
+                                  message:
+                                      '${friendlyError(e, fallback: 'The payment did not go through.')} Nothing left your wallet.',
+                                  icon: Icons.close_rounded,
+                                  error: true,
+                                  primaryLabel: 'Try again',
                                 );
                               }
-                            } catch (e) {
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    friendlyError(e,
-                                        fallback:
-                                            'The payment did not go through.'),
-                                  ),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
                             }
-                          }
-                        : null,
-                  ),
-                  if (!widget.isFund) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      _token == 'EURC'
-                          ? 'Pay anyone by @username or email. Paste an '
-                              'account address to pay a wallet outside Evabob.'
-                          : 'Pay anyone by @username or email. If they are not '
-                              'on Evabob yet, we hold it until they join.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: EvabobColors.chalk,
-                      ),
+                          : null,
                     ),
+                    if (!widget.isFund) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _token == 'EURC'
+                            ? 'Pay anyone by @username or email. Paste an '
+                                'account address to pay a wallet outside Evabob.'
+                            : 'Pay anyone by @username or email. If they are not '
+                                'on Evabob yet, we hold it until they join.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: EvabobColors.chalk,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

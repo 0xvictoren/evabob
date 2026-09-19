@@ -17,6 +17,7 @@ import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/confirm_payment_sheet.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// One collection: how far it has got, chipping in, and sharing it.
 class PotScreen extends StatefulWidget {
@@ -89,11 +90,13 @@ class _PotScreenState extends State<PotScreen> {
       );
       if (!mounted) return;
       if (res['ok'] != true) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(friendlyError(res['error'],
-              fallback: 'Your money was not added.')),
-          behavior: SnackBarBehavior.floating,
-        ));
+        showTopSnack(
+            context,
+            SnackBar(
+              content: Text(friendlyError(res['error'],
+                  fallback: 'Your money was not added.')),
+              behavior: SnackBarBehavior.floating,
+            ));
       } else {
         _amount.clear();
         await context
@@ -234,7 +237,8 @@ class _PotScreenState extends State<PotScreen> {
                 style: Type.caption.copyWith(color: EvabobColors.navyMuted)),
             if (p.myContributionUsdc > 0)
               Text('You put in ${formatMoney(p.myContributionUsdc)}',
-                  style: Type.caption.copyWith(color: EvabobColors.emeraldDeep)),
+                  style:
+                      Type.caption.copyWith(color: EvabobColors.emeraldDeep)),
           ],
         ),
       ),
@@ -260,10 +264,10 @@ class _PotScreenState extends State<PotScreen> {
                 ),
               ),
               FilledButton(
-                onPressed: _busy ||
-                        (double.tryParse(_amount.text.trim()) ?? 0) <= 0
-                    ? null
-                    : () => _chipIn(p),
+                onPressed:
+                    _busy || (double.tryParse(_amount.text.trim()) ?? 0) <= 0
+                        ? null
+                        : () => _chipIn(p),
                 child: _busy
                     ? const SizedBox(
                         width: 16,

@@ -16,6 +16,7 @@ import '../../core/widgets/address_scan_sheet.dart';
 import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Bridge USDC end-to-end via App Kit (bidirectional) or Arc CCTP fallback.
 class BridgeScreen extends StatefulWidget {
@@ -49,6 +50,10 @@ class _BridgeScreenState extends State<BridgeScreen> {
   int? _selectedPct;
   Timer? _quoteTimer;
   String? _expectedLine;
+
+  /// The receiving address stays hidden until asked for: shown by default it
+  /// invited a stray tap to change a character of it.
+  bool _editDest = false;
   String? _expectedToken;
   double? _expectedAmount;
   String? _routeNote;
@@ -263,7 +268,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
   Future<void> _bridge() async {
     final raw = _amount.text.trim();
     if (!RegExp(r'^\d+(\.\d+)?$').hasMatch(raw)) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Enter an amount like 12.50'),
           behavior: SnackBarBehavior.floating,
@@ -275,7 +281,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
     final dest = _dest.text.trim();
     if (amt == null || amt <= 0 || dest.isEmpty || _busy) return;
     if (amt > 1000000) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Amount is too large'),
           behavior: SnackBarBehavior.floating,
@@ -286,7 +293,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
     final evmOk = RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(dest) &&
         dest.toLowerCase() != _zeroAddr;
     if (!evmOk) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text(
             'Enter a valid 0x address to receive it',
@@ -297,7 +305,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
       return;
     }
     if (_sourceDomain == _destDomain) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Pick different source and destination chains'),
           behavior: SnackBarBehavior.floating,
@@ -306,7 +315,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
       return;
     }
     if (!_bridgeable) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content:
               Text(_routeNote ?? 'This token cannot be bridged on this route'),
@@ -323,7 +333,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
     // The Evabob fee is added on top of the amount moved.
     final platformFee = context.read<AppFeatures>().platformFeeFor(amt);
     if (amt + platformFee > spendable + 1e-9) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
             _isArcUsdc && amt + platformFee <= available + 1e-9
@@ -422,21 +433,24 @@ class _BridgeScreenState extends State<BridgeScreen> {
       } catch (_) {}
 
       if (ok && (stage == 'minted' || stage == 'burned')) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              stage == 'minted'
-                  ? 'Done · ${_expectedLine ?? '$amt'} is on $_destName'
-                  : 'On the way to $_destName',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
         if (stage == 'minted') {
+          await _showMoveDone(
+            '${_expectedLine ?? formatMoney(amt)} is now on $_destName.',
+          );
+          if (!mounted) return;
           widget.onBack?.call();
+        } else {
+          showTopSnack(
+            context,
+            SnackBar(
+              content: Text('On the way to $_destName'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         }
       } else if (burnHash != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             content: Text(
               'It left $_sourceName but has not landed yet.\n'
@@ -447,7 +461,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
           ),
         );
       } else if (stage != 'cancelled') {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showTopSnack(
+          context,
           SnackBar(
             content: Text(_lastError ?? 'Bridge failed'),
             behavior: SnackBarBehavior.floating,
@@ -461,7 +476,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
         _phaseLabel = friendlyError(e, fallback: 'That did not finish.');
         _lastError = friendlyError(e, fallback: 'That did not finish.');
       });
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
             content: Text(friendlyError(e)),
             behavior: SnackBarBehavior.floating),
@@ -469,6 +485,73 @@ class _BridgeScreenState extends State<BridgeScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _showMoveDone(String message) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          20 + MediaQuery.paddingOf(sheetContext).bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: EvabobColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: EvabobColors.hairline,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 40),
+            const CircleAvatar(
+              radius: 44,
+              backgroundColor: EvabobColors.blueSoft,
+              child: Icon(
+                Icons.check_rounded,
+                size: 38,
+                color: EvabobColors.ink,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Done',
+              style: TextStyle(fontSize: 24, color: EvabobColors.ink),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 18 / 14,
+                color: EvabobColors.inkMuted,
+              ),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                child: const Text('Done'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _retryMint() async {
@@ -503,12 +586,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
         try {
           context.read<SectionNotify>().bump('activity');
         } catch (_) {}
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Arrived on $_destName'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        await _showMoveDone('Your money has arrived on $_destName.');
       }
     } catch (e) {
       if (!mounted) return;
@@ -569,6 +647,19 @@ class _BridgeScreenState extends State<BridgeScreen> {
       _phase == 'minted' ||
       _phase == 'mint_failed';
   bool get _mintDone => _phase == 'minted' && _mintTxHash != null;
+
+  /// Evabob's fee, and the network's once the quote is in. Nothing else.
+  String? _feesLine() {
+    final amt = double.tryParse(_amount.text.trim()) ?? 0;
+    if (amt <= 0) return null;
+    final evabob = context.read<AppFeatures>().platformFeeFor(amt);
+    final landed = _expectedAmount;
+    final network = landed != null && landed < amt ? amt - landed : null;
+    return [
+      'Evabob fee ${formatMoney(evabob)}',
+      if (network != null) 'network fee ${formatMoney(network)}',
+    ].join(' · ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -697,16 +788,11 @@ class _BridgeScreenState extends State<BridgeScreen> {
                     decoration: InputDecoration(
                       labelText: 'Amount',
                       border: const OutlineInputBorder(),
-                      helperText:
-                          'From $_sourceName · ${formatTokenAmount(available, 'USDC')}'
-                          '${_isArcUsdc ? ' · leave ${formatMoney(_arcUsdcGasReserve)} for the fee' : ''}',
+                      // Only the fees under the amount.
+                      helperText: _feesLine(),
                       helperMaxLines: 2,
                     ),
-                    onChanged: (_) {
-                      if (_selectedPct != null) {
-                        setState(() => _selectedPct = null);
-                      }
-                    },
+                    onChanged: (_) => setState(() => _selectedPct = null),
                   ),
                   const SizedBox(height: 8),
                   Row(
@@ -749,20 +835,33 @@ class _BridgeScreenState extends State<BridgeScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _dest,
-                    enabled: !_busy,
-                    decoration: InputDecoration(
-                      labelText: 'Send it to this account instead',
-                      border: const OutlineInputBorder(),
-                      helperText: 'Defaults to your wallet on the destination',
-                      suffixIcon: IconButton(
-                        tooltip: 'Scan QR',
-                        onPressed: _busy ? null : _scanRecipient,
-                        icon: const Icon(Icons.qr_code_scanner_rounded),
+                  if (!_editDest && _dest.text.trim().isEmpty)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() => _editDest = true),
+                        icon: const Icon(Icons.edit_outlined, size: 16),
+                        label: Text(
+                            'Change address · goes to your wallet on $_destName'),
+                      ),
+                    )
+                  else
+                    TextField(
+                      controller: _dest,
+                      enabled: !_busy,
+                      autofocus: _editDest,
+                      decoration: InputDecoration(
+                        labelText: 'Send it to this address instead',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          tooltip: 'Scan QR',
+                          onPressed: _busy ? null : _scanRecipient,
+                          icon: const Icon(Icons.qr_code_scanner_rounded),
+                        ),
                       ),
                     ),
-                  ),
                   const SizedBox(height: 16),
                   if (_phase != 'idle') ...[
                     Row(
@@ -888,7 +987,8 @@ class _HashRow extends StatelessWidget {
           constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
           onPressed: () {
             Clipboard.setData(ClipboardData(text: hash));
-            ScaffoldMessenger.of(context).showSnackBar(
+            showTopSnack(
+              context,
               SnackBar(
                 content: Text('$label hash copied'),
                 behavior: SnackBarBehavior.floating,

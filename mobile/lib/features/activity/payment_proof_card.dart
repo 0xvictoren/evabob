@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/activity/activity_service.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/utils/text_safe.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Proof a seller can check without trusting a screenshot.
 ///
@@ -68,7 +69,8 @@ class _PaymentProofCardState extends State<PaymentProofCard> {
     if (link == null) return;
     await Clipboard.setData(ClipboardData(text: link.url));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    showTopSnack(
+      context,
       const SnackBar(
         content: Text('Link copied'),
         behavior: SnackBarBehavior.floating,

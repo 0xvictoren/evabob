@@ -12,6 +12,7 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/confirm_payment_sheet.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// One money circle: where it is, who is next, who is behind, and joining.
 class CircleScreen extends StatefulWidget {
@@ -76,11 +77,13 @@ class _CircleScreenState extends State<CircleScreen> {
           .joinCircle(context: context, circleId: c.id);
       if (!mounted) return;
       if (res['ok'] != true) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(friendlyError(res['error'],
-              fallback: 'You were not added to the circle.')),
-          behavior: SnackBarBehavior.floating,
-        ));
+        showTopSnack(
+            context,
+            SnackBar(
+              content: Text(friendlyError(res['error'],
+                  fallback: 'You were not added to the circle.')),
+              behavior: SnackBarBehavior.floating,
+            ));
       }
       await _load();
     } finally {
@@ -236,9 +239,8 @@ class _CircleScreenState extends State<CircleScreen> {
                                   ? 'Next'
                                   : 'Waiting',
                   style: Type.caption.copyWith(
-                    color: m.behind
-                        ? EvabobColors.danger
-                        : EvabobColors.navyMuted,
+                    color:
+                        m.behind ? EvabobColors.danger : EvabobColors.navyMuted,
                   ),
                 ),
               ],

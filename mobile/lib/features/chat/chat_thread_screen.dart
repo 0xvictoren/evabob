@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
@@ -23,6 +24,7 @@ import '../../core/widgets/bundle_avatar.dart';
 import '../request/payment_link_screen.dart';
 import 'package:intl/intl.dart';
 import 'request_card.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 class ChatThreadScreen extends StatefulWidget {
   const ChatThreadScreen({super.key, required this.thread});
@@ -173,7 +175,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
         final cleaned = picked.replaceAll(RegExp(r'\s+'), '').trim();
         if (cleaned.isEmpty) return;
         if (!cleaned.contains('@') || cleaned.startsWith('@')) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          showTopSnack(
+            context,
             const SnackBar(
               content: Text('Only emails from contacts can be pasted.'),
               behavior: SnackBarBehavior.floating,
@@ -245,7 +248,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     if (ok != true || !mounted) return;
     final amount = double.tryParse(amountCtrl.text.trim());
     if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Enter a valid amount'),
           behavior: SnackBarBehavior.floating,
@@ -285,7 +289,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     );
     if (!mounted) return;
     if (res['ok'] != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
           content: Text(
             friendlyError(
@@ -303,7 +308,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
         : mode == 'split'
             ? 'Half paid, half held until the work arrives'
             : 'Held until the work arrives';
-    ScaffoldMessenger.of(context).showSnackBar(
+    showTopSnack(
+      context,
       SnackBar(content: Text(label), behavior: SnackBarBehavior.floating),
     );
   }
@@ -424,9 +430,11 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     if (!confirmed || !mounted) return;
     // Family above the chosen amount needs the emailed code first. One code
     // covers the whole amount, however it leaves (all now, or half held).
-    final handle = (widget.thread.handle ?? '').replaceFirst(RegExp(r'^@'), '').trim();
+    final handle =
+        (widget.thread.handle ?? '').replaceFirst(RegExp(r'^@'), '').trim();
     final payee = handle.isEmpty ? widget.thread.title : '@$handle';
-    if (!await passFamilyCheck(context, to: payee, amount: amount, token: token) ||
+    if (!await passFamilyCheck(context,
+            to: payee, amount: amount, token: token) ||
         !mounted) {
       return;
     }
@@ -440,7 +448,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
         m.meta?['escrowJobId']?.toString() ??
         m.meta?['jobId']?.toString();
     if (jobId == null || jobId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Nothing held on this message'),
           behavior: SnackBarBehavior.floating,
@@ -471,7 +480,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
             transferId: jobId,
           );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         const SnackBar(
           content: Text('Sent to them'),
           behavior: SnackBarBehavior.floating,
@@ -479,7 +489,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
             content: Text(friendlyError(e)),
             behavior: SnackBarBehavior.floating),
@@ -507,7 +518,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
           );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnack(
+        context,
         SnackBar(
             content: Text(friendlyError(e)),
             behavior: SnackBarBehavior.floating),
@@ -585,6 +597,96 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     return false;
   }
 
+  Future<void> _openThreadMenu(ChatThread thread, String myId) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: EvabobColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: EvabobColors.hairline,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  backgroundColor: EvabobColors.blueSoft,
+                  child: Icon(
+                    Icons.request_page_outlined,
+                    color: EvabobColors.ink,
+                  ),
+                ),
+                title: const Text('Ask for money'),
+                subtitle: const Text('Send a request in this chat'),
+                onTap: () => Navigator.pop(sheetContext, 'request'),
+              ),
+              if (!thread.isAgent)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(
+                    backgroundColor: EvabobColors.pageBg,
+                    child: Icon(
+                      Icons.alternate_email_rounded,
+                      color: EvabobColors.ink,
+                    ),
+                  ),
+                  title: const Text('Copy handle'),
+                  subtitle: Text('@${thread.handle ?? thread.title}'),
+                  onTap: () => Navigator.pop(sheetContext, 'copy'),
+                ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  backgroundColor: EvabobColors.pageBg,
+                  child: Icon(
+                    Icons.close_rounded,
+                    color: EvabobColors.ink,
+                  ),
+                ),
+                title: const Text('Close conversation'),
+                subtitle: const Text('Your messages stay here'),
+                onTap: () => Navigator.pop(sheetContext, 'close'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'request') {
+      await _promptAndSendRequest(myId);
+      return;
+    }
+    if (action == 'copy') {
+      await Clipboard.setData(
+        ClipboardData(text: '@${thread.handle ?? thread.title}'),
+      );
+      if (mounted) {
+        showTopSnack(
+          context,
+          const SnackBar(content: Text('Handle copied')),
+        );
+      }
+      return;
+    }
+    if (action == 'close' && mounted) {
+      Navigator.pop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final chat = context.watch<ChatService>();
@@ -644,6 +746,11 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                           ),
                         ],
                       ),
+                    ),
+                    IconButton(
+                      onPressed: () => _openThreadMenu(thread, myId),
+                      tooltip: 'Conversation menu',
+                      icon: const Icon(Icons.more_horiz_rounded),
                     ),
                   ],
                 ),
@@ -798,10 +905,12 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
           .post('/v1/payment-requests/$requestId/decline');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(friendlyError(e)),
-          behavior: SnackBarBehavior.floating,
-        ));
+        showTopSnack(
+            context,
+            SnackBar(
+              content: Text(friendlyError(e)),
+              behavior: SnackBarBehavior.floating,
+            ));
       }
     } finally {
       if (mounted) {
@@ -830,10 +939,12 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(friendlyError(e)),
-          behavior: SnackBarBehavior.floating,
-        ));
+        showTopSnack(
+            context,
+            SnackBar(
+              content: Text(friendlyError(e)),
+              behavior: SnackBarBehavior.floating,
+            ));
       }
     } finally {
       if (mounted) {
@@ -1122,30 +1233,30 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                       ),
                     )
                   else
-                  Row(
-                    children: [
-                      if (!mine)
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => _markDelivered(m),
-                            child: const Text('Delivered'),
+                    Row(
+                      children: [
+                        if (!mine)
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => _markDelivered(m),
+                              child: const Text('Delivered'),
+                            ),
                           ),
-                        ),
-                      if (!mine) const SizedBox(width: 8),
-                      if (mine ||
-                          m.meta?['status']
-                                  ?.toString()
-                                  .toLowerCase()
-                                  .contains('submitted') ==
-                              true)
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () => _releaseEscrow(m),
-                            child: const Text('Release'),
+                        if (!mine) const SizedBox(width: 8),
+                        if (mine ||
+                            m.meta?['status']
+                                    ?.toString()
+                                    .toLowerCase()
+                                    .contains('submitted') ==
+                                true)
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () => _releaseEscrow(m),
+                              child: const Text('Release'),
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
+                      ],
+                    ),
                 ],
               ],
             ),

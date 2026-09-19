@@ -22,6 +22,10 @@ class ApiClient {
 
   void setAuthToken(String? token) => _authToken = token;
 
+  /// Called when the server says the sign-in has ended (401 with code
+  /// SESSION_EXPIRED). EvabobAuth signs out once and asks to sign in again.
+  void Function()? onSessionExpired;
+
   Map<String, String> get _headers {
     final h = <String, String>{
       'Content-Type': 'application/json',
@@ -102,6 +106,13 @@ class ApiClient {
       if (d is Map<String, dynamic>) json = d;
     } catch (_) {
       json = {'raw': res.body};
+    }
+    if (res.statusCode == 401 && json['code'] == 'SESSION_EXPIRED') {
+      onSessionExpired?.call();
+      throw ApiException(
+        401,
+        json['detail']?.toString() ?? 'Your sign-in has ended. Sign in again.',
+      );
     }
     if (res.statusCode >= 400) {
       final err = json['error']?.toString() ?? res.body;

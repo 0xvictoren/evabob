@@ -9,6 +9,7 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/evabob_ui.dart';
+import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Figma Wallet · Balances frame (`16:383`).
 class AssetsScreen extends StatefulWidget {
@@ -87,7 +88,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
     if (value.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: value));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    showTopSnack(
+      context,
       SnackBar(content: Text('$label copied')),
     );
   }
