@@ -682,12 +682,7 @@ circleWallets.post("/gateway/pay", async (c) => {
   const uid = appUserId(c);
 
   try {
-    const {
-      gatewayPayFromUserDepositor,
-      getGatewayPayDelegateAddress,
-      planGatewayPay,
-      GATEWAY_DOMAIN_NAME,
-    } = await import("../services/gateway-e2e.js");
+    const { GATEWAY_DOMAIN_NAME } = await import("../services/gateway-e2e.js");
     const { jsonSafe } = await import("../utils/json-safe.js");
 
     const wallets = await listUserWallets(body.userToken);
@@ -702,20 +697,14 @@ circleWallets.post("/gateway/pay", async (c) => {
       );
     }
 
-    const delegate = getGatewayPayDelegateAddress();
-    // The platform fee rides in the same Gateway transfer as its own burn
-    // intent, so the sources are planned to cover amount + fee.
-    const feeQuote = quotePlatformFee(body.amountUsdc, 6);
-    const platformFee =
-      feeQuote.feeUnits > 0n && feeQuote.recipient
-        ? { units: feeQuote.feeUnits, recipient: feeQuote.recipient }
-        : undefined;
-    const plan = await planGatewayPay({
+    const { planGatewayPayment, sendGatewayPayment } = await import(
+      "../services/gatewayPayFlow.js"
+    );
+    const { plan, delegate } = await planGatewayPayment({
       depositor,
-      amountUsdc: Number(formatUnits(feeQuote.totalUnits, 6)),
+      amountUsdc: body.amountUsdc,
       destinationDomain: body.destinationDomain,
       sourceDomain: body.sourceDomain,
-      delegate,
     });
 
     if (plan.missingDomains.length > 0 && !body.delegateReady) {
@@ -741,8 +730,7 @@ circleWallets.post("/gateway/pay", async (c) => {
       // jsonSafe is required: plan.slices carries `raw` as a bigint, and
       // JSON.stringify throws on BigInt. Without it this response — the one
       // that hands the app its delegate-setup PIN challenges — died in
-      // serialisation and surfaced as a generic "gateway pay failed" 400,
-      // which is why cross-chain Gateway pay never once got past planning.
+      // serialisation and surfaced as a generic "gateway pay failed" 400.
       return c.json(
         jsonSafe({
           ...setup,
@@ -752,121 +740,56 @@ circleWallets.post("/gateway/pay", async (c) => {
           destinationDomain: body.destinationDomain,
           destinationAddress: body.destinationAddress,
           sources: plan.slices,
-          retryHint:
-            "Complete each PIN, wait a few seconds, then call again. Do not skip remaining chains.",
         }),
       );
     }
 
-    if (plan.missingDomains.length > 0) {
-      const names = plan.missingDomains
-        .map((d) => GATEWAY_DOMAIN_NAME[d] || String(d))
-        .join(", ");
+    // Approved, but Circle will not accept the approval until it is final on
+    // that network (or it was signed seconds ago and is not even mined). The
+    // payment is scheduled and goes through by itself — it used to be sent
+    // straight away and refused with "Signer is not authorized".
+    if (plan.missingDomains.length > 0 || plan.confirmingDomains.length > 0) {
+      const { scheduleGatewayPay } = await import("../services/gatewayTracker.js");
+      const waitingFor = [...new Set([...plan.missingDomains, ...plan.confirmingDomains])];
+      const scheduled = scheduleGatewayPay({
+        userId: uid,
+        depositor,
+        amountUsdc: body.amountUsdc,
+        destinationDomain: body.destinationDomain,
+        destinationAddress: body.destinationAddress,
+        sourceDomain: body.sourceDomain,
+        waitingFor,
+        justApproved: body.delegateReady === true || plan.missingDomains.length > 0,
+      });
+      const names = waitingFor.map((d) => GATEWAY_DOMAIN_NAME[d] || String(d)).join(" and ");
       return c.json(
         {
-          error: `Delegate not yet confirmed on ${names}. Wait a few seconds after PIN and retry.`,
-          missingDomains: plan.missingDomains,
-          mode: "delegate_pending",
+          ok: false,
+          doNotRetry: true,
+          mode: "user_gateway_pay",
+          status: "scheduled",
+          paymentId: scheduled.id,
+          waitingFor,
+          error:
+            `Your approval on ${names} is being confirmed by the network — this takes about ` +
+            `${scheduled.minutes} minutes the first time. Your payment will go through by itself ` +
+            `then, and we will tell you. Nothing has left your GA yet.`,
         },
-        400,
+        202,
       );
     }
 
-    const result = await gatewayPayFromUserDepositor({
+    const sent = await sendGatewayPayment({
+      userId: uid,
       depositor,
       amountUsdc: body.amountUsdc,
       destinationDomain: body.destinationDomain,
       destinationAddress: body.destinationAddress,
       sourceDomain: body.sourceDomain,
-      enableForwarder: body.enableForwarder ?? true,
       slices: plan.slices,
-      platformFee,
+      enableForwarder: body.enableForwarder,
     });
-    const feeFields = feeActivityFields(feeQuote, "USDC");
-
-    if (result.status === "complete" && result.mintTx) {
-      // success path below
-    } else {
-      // Not landed inside this request. Record it — with the attestation, so
-      // the tracker can still mint it from the ops wallet while it is valid —
-      // and show it as on its way. It used to be answered "do not retry" and
-      // then forgotten.
-      const to = `${body.destinationAddress.slice(0, 6)}…${body.destinationAddress.slice(-4)}`;
-      const row = store.addActivity({
-        userId: uid,
-        kind: "withdraw",
-        title: "Paid from your GA",
-        description: `${body.amountUsdc} USDC to ${to} · on its way`,
-        amountUsdc: -body.amountUsdc,
-        token: "USDC",
-        amountToken: body.amountUsdc,
-        txHash: result.transferId,
-        status: "pending",
-        receiver: body.destinationAddress,
-        mode: "gateway_pay",
-        ...feeFields,
-      });
-      const gw = (result.gatewayResponse ?? {}) as {
-        attestation?: string;
-        signature?: string;
-      };
-      const { trackGatewayPay } = await import("../services/gatewayTracker.js");
-      const paymentId = trackGatewayPay({
-        userId: uid,
-        transferId: result.transferId,
-        attestation: typeof gw.attestation === "string" ? gw.attestation : undefined,
-        signature: typeof gw.signature === "string" ? gw.signature : undefined,
-        destinationDomain: body.destinationDomain,
-        destinationAddress: body.destinationAddress,
-        amountUsdc: body.amountUsdc,
-        activityId: row.id,
-      });
-      // 202 with doNotRetry: the app must not send it again; the tracker
-      // finishes it and tells the person when it lands.
-      return c.json(
-        jsonSafe({
-          ...result,
-          ok: false,
-          doNotRetry: true,
-          mode: "user_gateway_pay",
-          status: "in_transit",
-          paymentId,
-          error: "Sent — it is on its way. We will tell you when it arrives.",
-          // The attestation stays on the server, which finishes the mint.
-          gatewayResponse: undefined,
-        }),
-        202,
-      );
-    }
-
-    const srcNote = (result.sources || [])
-      .map((s) => `${s.amountUsdc} ${s.name}`)
-      .join(" + ");
-    store.addActivity({
-      userId: uid,
-      kind: "withdraw",
-      title: "Paid from your GA",
-      description: `${body.amountUsdc} USDC${srcNote ? ` (from ${srcNote})` : ""} → ${body.destinationAddress.slice(0, 6)}…${body.destinationAddress.slice(-4)}`,
-      amountUsdc: -body.amountUsdc,
-      txHash: result.mintTx || result.transferId,
-      status: "completed",
-      receiver: body.destinationAddress,
-      ...feeFields,
-    });
-
-    // This used to upsert the user with email `${uid}@evabob.app` and name
-    // `${uid}` to "keep the profile linked to the SCA". upsertUser merges, so
-    // every successful Gateway payment overwrote the person's real email and
-    // name — breaking claim links and held payments addressed to their email.
-    // The wallet is already bound at session time; nothing needs writing here.
-
-    return c.json(
-      jsonSafe({
-        ok: true,
-        mode: "user_gateway_pay",
-        ...result,
-      }),
-    );
+    return c.json(sent.body, sent.httpStatus);
   } catch (e) {
     const code =
       e && typeof e === "object" && "code" in e

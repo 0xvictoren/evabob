@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The money-in notification channel names this sound only as a string, so
+     the resource shrinker cannot see it is used. Keep it. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/money_in" />

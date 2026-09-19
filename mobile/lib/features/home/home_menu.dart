@@ -20,12 +20,10 @@ enum HomeMenuAction {
   request,
   sellWithLink,
   groups,
-  moneyIn,
   convert,
   ga,
   agent,
   moveMoney,
-  profile,
 }
 
 Future<HomeMenuAction?> showHomeMenu(BuildContext context) {
@@ -63,12 +61,6 @@ class _Menu extends StatelessWidget {
       'Save together, or raise money for something'
     ),
     (
-      HomeMenuAction.moneyIn,
-      Icons.point_of_sale_rounded,
-      'Money in',
-      'Hear each payment arrive, for your counter'
-    ),
-    (
       HomeMenuAction.convert,
       Icons.swap_horiz_rounded,
       'Convert',
@@ -92,12 +84,6 @@ class _Menu extends StatelessWidget {
       'Agent wallets',
       'Money set aside for software to spend'
     ),
-    (
-      HomeMenuAction.profile,
-      Icons.person_outline_rounded,
-      'Profile',
-      'Your name, handle and wallet'
-    ),
   ];
 
   @override
@@ -108,12 +94,10 @@ class _Menu extends StatelessWidget {
         HomeMenuAction.request => features.requests,
         HomeMenuAction.sellWithLink => true,
         HomeMenuAction.groups => true,
-        HomeMenuAction.moneyIn => true,
         HomeMenuAction.convert => features.conversion,
         HomeMenuAction.ga => features.gateway,
         HomeMenuAction.moveMoney => features.bridge,
         HomeMenuAction.agent => features.agentWallets,
-        HomeMenuAction.profile => true,
       };
     }).toList(growable: false);
     return SafeArea(

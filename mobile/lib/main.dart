@@ -85,11 +85,16 @@ class EvabobServices {
     moneyAlerts.onOpen = push.openFromData;
     // money_in.mp3 whenever money reaches this person while the app is open.
     unawaited(MoneySounds.instance.start(moneyAlerts));
+    // Chat hears about new messages and name changes on the same channel,
+    // and keeps quiet about the conversation already on screen.
+    final chat = ChatService(fx, api, notify: notify);
+    moneyAlerts.events.listen(chat.onAlert);
+    moneyAlerts.shouldNotify = chat.shouldNotify;
     return EvabobServices(
       api: api,
       fx: fx,
       auth: auth,
-      chat: ChatService(fx, api, notify: notify),
+      chat: chat,
       wallet: WalletService(api, auth),
       circle: CircleWalletService(api, auth),
       activity: ActivityService(api, fx),
@@ -243,6 +248,10 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
         );
         _activity.refresh();
         _chat.refreshThreads();
+        // Pictures chosen before they were saved on the server.
+        _auth.syncAvatarChoiceToServer();
+        // Whether this person confirms with fingerprint or Face ID.
+        _circle.loadBiometricPreference();
         _agents.refresh();
         _contacts.refresh();
         _circle.refreshOpenJobs();

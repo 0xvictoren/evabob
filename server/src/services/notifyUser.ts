@@ -55,7 +55,11 @@ export type UserAlert = {
     /** An invoice is due tomorrow, today, or is overdue. */
     | "invoice_due"
     /** Something happened in a money circle or group pot. */
-    | "group_update";
+    | "group_update"
+    /** A chat message arrived. */
+    | "chat_message"
+    /** Someone paid, declined or cancelled a request. */
+    | "request_update";
   title: string;
   body: string;
   amountUsdc?: number;
@@ -68,6 +72,8 @@ export type UserAlert = {
   jobId?: string;
   /** An evabob:// link a tap opens, for alerts about anything else. */
   link?: string;
+  /** The chat a message arrived in, so the app can badge it and skip the open one. */
+  threadId?: string;
   /**
    * Money has just reached this person — received, released to them,
    * refunded to them, paid out to them. The app plays its money-in sound.
@@ -96,6 +102,7 @@ export function alertUser(userId: string, alert: UserAlert): void {
       jobId: alert.jobId,
       txHash: alert.txHash,
       link: alert.link,
+      threadId: alert.threadId,
       moneyIn: alert.moneyIn ? "1" : undefined,
     },
   });

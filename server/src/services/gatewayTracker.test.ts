@@ -131,3 +131,24 @@ describe("a GA top-up", () => {
     assert.equal(rows[0]!.status, "pending");
   });
 });
+
+describe("scheduled GA payments", () => {
+it("a payment waiting for an approval is sent only once the approval is final", async () => {
+  const { scheduledNextStep, SCHEDULED_PAY_TTL_MS, APPROVAL_MINING_GRACE_MS } = await import("./gatewayTracker.js");
+  const t0 = Date.parse("2026-09-19T10:00:00Z");
+  const r = { status: "waiting" as const, createdAt: new Date(t0).toISOString(), justApproved: true };
+  const ready = { missingDomains: [], confirmingDomains: [] };
+  const confirming = { missingDomains: [], confirmingDomains: [0] };
+  const missing = { missingDomains: [6], confirmingDomains: [] };
+  // Still confirming: wait; final: send.
+  assert.equal(scheduledNextStep(r, confirming, t0 + 60_000), "wait");
+  assert.equal(scheduledNextStep(r, ready, t0 + 16 * 60_000), "send");
+  // Just approved: the approval may not even be mined yet, so wait a little.
+  assert.equal(scheduledNextStep(r, missing, t0 + 60_000), "wait");
+  assert.equal(scheduledNextStep(r, missing, t0 + APPROVAL_MINING_GRACE_MS + 1), "give_up");
+  assert.equal(scheduledNextStep({ ...r, justApproved: false }, missing, t0 + 60_000), "give_up");
+  // Never waits for ever, and never acts twice.
+  assert.equal(scheduledNextStep(r, confirming, t0 + SCHEDULED_PAY_TTL_MS), "give_up");
+  assert.equal(scheduledNextStep({ ...r, status: "sent" }, ready, t0), null);
+});
+});

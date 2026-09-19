@@ -4,7 +4,7 @@
 this file, this file is right. Supersedes the former `new.md` and the progress
 tables that used to live in the README.
 
-Last verified: 2026-09-18 ("For people" and fix-first batches below); earlier sections 2026-09-13.
+Last verified: 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
 
 ---
 
@@ -30,6 +30,22 @@ and other public testnets. Do not read "live" below as "in production" — it me
 | **Not built** | Referenced somewhere but absent from the code |
 
 ---
+
+## Testing feedback batch — 2026-09-19
+
+Fixes from the first round of hands-on testing. Server 337 tests, Flutter 51
+tests, typecheck and analyze clean. None run end to end with real wallets yet.
+
+| Area | What was wrong | What changed |
+|------|----------------|--------------|
+| GA payments | Every GA payment to another network failed: "Signer is not authorized to spend funds from sourceDepositor". The person's approval of Evabob (the delegate) was read from the latest block and the payment sent seconds later, but Circle only honours it once it is *final* — about 15 minutes on Ethereum and Base Sepolia. Checked on chain: the approvals were fine, just not final yet. | The server reads approvals at the finalized block, prefers networks that are ready, and when one is still confirming it **schedules** the payment: the tracker sends it by itself once the approval is final (up to 3 hours), and the person is told. The app no longer asks for the same approval twice, and Circle's raw error never reaches the screen. Euros removed from the GA card; the per-network amounts are readable. |
+| Money from outside | A MetaMask send was not recorded. Arc reports a plain native USDC send only as a Transfer event from the system address `0xfff…fffe` (18 decimals), which was never watched; a token transfer emits both. Base and Ethereum Sepolia were never watched at all. | Arc: both are read and paired so each movement counts once, and cirBTC is watched. Base and Ethereum Sepolia are scanned too, with their own progress marks. A sweep on the tick scans wallets even while the app is closed, and a one-time look-back over the last four days recovers missed native sends (it found and recorded the 20 USDC MetaMask send to @nzubechi_). Also found: the public Arc RPC answers "Request exceeds defined limit" once its request quota is used — the scanner's 9,000-block queries were being refused outright, so Arc scanning had been failing too. Queries are now 1,000 blocks, two wallets per pass, backing off when the RPC pushes back; anything the scan finds that is already one of the person's own records (their bridge landing, a GA payment, a released hold) is skipped. |
+| Chat requests | The receiver never saw a request card: the app posted it as a "receipt", the server refuses those from clients, and the sender saw only a local copy. | The server posts the card, built from the request itself: every line, total, due date and live status. A pasted pay link becomes the same card. The receiver has **Pay** and **Cancel** (decline: the card closes for both and the sender is told); the sender can cancel their own. The Agent opens pasted pay links. The raw timestamp and the request id mislabelled "Hash" are gone. |
+| Chat | No badge on the Chat tab; stale names; no pictures; text not copyable. | The server tells the other person about each message (live, and by push); the tab badges, the open conversation stays quiet. Name, handle and picture changes reach everyone the person chats with at once. The picture chosen on Home is saved on the server and shown in chat. Messages are selectable. |
+| Sounds | `money_in.mp3` was silent with the app in the background. | A "Money received" Android channel plays it for pushes; money-arrived alerts are flagged `moneyIn` by the server; in the foreground the app plays it and the notification is silent. A payment spotted in Activity without its alert still chimes once. |
+| Home | "All clear" ignored held and 10-minute payments. | "Your money" lists bridges, swaps, top-ups, the 10-minute wait, money set aside, claim links and GA payments in flight; "All clear" only when none. "Messages" removed; "Money in" moved below "Recent activity". Menu: "Money in" and "Profile" removed (the picture opens Profile). |
+| Keyboard | The keyboard covered the amount keypad and the PIN. | Tapping outside a text field on Send (the amount included) closes the keyboard; every PIN screen opens with it closed. |
+| Fingerprint / Face ID | Not possible with the web PIN screen. | Circle's native SDK, with a Profile switch. Needs a GitHub token to build on Android and a Mac for iOS — see `docs/BIOMETRICS.md`. |
 
 ## "For people" batch — 2026-09-18 (research report §8.1)
 

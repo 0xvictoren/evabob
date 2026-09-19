@@ -68,6 +68,14 @@ String friendlyError(
         'again — it may already have gone through.';
   }
 
+  // Circle refusing a GA payment because a first-time approval is not final
+  // on that network yet. The server now waits for it instead, but an older
+  // server, or a race, can still surface Circle's own wording.
+  if (low.contains('signer is not authorized')) {
+    return 'Your approval of Evabob on that network is still being '
+        'confirmed. Try again in about 15 minutes — nothing has left your GA.';
+  }
+
   final stripped = raw
       .replaceFirst(RegExp(r'^_?Exception:\s*'), '')
       .replaceFirst(RegExp(r'^ApiException\(\d+\):\s*'), '')

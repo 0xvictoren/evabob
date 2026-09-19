@@ -200,6 +200,7 @@ export async function isGatewayDelegateAuthorized(
   depositor: Address,
   delegate: Address,
   domain = 26,
+  blockTag: "latest" | "finalized" = "latest",
 ): Promise<boolean> {
   if (depositor.toLowerCase() === delegate.toLowerCase()) return true;
   const token = usdcOnDomain(domain);
@@ -210,16 +211,45 @@ export async function isGatewayDelegateAuthorized(
       abi: gatewayWalletAbi,
       functionName: "isAuthorizedForBalance",
       args: [token, depositor, delegate],
+      blockTag,
     });
     return Boolean(ok);
   } catch (e) {
     console.warn(
-      `[gateway] isAuthorizedForBalance domain=${domain} failed`,
+      `[gateway] isAuthorizedForBalance domain=${domain} ${blockTag} failed`,
       e instanceof Error ? e.message : e,
     );
     return false;
   }
 }
+
+export type DelegateStatus = "ready" | "confirming" | "missing";
+
+/**
+ * Whether Circle will accept burn intents signed by [delegate] for
+ * [depositor]'s money on [domain].
+ *
+ * Circle's Gateway only honours a delegate once the transaction that added it
+ * is *finalized* on that chain — about 15 minutes on Ethereum and Base
+ * Sepolia. Reading the latest block said "authorized" seconds after the
+ * person approved, the server submitted, and Circle answered "Signer is not
+ * authorized to spend funds from sourceDepositor" on every network. So:
+ * finalized = ready; only in the latest block = still confirming.
+ */
+export async function gatewayDelegateStatus(
+  depositor: Address,
+  delegate: Address,
+  domain: number,
+): Promise<DelegateStatus> {
+  if (depositor.toLowerCase() === delegate.toLowerCase()) return "ready";
+  if (await isGatewayDelegateAuthorized(depositor, delegate, domain, "finalized")) return "ready";
+  return (await isGatewayDelegateAuthorized(depositor, delegate, domain, "latest"))
+    ? "confirming"
+    : "missing";
+}
+
+/** Roughly how long a new approval takes to be final on each network. */
+export const DELEGATE_FINALITY_MINUTES: Record<number, number> = { 26: 1, 0: 15, 6: 20 };
 
 export type GatewaySourceSlice = {
   domain: number;
@@ -280,7 +310,10 @@ export async function planGatewayPay(input: {
   delegate: Address;
 }): Promise<{
   slices: GatewaySourceSlice[];
+  /** Networks where the person still has to approve Evabob (a PIN). */
   missingDomains: number[];
+  /** Networks approved, but not yet final — Circle will refuse them for now. */
+  confirmingDomains: number[];
   confirmedUsdc: string;
 }> {
   const need = parseUnits(String(input.amountUsdc), 6);
@@ -292,6 +325,18 @@ export async function planGatewayPay(input: {
   const confirmedRaw = rows
     .filter((r) => (PRODUCT_GATEWAY_DOMAINS as readonly number[]).includes(r.domain))
     .reduce((s, r) => s + r.raw, 0n);
+
+  // Each funded network's approval state, so the plan can prefer networks
+  // Circle will accept right now.
+  const funded = rows.filter(
+    (r) => r.raw > 0n && (PRODUCT_GATEWAY_DOMAINS as readonly number[]).includes(r.domain),
+  );
+  const status = new Map<number, DelegateStatus>();
+  await Promise.all(
+    funded.map(async (r) =>
+      status.set(r.domain, await gatewayDelegateStatus(input.depositor, input.delegate, r.domain)),
+    ),
+  );
 
   let slices: GatewaySourceSlice[];
   if (input.sourceDomain != null) {
@@ -313,22 +358,29 @@ export async function planGatewayPay(input: {
       },
     ];
   } else {
-    slices = splitConfirmedSources(rows, need, input.destinationDomain);
+    // Networks that can be spent from right now first; others only if needed.
+    const ready = rows.filter((r) => status.get(r.domain) === "ready");
+    try {
+      slices = splitConfirmedSources(ready, need, input.destinationDomain);
+    } catch {
+      slices = splitConfirmedSources(rows, need, input.destinationDomain);
+    }
   }
 
   const missingDomains: number[] = [];
-  for (const s of slices) {
-    const ok = await isGatewayDelegateAuthorized(
-      input.depositor,
-      input.delegate,
-      s.domain,
-    );
-    if (!ok) missingDomains.push(s.domain);
+  const confirmingDomains: number[] = [];
+  for (const sl of slices) {
+    const st =
+      status.get(sl.domain) ??
+      (await gatewayDelegateStatus(input.depositor, input.delegate, sl.domain));
+    if (st === "missing") missingDomains.push(sl.domain);
+    if (st === "confirming") confirmingDomains.push(sl.domain);
   }
 
   return {
     slices,
     missingDomains,
+    confirmingDomains,
     confirmedUsdc: formatUnits(confirmedRaw, 6),
   };
 }

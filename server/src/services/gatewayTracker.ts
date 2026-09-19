@@ -86,7 +86,38 @@ export type GatewayDepositWatch = {
   updatedAt: string;
 };
 
-type Row = GatewayPayRecord | GatewayDepositWatch;
+/**
+ * A GA payment the person confirmed that has to wait before it can be sent:
+ * their approval of Evabob on a source network is not final yet, and Circle
+ * refuses it until it is. Sent by the tracker as soon as it is.
+ */
+export type GatewayScheduledPay = {
+  kind: "scheduled";
+  id: string;
+  userId: string;
+  depositor: string;
+  amountUsdc: number;
+  destinationDomain: number;
+  destinationAddress: string;
+  sourceDomain?: number;
+  status: "waiting" | "sent" | "not_sent";
+  /** Networks whose approval is still being confirmed. */
+  waitingFor: number[];
+  /** True when the person approved moments ago: the approval may not be mined yet. */
+  justApproved?: boolean;
+  activityId?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** A scheduled payment still waiting after this is given up (nothing is taken). */
+export const SCHEDULED_PAY_TTL_MS = 3 * 60 * MINUTE;
+
+/** How long a just-signed approval may take to appear on chain at all. */
+export const APPROVAL_MINING_GRACE_MS = 10 * MINUTE;
+
+type Row = GatewayPayRecord | GatewayDepositWatch | GatewayScheduledPay;
 
 const PATH = dataPath("gateway-tracker.json");
 
@@ -105,7 +136,7 @@ function save(rows: Row[]) {
   const cutoff = Date.now() - 7 * 24 * 60 * MINUTE;
   const kept = rows.filter(
     (r) =>
-      !["complete", "not_sent", "credited", "abandoned"].includes(r.status) ||
+      !["complete", "not_sent", "credited", "abandoned", "sent"].includes(r.status) ||
       Date.parse(r.updatedAt) > cutoff,
   );
   writeJsonAtomic(PATH, kept);
@@ -290,6 +321,150 @@ async function advancePay(r: GatewayPayRecord, nowMs: number): Promise<string | 
   return null;
 }
 
+// ─── Payments waiting for an approval to be final ─────────────────────────
+
+/** Pure: what to do with a scheduled payment, given the plan's approval state. */
+export function scheduledNextStep(
+  r: Pick<GatewayScheduledPay, "status" | "createdAt" | "justApproved">,
+  plan: { missingDomains: number[]; confirmingDomains: number[] },
+  nowMs: number,
+): "send" | "wait" | "give_up" | null {
+  if (r.status !== "waiting") return null;
+  const age = nowMs - Date.parse(r.createdAt);
+  if (age >= SCHEDULED_PAY_TTL_MS) return "give_up";
+  if (plan.missingDomains.length > 0) {
+    return r.justApproved && age < APPROVAL_MINING_GRACE_MS ? "wait" : "give_up";
+  }
+  return plan.confirmingDomains.length > 0 ? "wait" : "send";
+}
+
+export function scheduleGatewayPay(input: {
+  userId: string;
+  depositor: string;
+  amountUsdc: number;
+  destinationDomain: number;
+  destinationAddress: string;
+  sourceDomain?: number;
+  waitingFor: number[];
+  justApproved?: boolean;
+}): { id: string; activityId: string; minutes: number } {
+  const now = new Date().toISOString();
+  const to = `${input.destinationAddress.slice(0, 6)}…${input.destinationAddress.slice(-4)}`;
+  const names = input.waitingFor.map(chainName).join(" and ") || "a network";
+  const activity = store.addActivity({
+    userId: input.userId,
+    kind: "withdraw",
+    title: "Paid from your GA",
+    description: `${input.amountUsdc} USDC to ${to} · goes automatically once your approval on ${names} is confirmed`,
+    amountUsdc: -input.amountUsdc,
+    token: "USDC",
+    amountToken: input.amountUsdc,
+    status: "pending",
+    receiver: input.destinationAddress,
+    mode: "gateway_pay_scheduled",
+  });
+  const row: GatewayScheduledPay = {
+    kind: "scheduled",
+    id: randomUUID(),
+    ...input,
+    status: "waiting",
+    activityId: activity.id,
+    createdAt: now,
+    updatedAt: now,
+  };
+  save([...load(), row]);
+  const minutes = Math.max(
+    1,
+    ...input.waitingFor.map((d) => ({ 26: 1, 0: 15, 6: 20 } as Record<number, number>)[d] ?? 15),
+  );
+  return { id: row.id, activityId: activity.id, minutes };
+}
+
+function giveUpScheduled(r: GatewayScheduledPay, reason: string) {
+  update<GatewayScheduledPay>(r.id, { status: "not_sent", lastError: reason });
+  const to = `${r.destinationAddress.slice(0, 6)}…${r.destinationAddress.slice(-4)}`;
+  if (r.activityId) {
+    store.updateActivity(r.activityId, {
+      status: "failed",
+      description: `${r.amountUsdc} USDC to ${to} did not go through, so nothing left your GA`,
+    });
+  }
+  alertUser(r.userId, {
+    kind: "ga_payment_failed",
+    title: "Payment did not go through",
+    body: `${r.amountUsdc} USDC to ${to}: ${reason} Nothing left your GA — you can try again.`,
+    amountUsdc: r.amountUsdc,
+    token: "USDC",
+  });
+}
+
+async function advanceScheduled(r: GatewayScheduledPay, nowMs: number): Promise<string | null> {
+  if (r.status !== "waiting") return null;
+  const { planGatewayPayment, sendGatewayPayment } = await import("./gatewayPayFlow.js");
+  let planned;
+  try {
+    planned = await planGatewayPayment({
+      depositor: r.depositor as `0x${string}`,
+      amountUsdc: r.amountUsdc,
+      destinationDomain: r.destinationDomain,
+      sourceDomain: r.sourceDomain,
+    });
+  } catch (e) {
+    const code = e && typeof e === "object" && "code" in e ? String((e as { code?: string }).code) : "";
+    if (code === "INSUFFICIENT_GATEWAY") {
+      giveUpScheduled(r, "your GA no longer has enough ready to spend.");
+      return "not_sent";
+    }
+    throw e;
+  }
+  const step = scheduledNextStep(r, planned.plan, nowMs);
+  if (step === "wait") {
+    update<GatewayScheduledPay>(r.id, { waitingFor: planned.plan.confirmingDomains });
+    return null;
+  }
+  if (step === "give_up") {
+    giveUpScheduled(
+      r,
+      planned.plan.missingDomains.length > 0
+        ? `Evabob was not approved on ${planned.plan.missingDomains.map(chainName).join(" and ")}.`
+        : "the approval took too long to be confirmed.",
+    );
+    return "not_sent";
+  }
+  if (step !== "send") return null;
+  // Claim it before sending, so an overlapping pass cannot send it twice.
+  update<GatewayScheduledPay>(r.id, { status: "sent" });
+  try {
+    const out = await sendGatewayPayment({
+      userId: r.userId,
+      depositor: r.depositor as `0x${string}`,
+      amountUsdc: r.amountUsdc,
+      destinationDomain: r.destinationDomain,
+      destinationAddress: r.destinationAddress,
+      sourceDomain: r.sourceDomain,
+      slices: planned.plan.slices,
+      activityId: r.activityId,
+    });
+    if (out.landed) {
+      const to = `${r.destinationAddress.slice(0, 6)}…${r.destinationAddress.slice(-4)}`;
+      alertUser(r.userId, {
+        kind: "ga_payment_done",
+        title: "Payment sent",
+        body: `Your approval was confirmed, so ${r.amountUsdc} USDC from your GA went to ${to} on ${chainName(r.destinationDomain)}.`,
+        amountUsdc: r.amountUsdc,
+        token: "USDC",
+      });
+    }
+    return "sent";
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // Circle refused it outright: nothing was burned, so nothing was taken.
+    giveUpScheduled(r, "Circle did not accept it.");
+    update<GatewayScheduledPay>(r.id, { lastError: msg.slice(0, 300) });
+    return "not_sent";
+  }
+}
+
 // ─── Top-ups ──────────────────────────────────────────────────────────────
 
 async function readDomainBalance(depositor: string, domain: number) {
@@ -454,6 +629,9 @@ export async function runGatewayTracker(opts?: {
       if (r.kind === "pay") {
         const out = await advancePay(r, nowMs);
         if (out === "complete") result.paymentsFinished += 1;
+      } else if (r.kind === "scheduled") {
+        const out = await advanceScheduled(r, nowMs);
+        if (out === "sent") result.paymentsFinished += 1;
       } else {
         const out = await advanceTopUp(r, nowMs);
         if (out === "credited") result.topUpsArrived += 1;

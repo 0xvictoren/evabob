@@ -654,7 +654,9 @@ api.post("/users/me/avatar", async (c) => {
   // The filename is fixed per person, so the version keeps an old copy from
   // being shown out of an image cache after they change their photo.
   const avatarUrl = `/uploads/${filename}?v=${Date.now()}`;
-  user = store.updateProfile(uid, { avatarUrl }) ?? user;
+  // A photo replaces any built-in picture.
+  user = store.updateProfile(uid, { avatarUrl, avatarBundleIndex: null }) ?? user;
+  void announceProfileChange(uid);
   return c.json({ user, avatarUrl });
 });
 
@@ -1761,6 +1763,51 @@ api.post("/payment-requests/:id/milestones-held", async (c) => {
   }
 });
 
+/**
+ * The person a request was sent to says no. The card closes for both, and
+ * the person who asked is told.
+ */
+api.post("/payment-requests/:id/decline", async (c) => {
+  const uid = userId(c);
+  const { declineInvoice, InvoicePermissionError } = await import("../services/payment-requests.js");
+  try {
+    const inv = declineInvoice(c.req.param("id"), uid);
+    const me = store.getUser(uid);
+    const who = me?.handle ? `@${me.handle}` : me?.displayName || "They";
+    const symbol = (inv.token || "USDC").toUpperCase() === "EURC" ? "€" : "$";
+    const amount = `${symbol}${inv.total.toFixed(2)}`;
+    const issuerId = inv.senderId || inv.userId;
+    if (inv.threadId) {
+      const thread = store.listThreads().find((t) => t.id === inv.threadId);
+      if (thread?.members.includes(uid)) {
+        const note = store.addMessage({
+          threadId: thread.id,
+          senderId: "system",
+          kind: "system",
+          text: `${who} declined the request for ${amount}`,
+        });
+        try {
+          await pusherTrigger(`private-chat-${thread.id}`, "message", note);
+        } catch {
+          // The alert below still reaches them.
+        }
+      }
+    }
+    const { alertUser } = await import("../services/notifyUser.js");
+    alertUser(issuerId, {
+      kind: "request_update",
+      title: "Request declined",
+      body: `${who} declined your request for ${amount}${inv.description ? ` · ${inv.description}` : ""}.`,
+      link: inv.threadId ? `evabob://chat/${inv.threadId}` : inv.link,
+      ...(inv.threadId ? { threadId: inv.threadId } : {}),
+    });
+    return c.json({ invoice: inv });
+  } catch (e) {
+    if (e instanceof InvoicePermissionError) return c.json({ error: e.message }, 403);
+    throw e;
+  }
+});
+
 api.post("/payment-requests/:id/mark", async (c) => {
   const body = z
     .object({
@@ -2317,6 +2364,8 @@ async function patchMe(c: Context) {
       // Custom images must pass the bounded upload endpoint. This field only
       // supports clearing an existing server-owned avatar.
       avatarUrl: z.literal("").optional(),
+      /** A built-in picture (its index), or null to stop using one. */
+      avatarBundle: z.number().int().min(0).max(63).nullable().optional(),
     })
     .parse(await c.req.json());
   const uid = userId(c);
@@ -2332,8 +2381,42 @@ async function patchMe(c: Context) {
       };
     }
   }
-  const user = store.updateProfile(uid, { avatarUrl: body.avatarUrl });
+  const user = store.updateProfile(uid, {
+    avatarUrl: body.avatarUrl,
+    ...(body.avatarBundle !== undefined ? { avatarBundleIndex: body.avatarBundle } : {}),
+  });
+  if (body.displayName || body.avatarBundle !== undefined || body.avatarUrl !== undefined) {
+    void announceProfileChange(uid);
+  }
   return { status: 200 as const, body: { user } };
+}
+
+/**
+ * Tells everyone this person chats with that their name or picture changed,
+ * so it updates on their screens at once. A new name used to reach nobody:
+ * the other phone kept the old one until it happened to reload.
+ */
+async function announceProfileChange(uid: string) {
+  const user = store.getUser(uid);
+  if (!user) return;
+  const peers = new Set<string>();
+  for (const t of store.listThreadsForUser(uid)) {
+    for (const m of t.members) if (m && m !== uid) peers.add(m);
+  }
+  const payload = {
+    kind: "profile_updated",
+    userId: uid,
+    displayName: user.displayName,
+    handle: user.handle ?? null,
+    avatarUrl: user.avatarUrl ?? null,
+    avatarBundle: user.avatarBundleIndex ?? null,
+    title: "",
+    body: "",
+  };
+  for (const peer of peers) {
+    // Straight to the app, no notification: nothing for anyone to read.
+    void pusherTrigger(`${USER_CHANNEL_PREFIX}${peer}`, "alert", payload).catch(() => undefined);
+  }
 }
 
 api.patch("/users/me", async (c) => {
@@ -2380,6 +2463,7 @@ api.post("/users/handle", async (c) => {
     );
   }
   const user = result.user;
+  void announceProfileChange(uid);
   if (user.evmAddress && /^0x[a-fA-F0-9]{40}$/.test(user.evmAddress)) {
     try {
       const { adminUnlinkIdentity } = await import("../services/identity.js");
@@ -2603,13 +2687,21 @@ api.get("/chat/threads", (c) => {
   return c.json({ threads });
 });
 
-api.get("/chat/threads/:id/messages", (c) => {
+api.get("/chat/threads/:id/messages", async (c) => {
   const uid = userId(c);
   const thread = store.listThreads().find((t) => t.id === c.req.param("id"));
   if (!thread || !thread.members.includes(uid)) {
     return c.json({ error: "Not a member of this chat" }, 403);
   }
-  return c.json({ messages: store.messagesFor(c.req.param("id")) });
+  // Request cards show where the request stands now — paid, declined,
+  // cancelled — not what it was when it was posted.
+  const { getPaymentRequest, invoiceCardMeta } = await import("../services/payment-requests.js");
+  const messages = store.messagesFor(c.req.param("id")).map((m) => {
+    const requestId = m.meta?.type === "invoice_card" ? String(m.meta.requestId ?? "") : "";
+    const inv = requestId ? getPaymentRequest(requestId) : undefined;
+    return inv ? { ...m, meta: { ...m.meta, ...invoiceCardMeta(inv) } } : m;
+  });
+  return c.json({ messages });
 });
 
 api.post("/chat/threads/:id/messages", async (c) => {
@@ -2629,20 +2721,103 @@ api.post("/chat/threads/:id/messages", async (c) => {
     return c.json({ error: "Not a member of this chat" }, 403);
   }
 
+  // A pasted pay link becomes a request card. The card is built here from the
+  // request itself — never from anything the client sent — and a request its
+  // owner shares in a chat is addressed to the other person.
+  const { payLinkIds, getPaymentRequest, invoiceCardMeta, assignInvoiceReceiver } = await import(
+    "../services/payment-requests.js"
+  );
+  const peerId = thread.members.find((m) => m && m !== uid);
+  let card: Record<string, unknown> | undefined;
+  for (const requestId of payLinkIds(body.text)) {
+    let inv = getPaymentRequest(requestId);
+    if (!inv) continue;
+    const peer = peerId ? store.getUser(peerId) : undefined;
+    if (peer && (inv.senderId || inv.userId) === uid) {
+      inv = assignInvoiceReceiver(inv.id, { id: peer.id, handle: peer.handle }, thread.id) ?? inv;
+    }
+    card = invoiceCardMeta(inv);
+    break;
+  }
+
   // Always stamp sender as authenticated user (never trust client "me").
   const msg = store.addMessage({
     threadId: c.req.param("id"),
     senderId: uid,
     kind: body.kind,
     text: body.text,
+    ...(card ? { meta: card } : {}),
   });
-  // Realtime fan-out
+  await announceChatMessage(thread, uid, msg);
+  return c.json({ message: msg });
+});
+
+/**
+ * Tells everyone else in a chat that a message arrived: live in the open
+ * thread, and on their own channel (and by push) so the Chat tab can show it
+ * and a closed app still hears about it.
+ */
+async function announceChatMessage(
+  thread: { id: string; members: string[] },
+  senderId: string,
+  msg: { id: string; text: string; kind: string; meta?: Record<string, unknown> },
+) {
   try {
-    await pusherTrigger(`private-chat-${c.req.param("id")}`, "message", msg);
+    await pusherTrigger(`private-chat-${thread.id}`, "message", msg);
   } catch (e) {
     console.warn("pusher message", e);
   }
-  return c.json({ message: msg });
+  const sender = store.getUser(senderId);
+  const name = sender?.displayName || (sender?.handle ? `@${sender.handle}` : "Someone");
+  const { alertUser } = await import("../services/notifyUser.js");
+  for (const member of thread.members) {
+    if (!member || member === senderId || member.startsWith("peer_") || member.endsWith("-agent")) continue;
+    alertUser(member, {
+      kind: "chat_message",
+      title: name,
+      body:
+        msg.meta?.type === "invoice_card"
+          ? `Sent you a request for ${String(msg.meta.amount ?? "")} ${String(msg.meta.token ?? "USDC")}`.trim()
+          : msg.text.slice(0, 140),
+      link: `evabob://chat/${thread.id}`,
+      threadId: thread.id,
+    });
+  }
+}
+
+/**
+ * Posts a payment request into a chat as a card the other person can pay or
+ * decline. Only the person who raised the request may post it.
+ */
+api.post("/chat/threads/:id/request", async (c) => {
+  const body = z.object({ requestId: z.string().min(8).max(64) }).parse(await c.req.json());
+  const uid = userId(c);
+  const thread = store.listThreads().find((t) => t.id === c.req.param("id"));
+  if (!thread || !thread.members.includes(uid)) {
+    return c.json({ error: "Not a member of this chat" }, 403);
+  }
+  const { getPaymentRequest, invoiceCardMeta, assignInvoiceReceiver } = await import(
+    "../services/payment-requests.js"
+  );
+  let inv = getPaymentRequest(body.requestId);
+  if (!inv) return c.json({ error: "No such request" }, 404);
+  if ((inv.senderId || inv.userId) !== uid) {
+    return c.json({ error: "Only the person who raised a request can post it" }, 403);
+  }
+  const peerId = thread.members.find((m) => m && m !== uid);
+  const peer = peerId ? store.getUser(peerId) : undefined;
+  if (peer) inv = assignInvoiceReceiver(inv.id, { id: peer.id, handle: peer.handle }, thread.id) ?? inv;
+  const card = invoiceCardMeta(inv);
+  const symbol = (inv.token || "USDC").toUpperCase() === "EURC" ? "€" : "$";
+  const msg = store.addMessage({
+    threadId: thread.id,
+    senderId: uid,
+    kind: "receipt",
+    text: `Payment request · ${symbol}${inv.total.toFixed(2)}${inv.description ? ` · ${inv.description}` : ""}`,
+    meta: card,
+  });
+  await announceChatMessage(thread, uid, msg);
+  return c.json({ message: msg }, 201);
 });
 
 /**

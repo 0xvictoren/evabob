@@ -14,6 +14,7 @@ import '../../core/utils/text_safe.dart';
 import '../../core/auth/evabob_auth.dart';
 import '../../core/security/app_lock_service.dart';
 import '../../core/theme/evabob_colors.dart';
+import '../../core/wallet/circle_native_sdk.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/confirm_action_dialog.dart';
 import '../../core/widgets/bundle_avatar.dart';
@@ -500,6 +501,9 @@ class ProfileScreen extends StatelessWidget {
                     );
                   },
                 ),
+                // Confirm payments with fingerprint or Face ID instead of the
+                // PIN. Shown only in builds that include Circle's native SDK.
+                const _BiometricConfirmTile(),
                 Divider(
                     height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
                 _tile(
@@ -668,6 +672,70 @@ class _OperatorReviewsTileState extends State<_OperatorReviewsTile> {
             MaterialPageRoute<void>(
               builder: (_) => const OperatorReviewsScreen(),
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BiometricConfirmTile extends StatefulWidget {
+  const _BiometricConfirmTile();
+
+  @override
+  State<_BiometricConfirmTile> createState() => _BiometricConfirmTileState();
+}
+
+class _BiometricConfirmTileState extends State<_BiometricConfirmTile> {
+  bool? _available;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    CircleNativeSdk.available().then((v) {
+      if (mounted) setState(() => _available = v);
+    });
+  }
+
+  Future<void> _toggle(bool on) async {
+    setState(() => _busy = true);
+    final error =
+        await context.read<CircleWalletService>().setBiometricConfirm(context, on);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_available != true) return const SizedBox.shrink();
+    final on = context.watch<CircleWalletService>().biometricConfirm;
+    return Column(
+      children: [
+        Divider(height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: on,
+          onChanged: _busy ? null : _toggle,
+          secondary: const Icon(Icons.fingerprint_rounded,
+              color: EvabobColors.emeraldDeep),
+          title: const Text(
+            'Confirm with fingerprint or Face ID',
+            style: TextStyle(
+              fontWeight: FontWeight.w400,
+              color: EvabobColors.navy,
+            ),
+          ),
+          subtitle: Text(
+            on
+                ? 'Payments ask for your fingerprint or face. Your PIN still works.'
+                : 'Instead of typing your PIN each time. You set it up once with your PIN.',
+            style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
           ),
         ),
       ],

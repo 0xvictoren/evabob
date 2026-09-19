@@ -99,3 +99,47 @@ describe("inbound scan window", () => {
     assert.equal(toBlock, head);
   });
 });
+
+describe("native USDC sends on Arc", async () => {
+  const { pairNativeWithToken, ARC_NATIVE_TRANSFER_SOURCE } = await import("./inbound.js");
+  const usdc = "0x3600000000000000000000000000000000000000" as const;
+  const from = "0x00000000000000000000000000000000000000aa" as const;
+  const row = (over: Record<string, unknown>) => ({
+    txHash: "0x" + "1".repeat(64),
+    logIndex: 0,
+    blockNumber: 10,
+    from,
+    token: "USDC",
+    amount: 20,
+    units: 20_000_000n,
+    tokenAddress: usdc,
+    ...over,
+  }) as import("./inbound.js").InboundTransfer;
+
+  it("records a plain send, which only the native event reports", () => {
+    const native = row({ tokenAddress: ARC_NATIVE_TRANSFER_SOURCE, units: 20n * 10n ** 18n, txHash: "0x" + "2".repeat(64) });
+    assert.deepEqual(pairNativeWithToken([native]), [native]);
+  });
+
+  it("counts a token transfer once, not twice", () => {
+    const token = row({ logIndex: 2 });
+    const twin = row({ logIndex: 1, tokenAddress: ARC_NATIVE_TRANSFER_SOURCE, units: 20n * 10n ** 18n });
+    assert.deepEqual(pairNativeWithToken([twin, token]), [token]);
+    // A native event for a different amount in the same transaction is its own money.
+    const other = row({ logIndex: 3, tokenAddress: ARC_NATIVE_TRANSFER_SOURCE, units: 5n * 10n ** 18n });
+    assert.deepEqual(pairNativeWithToken([twin, token, other]), [token, other]);
+  });
+});
+
+describe("RPC limits", async () => {
+  const { isRangeTooLarge, isRateLimited } = await import("./inbound.js");
+  it("tells a too-large range from a quota", () => {
+    assert.equal(isRangeTooLarge(new Error("query returned more than 10000 results")), true);
+    assert.equal(isRangeTooLarge(new Error("block range is too wide")), true);
+    // Arc's quota message fails every range, however small: back off, never split.
+    assert.equal(isRangeTooLarge(new Error("Request exceeds defined limit.")), false);
+    assert.equal(isRateLimited(new Error("Request exceeds defined limit.")), true);
+    assert.equal(isRateLimited(new Error("rate limit exceeded")), true);
+    assert.equal(isRangeTooLarge(new Error("connection reset")), false);
+  });
+});

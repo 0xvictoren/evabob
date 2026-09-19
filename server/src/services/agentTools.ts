@@ -388,6 +388,51 @@ export const READ_TOOLS: Record<string, ReadTool> = {
     },
   },
 
+  get_payment_request: {
+    description:
+      "Look up one payment request by its id — the part after evabob://pay/ " +
+      "or /pay/ in a link the user pasted or was sent. Returns who asked, " +
+      "every line, the total and whether it is still unpaid. Use this " +
+      "whenever the user pastes a pay link, then offer propose_pay_invoice " +
+      "if it is open. A request can be opened by anyone with its link.",
+    parameters: {
+      type: "object",
+      properties: {
+        requestId: {
+          type: "string",
+          description: "The request id, or the whole pay link.",
+        },
+      },
+      required: ["requestId"],
+      additionalProperties: false,
+    },
+    async run(ctx, args) {
+      const raw = str(args.requestId) ?? "";
+      const { getPaymentRequest, payLinkIds, invoiceStatusLabel } = await import(
+        "./payment-requests.js"
+      );
+      const id = payLinkIds(raw)[0] ?? raw.trim().toLowerCase();
+      const inv = id ? getPaymentRequest(id) : undefined;
+      if (!inv) return { ok: false, error: "No payment request with that id." };
+      const issuer = store.getUser(inv.senderId || inv.userId);
+      return {
+        ok: true,
+        data: {
+          id: inv.id,
+          from: issuer?.handle ? `@${issuer.handle}` : issuer?.displayName || "someone",
+          raisedByYou: (inv.senderId || inv.userId) === ctx.userId,
+          status: invoiceStatusLabel(inv),
+          open: inv.status === "open",
+          token: inv.token || "USDC",
+          total: money(Number(inv.total ?? inv.amount ?? 0)),
+          lines: inv.items.map((it) => ({ description: it.description, amount: money(it.amount) })),
+          description: inv.description,
+          dueAt: inv.dueAt ?? null,
+        },
+      };
+    },
+  },
+
   get_receiving_details: {
     description:
       "The user's own wallet address and handle — what they give someone else " +

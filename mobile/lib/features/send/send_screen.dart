@@ -346,7 +346,12 @@ class _SendScreenState extends State<SendScreen> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: SafeArea(
+      // Tapping anywhere that is not a text field — the amount included —
+      // closes the keyboard so the amount keypad is there to use.
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: SafeArea(
         child: Column(
           children: [
             Padding(
@@ -667,7 +672,10 @@ class _SendScreenState extends State<SendScreen> {
                   ),
                   const SizedBox(height: 20),
                   AmountKeypad(
-                    onKey: (k) => setState(() => _calc = applyKey(_calc, k)),
+                    onKey: (k) {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      setState(() => _calc = applyKey(_calc, k));
+                    },
                     canSend: canSend,
                     sendLabel: widget.isFund
                         ? (amount > 0
@@ -939,6 +947,7 @@ class _SendScreenState extends State<SendScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

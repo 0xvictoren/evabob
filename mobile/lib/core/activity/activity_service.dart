@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
 import '../fx/fx_service.dart';
+import '../sound/money_sounds.dart';
 import '../utils/money_format.dart';
 
 class ActivityEntry {
@@ -178,8 +179,10 @@ class ActivityService extends ChangeNotifier {
   List<ActivityEntry> items = [];
   bool loading = false;
   String? error;
+  bool _loadedOnce = false;
 
   void clear() {
+    _loadedOnce = false;
     items = [];
     loading = false;
     error = null;
@@ -193,10 +196,26 @@ class ActivityService extends ChangeNotifier {
     try {
       final data = await _api.get('/v1/activity');
       final list = data['items'] as List? ?? [];
+      final before = items.map((e) => e.id).toSet();
+      final hadLoaded = _loadedOnce;
       items = list
           .whereType<Map>()
           .map((e) => ActivityEntry.fromJson(Map<String, dynamic>.from(e), _fx))
           .toList();
+      _loadedOnce = true;
+      // Money that arrived without its live alert reaching this phone still
+      // gets its sound — once, and only if it is new and recent.
+      if (hadLoaded) {
+        final now = DateTime.now();
+        for (final e in items) {
+          if (e.kind == 'receive' &&
+              !before.contains(e.id) &&
+              now.difference(e.createdAt).inMinutes < 5) {
+            MoneySounds.instance.playIn(key: e.txHash ?? e.id);
+            break;
+          }
+        }
+      }
     } catch (e) {
       error = e.toString();
       debugPrint('activity: $e');

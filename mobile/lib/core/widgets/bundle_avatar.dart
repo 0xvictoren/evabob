@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../auth/evabob_auth.dart';
+import '../config/env.dart';
 import '../theme/evabob_colors.dart';
 import '../theme/evabob_tokens.dart';
 
@@ -187,4 +188,64 @@ Future<void> showAvatarPicker(
       );
     },
   );
+}
+
+/// Someone else's picture, as they chose it: an uploaded photo, one of the
+/// built-in pictures, or — when they have neither — their initial.
+///
+/// Chats used to show everyone as a letter, because the picture a person
+/// chose on their home screen was only ever saved on their own phone.
+class PeerAvatar extends StatelessWidget {
+  const PeerAvatar({
+    super.key,
+    required this.name,
+    this.avatarUrl,
+    this.bundleIndex,
+    this.size = 40,
+  });
+
+  final String name;
+
+  /// A server path (`/uploads/…`) or a full URL.
+  final String? avatarUrl;
+  final int? bundleIndex;
+  final double size;
+
+  String? get _resolvedUrl {
+    final u = avatarUrl;
+    if (u == null || u.isEmpty) return null;
+    if (u.startsWith('http://') || u.startsWith('https://')) return u;
+    final base = Env.resolveApiBaseUrl().replaceAll(RegExp(r'/$'), '');
+    return u.startsWith('/') ? '$base$u' : '$base/$u';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final url = _resolvedUrl;
+    final ImageProvider? provider = url != null
+        ? NetworkImage(url)
+        : bundleIndex != null
+            ? AssetImage(bundleAvatarAsset(bundleIndex!))
+            : null;
+    final letter = name.replaceFirst('@', '').trim();
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: EvabobColors.creamDeep,
+        border: Border.all(color: EvabobColors.hairline),
+        image: provider == null
+            ? null
+            : DecorationImage(image: provider, fit: BoxFit.cover),
+      ),
+      child: provider != null
+          ? null
+          : Text(
+              letter.isEmpty ? '?' : letter.characters.first.toUpperCase(),
+              style: Type.label.copyWith(color: EvabobColors.forest),
+            ),
+    );
+  }
 }

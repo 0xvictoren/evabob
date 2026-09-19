@@ -25,12 +25,15 @@ export async function runTickWork() {
       import("./invoiceReminders.js"),
       import("./groupMoney.js"),
     ]);
+  const { runInboundSweep } = await import("./inboundChains.js");
   return {
     held: await step(() => runDueHeldPaymentWork()),
     bridges: await step(() => completeAbandonedBridges()),
     gateway: await step(() => runGatewayTracker()),
     invoices: await step(() => sendInvoiceReminders()),
     groups: await step(() => runGroupMoneyWork()),
+    // Money arriving while the app is closed: recorded and announced anyway.
+    inbound: await step(() => runInboundSweep()),
   };
 }
 
@@ -46,6 +49,7 @@ export function tickWasBusy(r: Awaited<ReturnType<typeof runTickWork>>): boolean
     busy(r.bridges, ["completed", "errors"]) ||
     busy(r.gateway, ["paymentsFinished", "topUpsArrived", "errors"]) ||
     busy(r.invoices, ["reminded"]) ||
-    busy(r.groups, ["collected", "paidOut", "refunded", "errors"])
+    busy(r.groups, ["collected", "paidOut", "refunded", "errors"]) ||
+    busy(r.inbound, ["recorded"])
   );
 }

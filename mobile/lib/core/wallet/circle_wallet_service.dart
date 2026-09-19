@@ -7,6 +7,8 @@ import '../api/api_client.dart';
 import '../auth/evabob_auth.dart';
 import '../config/env.dart';
 import '../sound/money_sounds.dart';
+import 'circle_native_sdk.dart';
+import '../utils/text_safe.dart';
 import '../../features/wallet/circle_challenge_screen.dart';
 
 String? _circleTxHash(dynamic value, [int depth = 0]) {
@@ -76,6 +78,83 @@ class CircleWalletService extends ChangeNotifier {
   /// the challenge; Circle's challenge record does not carry them, so App Kit
   /// jobs stall until these are relayed back to the server.
   final Map<String, String> _lastSignatures = {};
+
+  /// Confirm payments with fingerprint or Face ID instead of typing the PIN.
+  /// Set per person on this phone; needs a build with Circle's native SDK.
+  bool biometricConfirm = false;
+
+  String get _biometricPrefKey => 'evabob_biometric_confirm_$_userId';
+
+  Future<void> loadBiometricPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      biometricConfirm = (prefs.getBool(_biometricPrefKey) ?? false) &&
+          await CircleNativeSdk.available();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Turns biometric confirmation on (Circle asks for the PIN once, then
+  /// enrols the fingerprint or face) or off. Returns an error to show, or null.
+  Future<String?> setBiometricConfirm(BuildContext context, bool on) async {
+    if (!on) {
+      biometricConfirm = false;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_biometricPrefKey, false);
+      notifyListeners();
+      return null;
+    }
+    if (!await CircleNativeSdk.available()) {
+      return 'This version of the app cannot use fingerprint or Face ID yet.';
+    }
+    if (!context.mounted) return null;
+    if (!await ensureReady(context)) return 'Set up your wallet first.';
+    if (userToken == null || encryptionKey == null) await refreshSessionOnly();
+    final token = userToken;
+    final key = encryptionKey;
+    if (token == null || key == null) return 'Your session ended. Open the app again.';
+    FocusManager.instance.primaryFocus?.unfocus();
+    final out = await CircleNativeSdk.enableBiometrics(
+      appId: appId,
+      userToken: token,
+      encryptionKey: key,
+    );
+    if (!out.ok) {
+      return out.canceled ? null : (out.error ?? 'Fingerprint or Face ID was not set up.');
+    }
+    biometricConfirm = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_biometricPrefKey, true);
+    notifyListeners();
+    return null;
+  }
+
+  /// Confirms each challenge natively, one at a time so every signature maps
+  /// to its step. Null when the native path cannot be used and the PIN screen
+  /// should be shown instead; true/false for confirmed/cancelled.
+  Future<bool?> _confirmNatively({
+    required List<String> ids,
+    required String userToken,
+    required String encryptionKey,
+    required String appId,
+  }) async {
+    if (!biometricConfirm || !await CircleNativeSdk.available()) return null;
+    for (final id in ids) {
+      final out = await CircleNativeSdk.confirm(
+        appId: appId,
+        userToken: userToken,
+        encryptionKey: encryptionKey,
+        challengeId: id,
+      );
+      if (out.canceled) return false;
+      if (!out.ok) {
+        debugPrint('native confirm failed, falling back to PIN: ${out.error}');
+        return null;
+      }
+      if (out.signature != null) _lastSignatures[id] = out.signature!;
+    }
+    return true;
+  }
   String? _lastVerifiedTxHash;
 
   String? get lastVerifiedTxHash => _lastVerifiedTxHash;
@@ -423,18 +502,34 @@ class CircleWalletService extends ChangeNotifier {
       'tokenLen=${userToken.length} keyLen=${encryptionKey.trim().length}',
     );
 
-    // ONE WebView for all steps — avoids reopening and feels like a single confirm.
-    final raw = await Navigator.of(context).push<Object?>(
-      MaterialPageRoute(
-        builder: (_) => CircleChallengeScreen(
-          appId: appId,
-          userToken: userToken,
-          encryptionKey: encryptionKey,
-          challengeIds: uniqueIds,
-          title: title,
-        ),
-      ),
+    // Whatever text field had the keyboard (a memo, a payee) must not sit on
+    // top of the PIN keypad.
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    // Fingerprint or Face ID, when the person turned it on. If it cannot be
+    // used this time, the PIN screen below takes over.
+    final native = await _confirmNatively(
+      ids: uniqueIds,
+      userToken: userToken,
+      encryptionKey: encryptionKey,
+      appId: appId,
     );
+    if (!context.mounted) return false;
+
+    // ONE WebView for all steps — avoids reopening and feels like a single confirm.
+    final raw = native != null
+        ? {'ok': native, 'cancelled': native == false, 'completedIds': native ? uniqueIds : <String>[]}
+        : await Navigator.of(context).push<Object?>(
+            MaterialPageRoute(
+              builder: (_) => CircleChallengeScreen(
+                appId: appId,
+                userToken: userToken,
+                encryptionKey: encryptionKey,
+                challengeIds: uniqueIds,
+                title: title,
+              ),
+            ),
+          );
     if (!context.mounted) return false;
 
     // Backward compatible: true/false or structured map from challenge screen.
@@ -1103,6 +1198,10 @@ class CircleWalletService extends ChangeNotifier {
 
     try {
       Map<String, dynamic> res = {};
+      // Set once the person has approved Evabob on a network: the server then
+      // schedules the payment until the approval is final, instead of asking
+      // for the same approval again.
+      var justApproved = false;
       for (var attempt = 0; attempt < 4; attempt++) {
         if (!context.mounted) return {'ok': false, 'error': 'Cancelled'};
         res = await _api.post('/v1/circle/gateway/pay', body: {
@@ -1112,6 +1211,7 @@ class CircleWalletService extends ChangeNotifier {
           'destinationDomain': destinationDomain,
           'destinationAddress': destinationAddress,
           if (sourceDomain != null) 'sourceDomain': sourceDomain,
+          if (justApproved) 'delegateReady': true,
           'userId': _userId,
         });
         if (!context.mounted) return {'ok': false, 'error': 'Cancelled'};
@@ -1140,7 +1240,8 @@ class CircleWalletService extends ChangeNotifier {
               };
             }
           }
-          await Future<void>.delayed(const Duration(seconds: 8));
+          justApproved = true;
+          await Future<void>.delayed(const Duration(seconds: 4));
           if (userToken == null) await refreshSessionOnly();
           continue;
         }
@@ -1195,7 +1296,10 @@ class CircleWalletService extends ChangeNotifier {
       };
     } catch (e) {
       debugPrint('circle gatewayPay: $e');
-      return {'ok': false, 'error': e.toString()};
+      return {
+        'ok': false,
+        'error': friendlyError(e, fallback: 'The payment did not go through.'),
+      };
     }
   }
 

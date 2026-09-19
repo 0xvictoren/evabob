@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:provider/provider.dart';
 
 import '../../core/activity/activity_service.dart';
+import '../held/held_payment_screen.dart';
+import '../../core/notifications/money_alerts.dart';
+import '../../core/held/held_payments_api.dart';
+import '../../core/api/api_client.dart';
 import '../../core/auth/evabob_auth.dart';
-import '../../core/chat/chat_models.dart';
 import '../../core/chat/chat_service.dart';
 import '../../core/fx/fx_service.dart';
 import '../../core/config/app_features.dart';
@@ -18,10 +22,8 @@ import '../../core/widgets/glass.dart';
 import '../../core/widgets/motion.dart';
 import '../activity/incomplete_jobs_banner.dart';
 import '../activity/receipt_sheet.dart';
-import '../chat/chat_thread_screen.dart';
 import '../groups/groups_screen.dart';
 import '../hold_links/hold_links_screen.dart';
-import '../money_in/money_in_screen.dart';
 import 'action_row.dart';
 import 'home_menu.dart';
 import 'income_card.dart';
@@ -58,12 +60,36 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// Held money still in motion: a payment waiting out its 10 minutes, money
+  /// set aside for work or an order, a claim link waiting for someone to join.
+  List<HeldPayment> _held = const [];
+  StreamSubscription<Map<String, dynamic>>? _alerts;
+
+  Future<void> _loadHeld() async {
+    try {
+      final all = await HeldPaymentsApi(context.read<ApiClient>()).list();
+      if (!mounted) return;
+      setState(() => _held = all.where((h) => !h.stage.settled).toList());
+    } catch (_) {
+      // Keeps what it showed; the next refresh tries again.
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final circle = context.read<CircleWalletService>();
+      // Anything that moves held or GA money changes "Your money".
+      _alerts = context.read<MoneyAlerts>().events.listen((a) {
+        final kind = a['kind']?.toString() ?? '';
+        if (!mounted) return;
+        if (kind.startsWith('hold_') || kind.startsWith('ga_')) {
+          _loadHeld();
+          context.read<ActivityService>().refresh();
+        }
+      });
       await Future.wait([
         context.read<WalletService>().refreshBalances(
               addressOverride: circle.address,
@@ -72,8 +98,15 @@ class _HomeScreenState extends State<HomeScreen> {
         context.read<ActivityService>().refresh(),
         context.read<ChatService>().refreshThreads(),
         circle.refreshOpenJobs(),
+        _loadHeld(),
       ]);
     });
+  }
+
+  @override
+  void dispose() {
+    _alerts?.cancel();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
@@ -87,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context.read<ActivityService>().refresh(),
       context.read<ChatService>().refreshThreads(),
       circle.refreshOpenJobs(),
+      _loadHeld(),
     ]);
   }
 
@@ -104,10 +138,6 @@ class _HomeScreenState extends State<HomeScreen> {
         Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const GroupsScreen()),
         );
-      case HomeMenuAction.moneyIn:
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const MoneyInScreen()),
-        );
       case HomeMenuAction.convert:
         widget.onExchange();
       case HomeMenuAction.ga:
@@ -116,15 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.onBridge();
       case HomeMenuAction.agent:
         widget.onAgents();
-      case HomeMenuAction.profile:
-        widget.onProfile();
     }
-  }
-
-  void _openThread(ChatThread thread) {
-    Navigator.of(context).push(
-      SpringPageRoute(page: ChatThreadScreen(thread: thread)),
-    );
   }
 
   @override
@@ -170,20 +192,32 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  _MoneyCard(wallet: wallet, jobs: circle.openJobs),
-                  const SizedBox(height: 24),
-                  IncomeCard(activity: activity),
+                  _MoneyCard(
+                    wallet: wallet,
+                    jobs: circle.openJobs,
+                    held: _held,
+                    gaInFlight: activity.items
+                        .where((e) => e.kind == 'withdraw' && e.isPending)
+                        .toList(),
+                    onOpenHeld: (h) async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              HeldPaymentScreen(transferId: h.transferId),
+                        ),
+                      );
+                      if (mounted) await _loadHeld();
+                    },
+                    onOpenActivity: (e) => ReceiptSheet.open(context, e),
+                  ),
                   const SizedBox(height: 24),
                   _RecentActivity(
                     activity: activity,
                     onSeeAll: widget.onActivity,
                     onOpen: (entry) => ReceiptSheet.open(context, entry),
                   ),
-                  _ConversationShortcut(
-                    chat: context.watch<ChatService>(),
-                    onOpen: _openThread,
-                    onSeeAll: widget.onChatList,
-                  ),
+                  const SizedBox(height: 24),
+                  IncomeCard(activity: activity),
                 ],
               ),
             ),
@@ -437,10 +471,56 @@ class _HeroIcon extends StatelessWidget {
 /// "Your money": every bridge or GA top-up that has not finished, each with
 /// where it stands and a tap to continue. "All clear" only when none are.
 class _MoneyCard extends StatelessWidget {
-  const _MoneyCard({required this.wallet, required this.jobs});
+  const _MoneyCard({
+    required this.wallet,
+    required this.jobs,
+    required this.held,
+    required this.gaInFlight,
+    required this.onOpenHeld,
+    required this.onOpenActivity,
+  });
 
   final WalletService wallet;
   final List<Map<String, dynamic>> jobs;
+
+  /// Held payments not yet settled, either side of them.
+  final List<HeldPayment> held;
+
+  /// GA payments on their way, or waiting for an approval to be final.
+  final List<ActivityEntry> gaInFlight;
+  final ValueChanged<HeldPayment> onOpenHeld;
+  final ValueChanged<ActivityEntry> onOpenActivity;
+
+  static String _heldTitle(HeldPayment h) {
+    final amount = formatMoney(h.amountUsdc);
+    if (h.isCoolingOff) return 'Sending $amount to ${h.counterparty}';
+    if (h.isJob) {
+      return h.isPayer
+          ? 'Held for ${h.counterparty} · $amount'
+          : 'Set aside for you · $amount';
+    }
+    return 'Waiting for ${h.counterparty} · $amount';
+  }
+
+  static String _heldStage(HeldPayment h) {
+    switch (h.stage) {
+      case HeldStage.coolingOff:
+        final left = h.releaseAt?.difference(DateTime.now());
+        return left == null || left.isNegative
+            ? 'Going now · tap to see'
+            : 'Goes in ${left.inMinutes + 1} min · you can still cancel';
+      case HeldStage.waitingForDelivery:
+        return h.isPayer ? 'Until they deliver' : 'Mark it delivered when done';
+      case HeldStage.delivered:
+        return h.isPayer ? 'Delivered · confirm or it pays itself' : 'Delivered · waiting for them';
+      case HeldStage.underReview:
+        return 'Being reviewed';
+      case HeldStage.waitingToClaim:
+        return 'Waiting for them to join Evabob';
+      default:
+        return 'Tap to see where it stands';
+    }
+  }
 
   static String _network(String? chain) {
     final c = (chain ?? '').toLowerCase();
@@ -488,7 +568,11 @@ class _MoneyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pendingTopUp = wallet.gatewayPendingUsdc;
-    final clear = jobs.isEmpty && pendingTopUp <= 0;
+    // All clear only when nothing at all is in motion.
+    final clear = jobs.isEmpty &&
+        pendingTopUp <= 0 &&
+        held.isEmpty &&
+        gaInFlight.isEmpty;
 
     Widget row({
       required String title,
@@ -579,6 +663,24 @@ class _MoneyCard extends StatelessWidget {
           title: 'Adding ${formatMoney(pendingTopUp)} to your GA',
           subtitle: 'Confirming on the network',
           icon: Icons.account_balance_wallet_outlined,
+        ),
+      for (final h in held)
+        row(
+          title: _heldTitle(h),
+          subtitle: _heldStage(h),
+          icon: h.isCoolingOff
+              ? Icons.hourglass_top_rounded
+              : Icons.lock_clock_outlined,
+          onTap: () => onOpenHeld(h),
+        ),
+      for (final e in gaInFlight)
+        row(
+          title: 'Paying ${formatMoney(e.displayAmount)} from your GA',
+          subtitle: e.mode == 'gateway_pay_scheduled'
+              ? 'Goes by itself once your approval is confirmed'
+              : 'On its way',
+          icon: Icons.account_balance_wallet_outlined,
+          onTap: () => onOpenActivity(e),
         ),
     ];
 
@@ -739,74 +841,6 @@ class _ActivityRow extends StatelessWidget {
     final parts = value.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return 'EB';
     return parts.take(2).map((part) => part[0].toUpperCase()).join();
-  }
-}
-
-class _ConversationShortcut extends StatelessWidget {
-  const _ConversationShortcut({
-    required this.chat,
-    required this.onOpen,
-    required this.onSeeAll,
-  });
-
-  final ChatService chat;
-  final ValueChanged<ChatThread> onOpen;
-  final VoidCallback onSeeAll;
-
-  @override
-  Widget build(BuildContext context) {
-    if (chat.threads.isEmpty) return const SizedBox.shrink();
-    final thread = chat.threads.first;
-    return Column(
-      children: [
-        Row(
-          children: [
-            Text('Messages', style: Type.title),
-            const Spacer(),
-            _TextLink(label: 'View all ›', onTap: onSeeAll),
-          ],
-        ),
-        const SizedBox(height: 8),
-        InkWell(
-          onTap: () => onOpen(thread),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            height: 72,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: const BoxDecoration(
-              color: EvabobColors.white,
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-              boxShadow: Shadows.card,
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: EvabobColors.pageBg,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text('EB',
-                      style: Type.body.copyWith(color: EvabobColors.blue)),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    thread.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Type.body,
-                  ),
-                ),
-                const Icon(Icons.chevron_right_rounded, size: 20),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
   }
 }
 

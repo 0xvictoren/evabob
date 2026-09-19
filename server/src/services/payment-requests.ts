@@ -29,7 +29,9 @@ export type InvoiceStatus =
   | "released"
   | "refunded"
   | "cancelled"
-  | "expired";
+  | "expired"
+  /** The person it was sent to said no. Closes the request for everyone. */
+  | "declined";
 
 export type PaymentRequest = {
   id: string;
@@ -69,6 +71,8 @@ export type PaymentRequest = {
   createdAt: string;
   paidAt?: string;
   expiresAt?: string;
+  declinedBy?: string;
+  declinedAt?: string;
   /**
    * When payment is due. The payer is reminded the day before, on the day,
    * and once more three days late; the issuer is told when it goes overdue.
@@ -286,6 +290,7 @@ const TERMINAL: InvoiceStatus[] = [
   "refunded",
   "cancelled",
   "expired",
+  "declined",
 ];
 
 /** Raised when someone tries to change an invoice that is not theirs to change. */
@@ -445,6 +450,99 @@ export function invoiceChatMeta(inv: PaymentRequest): Record<string, unknown> {
     milestoneTransferIds: inv.milestoneTransferIds || null,
     link: inv.link,
   };
+}
+
+/**
+ * Addresses a request to someone, when it is shared with them in a chat. A
+ * request that already names someone else keeps its payer.
+ */
+export function assignInvoiceReceiver(
+  id: string,
+  receiver: { id: string; handle?: string },
+  threadId?: string,
+): PaymentRequest | null {
+  const all = load();
+  const i = all.findIndex((r) => r.id === id);
+  if (i < 0) return null;
+  const row = all[i]!;
+  if (row.receiverId && row.receiverId !== receiver.id) return hydrate(row);
+  all[i] = {
+    ...row,
+    receiverId: receiver.id,
+    receiverHandle: row.receiverHandle || (receiver.handle ? `@${receiver.handle}` : undefined),
+    threadId: row.threadId || threadId,
+  };
+  save(all);
+  return hydrate(all[i]!);
+}
+
+/** The person a request was sent to says no. Only they may; it closes the request. */
+export function declineInvoice(id: string, userId: string): PaymentRequest {
+  const all = load();
+  const i = all.findIndex((r) => r.id === id);
+  if (i < 0) throw new InvoicePermissionError("No such request.");
+  const row = hydrate(all[i]!);
+  const issuer = row.senderId || row.userId;
+  if (issuer === userId) {
+    throw new InvoicePermissionError("You sent this request — cancel it instead.");
+  }
+  if (row.receiverId && row.receiverId !== userId) {
+    throw new InvoicePermissionError("This request was sent to someone else.");
+  }
+  if (row.status !== "open") {
+    throw new InvoicePermissionError(`This request is already ${row.status}.`);
+  }
+  all[i] = { ...row, status: "declined", declinedBy: userId, declinedAt: new Date().toISOString() };
+  save(all);
+  return all[i]!;
+}
+
+/** Plain words for where a request stands, for its card. */
+export function invoiceStatusLabel(inv: PaymentRequest): string {
+  const open =
+    inv.status === "open" && inv.expiresAt && Date.parse(inv.expiresAt) <= Date.now()
+      ? "expired"
+      : inv.status;
+  return (
+    {
+      open: "Request · unpaid",
+      partial: "Request · part paid",
+      paid: "Request · paid",
+      escrow: "Request · money set aside",
+      released: "Request · paid",
+      refunded: "Request · refunded",
+      cancelled: "Request · cancelled",
+      expired: "Request · expired",
+      declined: "Request · declined",
+    } as Record<string, string>
+  )[open] ?? `Request · ${open}`;
+}
+
+/**
+ * What a chat card shows for a request: every line, the total, and where it
+ * stands. Written by the server from the request itself, so a card in a chat
+ * cannot be made up by whoever posted it.
+ */
+export function invoiceCardMeta(inv: PaymentRequest): Record<string, unknown> {
+  return {
+    ...invoiceChatMeta(inv),
+    type: "invoice_card",
+    kind: "payment_request",
+    rawStatus: inv.status,
+    status: invoiceStatusLabel(inv),
+    open: inv.status === "open" && !(inv.expiresAt && Date.parse(inv.expiresAt) <= Date.now()),
+    issuerId: inv.senderId || inv.userId,
+    receiverId: inv.receiverId || null,
+    items: inv.items.map((it) => ({ description: it.description, amount: it.amount })),
+  };
+}
+
+/** Request ids named by pay links in a message (evabob://pay/… or …/pay/…). */
+export function payLinkIds(text: string): string[] {
+  const out = new Set<string>();
+  const re = /(?:evabob:\/\/pay\/|\/pay\/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
+  for (const m of text.matchAll(re)) out.add(m[1]!.toLowerCase());
+  return [...out];
 }
 
 export type InvoiceReminder = "before" | "due" | "overdue";

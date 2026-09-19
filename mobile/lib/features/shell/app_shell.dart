@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/chat/chat_service.dart';
 import '../../core/notify/section_notify.dart';
 import '../../core/config/app_features.dart';
 import '../../core/navigation/app_link_service.dart';
@@ -365,7 +366,11 @@ class _AppShellState extends State<AppShell> {
               _overlay = null;
               _tab = index;
             });
-            if (index == 1) notify.clear('chat');
+            if (index == 1) {
+              notify.clear('chat');
+              // Fresh names, pictures and last messages each time Chat opens.
+              context.read<ChatService>().refreshThreads();
+            }
             if (index == 3) notify.clear('activity');
             if (index == 4) notify.clear('assets');
           },

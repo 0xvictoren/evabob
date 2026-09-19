@@ -28,8 +28,12 @@ const TRANSFER_EVENT = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 value)",
 );
 
-/** Comfortably inside the RPC's range limit. */
-const CHUNK_BLOCKS = 9_000n;
+/**
+ * Blocks per log query. Small, because the public Arc RPC answers larger
+ * queries with "Request exceeds defined limit" when it is under load; a node
+ * that says outright the range is too large gets it halved (`logsInRange`).
+ */
+const CHUNK_BLOCKS = 1_000n;
 
 /**
  * How far back to look the first time a wallet is scanned. About four hours
@@ -60,7 +64,7 @@ const REORG_SAFETY_BLOCKS = 200n;
 const ALERT_WINDOW_BLOCKS = 1_800n;
 
 /** Ceiling on one sync so a long-idle wallet cannot stall a balance refresh. */
-const MAX_BLOCKS_PER_SYNC = 90_000n;
+const MAX_BLOCKS_PER_SYNC = 30_000n;
 
 /**
  * The public Arc RPC rate-limits chunked getLogs, answering -32005
@@ -73,14 +77,30 @@ const RATE_LIMIT_RETRIES = 4;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function isRateLimited(e: unknown): boolean {
+/**
+ * The RPC is pushing back on how much we ask of it. The public Arc RPC says
+ * "Request exceeds defined limit" (code -32005) when its quota is used up —
+ * for every range, however small — so this is backed off, never split.
+ */
+export function isRateLimited(e: unknown): boolean {
   const text = e instanceof Error ? e.message : String(e);
-  return /rate limit|-32005|too many requests|429/i.test(text);
+  return /rate limit|-32005|too many requests|429|exceeds defined limit/i.test(text);
 }
+
+/**
+ * Where Arc reports a native USDC movement: a Transfer event from this system
+ * address, in 18 decimals. A plain "send" from another wallet emits only this
+ * one — it was never watched, so money sent into Evabob that way was never
+ * recorded. A USDC token transfer emits both this and the token's own event,
+ * so the pair is collapsed to one (see `pairNativeWithToken`).
+ */
+export const ARC_NATIVE_TRANSFER_SOURCE = "0xfffffffffffffffffffffffffffffffffffffffe" as Address;
 
 const TOKENS: Array<{ address: Address; symbol: string; decimals: number }> = [
   { address: config.arc.usdc as Address, symbol: "USDC", decimals: 6 },
   { address: config.arc.eurc as Address, symbol: "EURC", decimals: 6 },
+  { address: config.arc.cirbtc as Address, symbol: "CIRBTC", decimals: 8 },
+  { address: ARC_NATIVE_TRANSFER_SOURCE, symbol: "USDC", decimals: 18 },
 ];
 
 export type InboundTransfer = {
@@ -162,6 +182,55 @@ async function transferLogsWithRetry(
   }
 }
 
+/**
+ * Drops the native-USDC twin of a USDC token transfer. Pure.
+ *
+ * Arc emits two Transfer events for one token transfer — the token's (6
+ * decimals) and the native system's (18 decimals) — and only the native one
+ * for a plain send. Keeping every token event plus the native events that
+ * have no token twin in the same transaction counts each movement once.
+ */
+export function pairNativeWithToken(found: InboundTransfer[]): InboundTransfer[] {
+  const native = ARC_NATIVE_TRANSFER_SOURCE.toLowerCase();
+  const tokenTwins = new Set(
+    found
+      .filter((t) => t.token === "USDC" && t.tokenAddress.toLowerCase() !== native)
+      .map((t) => `${t.txHash.toLowerCase()}|${t.from.toLowerCase()}|${t.units}`),
+  );
+  return found.filter((t) => {
+    if (t.tokenAddress.toLowerCase() !== native) return true;
+    // 18-decimal native units to the token's 6.
+    const asToken = t.units / 1_000_000_000_000n;
+    return !tokenTwins.has(`${t.txHash.toLowerCase()}|${t.from.toLowerCase()}|${asToken}`);
+  });
+}
+
+/** The node refused the range as too large, as opposed to failing. */
+export function isRangeTooLarge(e: unknown): boolean {
+  const text = e instanceof Error ? e.message : String(e);
+  return /block range|range too large|too many (?:results|logs)|query returned more than/i.test(text) &&
+    !isRateLimited(e);
+}
+
+/** Logs for a range, halving it for as long as the node says it is too large. */
+async function logsInRange(
+  client: ReturnType<typeof getPublicClient>,
+  to: Address,
+  fromBlock: bigint,
+  toBlock: bigint,
+): Promise<Awaited<ReturnType<typeof transferLogsWithRetry>>> {
+  try {
+    return await transferLogsWithRetry(client, to, fromBlock, toBlock);
+  } catch (e) {
+    if (!isRangeTooLarge(e) || toBlock <= fromBlock) throw e;
+    const mid = fromBlock + (toBlock - fromBlock) / 2n;
+    const left = await logsInRange(client, to, fromBlock, mid);
+    await sleep(CHUNK_PAUSE_MS);
+    const right = await logsInRange(client, to, mid + 1n, toBlock);
+    return [...left, ...right];
+  }
+}
+
 /** Reads Transfer events crediting `address`, in RPC-sized chunks. */
 export async function scanInbound(input: {
   address: Address;
@@ -176,7 +245,7 @@ export async function scanInbound(input: {
     const end =
       cursor + CHUNK_BLOCKS > input.toBlock ? input.toBlock : cursor + CHUNK_BLOCKS;
 
-    const logs = await transferLogsWithRetry(client, input.address, cursor, end);
+    const logs = await logsInRange(client, input.address, cursor, end);
 
     for (const log of logs) {
       const token = tokenFor(log.address);
@@ -195,11 +264,159 @@ export async function scanInbound(input: {
     cursor = end + 1n;
     if (cursor <= input.toBlock) await sleep(CHUNK_PAUSE_MS);
   }
-  return found;
+  return pairNativeWithToken(found);
+}
+
+/**
+ * Records transfers found by a scan, once each: skips anything already
+ * recorded, the wallet's own money, and payments another Evabob user's receipt
+ * already covers. Announces only ones recent enough to be news.
+ */
+async function recordInboundTransfers(input: {
+  userId: string;
+  address: string;
+  transfers: InboundTransfer[];
+  head: bigint;
+}): Promise<InboundTransfer[]> {
+  const client = getPublicClient();
+  const { address, head } = input;
+  const recorded: InboundTransfer[] = [];
+  for (const t of input.transfers) {
+    if (store.hasInboundActivity(t.txHash, t.logIndex)) continue;
+    // A transfer from the user's own wallet is their own send looping back,
+    // not money arriving.
+    if (t.from.toLowerCase() === address.toLowerCase()) continue;
+    // Their own bridge, GA payment or released hold, already recorded.
+    if (store.hasActivityWithTx(input.userId, t.txHash)) continue;
+    // Paid by another Evabob user: their verified send already wrote this
+    // receipt, memo and all.
+    if (
+      store.hasReceiptForTransfer({
+        userId: input.userId,
+        txHash: t.txHash,
+        token: t.token,
+        amount: t.amount,
+      })
+    ) {
+      continue;
+    }
+
+    const memo = await inboundMemo(client, t, address);
+
+    // Written in the words a person uses, because this row is the receipt they
+    // read. The raw address and hash are still on the record for the details
+    // view; they just do not belong in the headline.
+    const shown = Math.round(t.amount * 100) / 100;
+    store.addActivity({
+      ...(memo ? { memo, memoOnchain: true } : {}),
+      userId: input.userId,
+      kind: "receive",
+      title: "Money received",
+      description: `${shown} from ${short(t.from)}`,
+      amountUsdc: t.token === "USDC" ? t.amount : 0,
+      token: t.token,
+      amountToken: t.amount,
+      counterparty: t.from,
+      sender: t.from,
+      receiver: address,
+      txHash: t.txHash,
+      logIndex: t.logIndex,
+      mode: "onchain_inbound",
+      status: "completed",
+    });
+    recorded.push(t);
+
+    // The moment worth telling someone about. Until now this only wrote a row
+    // and waited for the next manual refresh to reveal it.
+    if (head - BigInt(t.blockNumber) <= ALERT_WINDOW_BLOCKS) {
+      alertUser(input.userId, {
+        kind: "money_in",
+        moneyIn: true,
+        title: "Money received",
+        body: `${t.amount} ${t.token} arrived`,
+        amountUsdc: t.token === "USDC" ? t.amount : undefined,
+        token: t.token,
+        counterparty: t.from,
+        txHash: t.txHash,
+      });
+    }
+  }
+
+  return recorded;
+}
+
+/**
+ * One-time look back for native USDC sends the scanner used to miss.
+ *
+ * Plain sends into Arc (MetaMask's "send", faucets) emit only the native
+ * system event, which was never watched, and each wallet's scan mark had
+ * already moved past them. This walks back over the last four days once per
+ * wallet, a slice per call, and records what it finds without announcing it.
+ */
+const BACKFILL_WINDOW_BLOCKS = 700_000n; // about four days of Arc blocks
+// Small slices: the public RPC takes about a thousand blocks per query and
+// rate-limits bursts, and this runs for several wallets every minute.
+const BACKFILL_SLICE_BLOCKS = 5_000n;
+
+export async function backfillNativeInbound(input: {
+  userId: string;
+  address: string;
+}): Promise<{ done: boolean; recorded: number }> {
+  const user = store.getUser(input.userId);
+  if (!user || user.inboundNativeBackfill?.done) return { done: true, recorded: 0 };
+  const client = getPublicClient();
+  const head = await client.getBlockNumber();
+  const state = user.inboundNativeBackfill ?? {
+    // Everything after the scan mark is covered by the normal scan, which now
+    // reads native sends too.
+    next: String(user.inboundScannedBlock ?? Number(head)),
+    floor: String(head > BACKFILL_WINDOW_BLOCKS ? head - BACKFILL_WINDOW_BLOCKS : 0n),
+    done: false,
+  };
+  const next = BigInt(state.next);
+  const floor = BigInt(state.floor);
+  if (next <= floor) {
+    store.setInboundNativeBackfill(input.userId, { ...state, done: true });
+    return { done: true, recorded: 0 };
+  }
+  const from = next - BACKFILL_SLICE_BLOCKS > floor ? next - BACKFILL_SLICE_BLOCKS : floor;
+  const transfers = await scanInbound({
+    address: input.address as Address,
+    fromBlock: from,
+    toBlock: next,
+  });
+  const recorded = await recordInboundTransfers({
+    userId: input.userId,
+    address: input.address,
+    transfers,
+    head,
+  });
+  const done = from <= floor;
+  store.setInboundNativeBackfill(input.userId, {
+    next: String(from > 0n ? from - 1n : 0n),
+    floor: state.floor,
+    done,
+  });
+  if (recorded.length) await flushPrimaryStore();
+  return { done, recorded: recorded.length };
 }
 
 /** Users with a scan already running, so refreshes cannot stack them up. */
 const inFlight = new Set<string>();
+
+/**
+ * Takes the per-user scan lock; false when a scan is already running. Shared
+ * with the tick's sweep, so the two can never record the same payment twice.
+ */
+export function claimInboundScan(userId: string): boolean {
+  if (inFlight.has(userId)) return false;
+  inFlight.add(userId);
+  return true;
+}
+
+export function releaseInboundScan(userId: string): void {
+  inFlight.delete(userId);
+}
 
 /**
  * Starts a scan without making the caller wait for it.
@@ -217,7 +434,11 @@ export function syncInboundInBackground(input: {
   if (inFlight.has(input.userId)) return;
   inFlight.add(input.userId);
   void syncInboundForUser(input)
-    .then((r) => {
+    .then(async (r) => {
+      const { syncOtherChainsForUser } = await import("./inboundChains.js");
+      await syncOtherChainsForUser(input).catch((e) =>
+        console.warn("[inbound] other networks:", e instanceof Error ? e.message.split("\n")[0] : e),
+      );
       if (r.recorded.length > 0) {
         console.log(
           `[inbound] ${input.userId}: recorded ${r.recorded.length} transfer(s) up to block ${r.toBlock}`,
@@ -276,65 +497,12 @@ export async function syncInboundForUser(input: {
     toBlock,
   });
 
-  const recorded: InboundTransfer[] = [];
-  for (const t of transfers) {
-    if (store.hasInboundActivity(t.txHash, t.logIndex)) continue;
-    // A transfer from the user's own wallet is their own send looping back,
-    // not money arriving.
-    if (t.from.toLowerCase() === address.toLowerCase()) continue;
-    // Paid by another Evabob user: their verified send already wrote this
-    // receipt, memo and all.
-    if (
-      store.hasReceiptForTransfer({
-        userId: input.userId,
-        txHash: t.txHash,
-        token: t.token,
-        amount: t.amount,
-      })
-    ) {
-      continue;
-    }
-
-    const memo = await inboundMemo(client, t, address);
-
-    // Written in the words a person uses, because this row is the receipt they
-    // read. The raw address and hash are still on the record for the details
-    // view; they just do not belong in the headline.
-    const shown = Math.round(t.amount * 100) / 100;
-    store.addActivity({
-      ...(memo ? { memo, memoOnchain: true } : {}),
-      userId: input.userId,
-      kind: "receive",
-      title: "Money received",
-      description: `${shown} from ${short(t.from)}`,
-      amountUsdc: t.token === "USDC" ? t.amount : 0,
-      token: t.token,
-      amountToken: t.amount,
-      counterparty: t.from,
-      sender: t.from,
-      receiver: address,
-      txHash: t.txHash,
-      logIndex: t.logIndex,
-      mode: "onchain_inbound",
-      status: "completed",
-    });
-    recorded.push(t);
-
-    // The moment worth telling someone about. Until now this only wrote a row
-    // and waited for the next manual refresh to reveal it.
-    if (head - BigInt(t.blockNumber) <= ALERT_WINDOW_BLOCKS) {
-      alertUser(input.userId, {
-        kind: "money_in",
-        moneyIn: true,
-        title: "Money received",
-        body: `${t.amount} ${t.token} arrived`,
-        amountUsdc: t.token === "USDC" ? t.amount : undefined,
-        token: t.token,
-        counterparty: t.from,
-        txHash: t.txHash,
-      });
-    }
-  }
+  const recorded = await recordInboundTransfers({
+    userId: input.userId,
+    address,
+    transfers,
+    head,
+  });
 
   // Only ever claim what was actually covered.
   store.setInboundScannedBlock(input.userId, Number(toBlock));

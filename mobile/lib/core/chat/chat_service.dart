@@ -62,6 +62,66 @@ class ChatService extends ChangeNotifier {
   List<ChatMessage> messagesFor(String threadId) =>
       List.unmodifiable(_messages[threadId] ?? const []);
 
+  /// The conversation on screen, if any: its messages refresh live and it
+  /// raises no badge or notification.
+  String? openThreadId;
+
+  ChatThread? threadById(String id) {
+    for (final t in threads) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
+  /// Marks a conversation read when it is opened.
+  void markRead(String threadId) {
+    final i = threads.indexWhere((t) => t.id == threadId);
+    if (i < 0 || threads[i].unread == 0) return;
+    threads[i] = threads[i].copyWith(unread: 0);
+    notifyListeners();
+  }
+
+  /// Whether an alert deserves a notification while the app is open: not for
+  /// the conversation the person is already reading.
+  bool shouldNotify(Map<String, dynamic> alert) =>
+      !(alert['kind'] == 'chat_message' &&
+          alert['threadId']?.toString() == openThreadId);
+
+  /// Alerts from the person's own channel (live, or by push).
+  ///
+  /// Nothing used to tell the app a message had arrived unless that exact
+  /// conversation was open, so the Chat tab never showed anything. And nothing
+  /// told it when someone changed their name or picture.
+  void onAlert(Map<String, dynamic> alert) {
+    final kind = alert['kind']?.toString();
+    final threadId = alert['threadId']?.toString();
+    switch (kind) {
+      case 'chat_message':
+        if (threadId != null && threadId == openThreadId) {
+          loadMessages(threadId);
+        } else {
+          if (threadId != null) {
+            final i = threads.indexWhere((t) => t.id == threadId);
+            if (i >= 0) {
+              threads[i] = threads[i].copyWith(
+                unread: threads[i].unread + 1,
+                subtitle: alert['body']?.toString(),
+              );
+            }
+          }
+          _notify?.bump('chat');
+          notifyListeners();
+          refreshThreads();
+        }
+      case 'request_update':
+        if (threadId != null && _messages.containsKey(threadId)) {
+          loadMessages(threadId);
+        }
+      case 'profile_updated':
+        refreshThreads();
+    }
+  }
+
   Future<void> refreshMoneyHint() async {
     final prefs = await SharedPreferences.getInstance();
     final today = DateTime.now().toIso8601String().substring(0, 10);
@@ -84,19 +144,11 @@ class ChatService extends ChangeNotifier {
     try {
       final data = await _api.get('/v1/chat/threads');
       final list = data['threads'] as List? ?? [];
+      // Unread counts live here, not on the server; keep them across reloads.
+      final unread = {for (final t in threads) t.id: t.unread};
       threads = list.map((raw) {
-        final j = Map<String, dynamic>.from(raw as Map);
-        return ChatThread(
-          id: j['id']?.toString() ?? '',
-          title: j['title']?.toString() ?? '',
-          subtitle: j['subtitle']?.toString() ?? '',
-          handle: j['handle']?.toString(),
-          unread: 0,
-          isAgent: j['isAgent'] == true ||
-              j['kind']?.toString() == 'agent' ||
-              j['handle']?.toString() == 'evabob' ||
-              j['handle']?.toString() == 'sendit',
-        );
+        final t = ChatThread.fromJson(Map<String, dynamic>.from(raw as Map));
+        return t.copyWith(unread: unread[t.id] ?? 0);
       }).toList();
       threads.sort((a, b) {
         if (a.isAgent && !b.isAgent) return -1;
@@ -135,21 +187,17 @@ class ChatService extends ChangeNotifier {
     });
     final j = Map<String, dynamic>.from(data['thread'] as Map? ?? {});
     if (j.isEmpty) return null;
-    final t = ChatThread(
-      id: j['id']?.toString() ?? '',
-      title: j['title']?.toString() ?? peer,
-      subtitle: j['subtitle']?.toString() ?? 'New conversation',
-      handle: j['handle']?.toString(),
-      unread: 0,
-      isAgent: j['isAgent'] == true || j['kind']?.toString() == 'agent',
-    );
+    final parsed = ChatThread.fromJson(j, fallbackTitle: peer);
+    final t = parsed.subtitle.isEmpty
+        ? parsed.copyWith(subtitle: 'New conversation')
+        : parsed;
     final idx = threads.indexWhere((x) => x.id == t.id);
     if (idx >= 0) {
       threads[idx] = t;
     } else {
       threads.insert(0, t);
     }
-    _notify?.bump('chat');
+    // (own action: no unread badge)
     notifyListeners();
     return t;
   }
@@ -166,7 +214,10 @@ class ChatService extends ChangeNotifier {
             ? Map<String, dynamic>.from(j['meta'] as Map)
             : null;
         ReceiptData? receipt;
-        if (kind == ChatMessageKind.receipt) {
+        // A request card is built by the server from the request itself; its
+        // lines and status render from meta (see RequestCard).
+        final isCard = meta?['type']?.toString() == 'invoice_card';
+        if (kind == ChatMessageKind.receipt && !isCard) {
           final usdc = (meta?['amountUsdc'] as num?)?.toDouble();
           final amount = (meta?['amount'] as num?)?.toDouble() ?? usdc;
           final token = meta?['token']?.toString() ?? 'USDC';
@@ -264,7 +315,7 @@ class ChatService extends ChangeNotifier {
       return;
     }
     await loadMessages(threadId);
-    _notify?.bump('chat');
+    // (own action: no unread badge)
   }
 
   bool _isAgentSelf(String? dest) {
@@ -683,7 +734,7 @@ class ChatService extends ChangeNotifier {
     );
     _messages.putIfAbsent(threadId, () => []).add(msg);
     _touchThread(threadId, text);
-    _notify?.bump('chat');
+    // (own action: no unread badge)
     notifyListeners();
   }
 
@@ -792,7 +843,7 @@ class ChatService extends ChangeNotifier {
       );
       _messages.putIfAbsent(threadId, () => []).add(msg);
       _touchThread(threadId, msg.text ?? 'Receipt');
-      _notify?.bump('chat');
+      // (own action: no unread badge)
       notifyListeners();
       return true;
     } catch (e) {
@@ -913,7 +964,7 @@ class ChatService extends ChangeNotifier {
       }
       _messages.putIfAbsent(threadId, () => []).add(msg);
       _touchThread(threadId, 'Receipt · ${formatMoney(amountToken, token)}');
-      _notify?.bump('chat');
+      // (own action: no unread badge)
       _notify?.bump('activity');
       HapticFeedback.mediumImpact();
       notifyListeners();
@@ -942,14 +993,7 @@ class ChatService extends ChangeNotifier {
     final i = threads.indexWhere((t) => t.id == threadId);
     if (i >= 0) {
       final t = threads[i];
-      threads[i] = ChatThread(
-        id: t.id,
-        title: t.title,
-        subtitle: subtitle,
-        handle: t.handle,
-        unread: 0,
-        isAgent: t.isAgent,
-      );
+      threads[i] = t.copyWith(subtitle: subtitle, unread: 0);
     }
   }
 
@@ -968,55 +1012,17 @@ class ChatService extends ChangeNotifier {
         'description': description,
       });
       final requestId = created['id']?.toString() ?? '';
-      final link = created['link']?.toString() ??
-          created['shareUrl']?.toString() ??
-          (requestId.isNotEmpty ? 'evabob://pay/$requestId' : '');
-      final meta = {
-        'type': 'payment_request',
-        'kind': 'payment_request',
+      if (requestId.isEmpty) return false;
+      // The server posts the card, so both people see it — and it is built
+      // from the request itself. The app used to post it as a receipt, which
+      // the server rightly refuses from a client, and then showed a copy only
+      // on the sender's phone.
+      await _api.post('/v1/chat/threads/$threadId/request', body: {
         'requestId': requestId,
-        'amount': amount,
-        'amountUsdc': token == 'USDC' ? amount : null,
-        'token': token,
-        'description': description,
-        'memo': description,
-        'status': 'Request · unpaid',
-        'link': link,
-        'fromMe': true,
-        'sender': myId,
-      };
-      try {
-        await _api.post('/v1/chat/threads/$threadId/messages', body: {
-          'text': 'Payment request · ${formatMoney(amount, token)}'
-              '${description.isEmpty ? '' : ' · $description'}',
-          'senderId': myId,
-          'kind': 'receipt',
-          'meta': meta,
-        });
-      } catch (e) {
-        debugPrint('chat request post: $e');
-      }
-      final msg = ChatMessage(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        threadId: threadId,
-        senderId: myId,
-        kind: ChatMessageKind.receipt,
-        text: 'Payment request',
-        receipt: ReceiptData(
-          amountLabel: formatMoney(amount, token),
-          fxLabel: 'Payment request',
-          description: description,
-          statusLabel: 'Request · unpaid',
-          hash: requestId,
-          dateLabel: DateTime.now().toIso8601String(),
-        ),
-        meta: meta,
-        createdAt: DateTime.now(),
-      );
-      _messages.putIfAbsent(threadId, () => []).add(msg);
-      _touchThread(threadId, 'Request · ${formatMoney(amount, token)}');
-      _notify?.bump('chat');
-      notifyListeners();
+      });
+      await loadMessages(threadId);
+      _touchThread(threadId,
+          'Payment request · ${formatMoney(amount, token)}');
       return true;
     } catch (e) {
       _localSystem(threadId, 'Could not create request: $e');
@@ -1188,7 +1194,7 @@ class ChatService extends ChangeNotifier {
       _messages.putIfAbsent(threadId, () => []).add(msg);
       markRequestLocal('Request · held');
       _touchThread(threadId, 'Held ${formatMoney(lockAmount, token)}');
-      _notify?.bump('chat');
+      // (own action: no unread badge)
       _notify?.bump('activity');
       notifyListeners();
       return {'ok': true, 'mode': mode, 'transferId': id, ...held};
@@ -1283,7 +1289,7 @@ class ChatService extends ChangeNotifier {
         _messages.putIfAbsent(threadId, () => []).add(paidMsg);
         markRequestLocal('Held for them');
         _touchThread(threadId, 'Split pay · ${formatMoney(amount, token)}');
-        _notify?.bump('chat');
+        // (own action: no unread badge)
         notifyListeners();
         return {
           'ok': true,
@@ -1352,7 +1358,7 @@ class ChatService extends ChangeNotifier {
       } catch (_) {}
       _messages.putIfAbsent(threadId, () => []).add(msg);
       _touchThread(threadId, 'Paid · ${formatMoney(amount, token)}');
-      _notify?.bump('chat');
+      // (own action: no unread badge)
       _notify?.bump('activity');
       notifyListeners();
     }
@@ -1408,7 +1414,7 @@ class ChatService extends ChangeNotifier {
         );
       }
     }
-    _notify?.bump('chat');
+    // (own action: no unread badge)
     notifyListeners();
   }
 
@@ -1467,7 +1473,7 @@ class ChatService extends ChangeNotifier {
         );
       }
     }
-    _notify?.bump('chat');
+    // (own action: no unread badge)
     _notify?.bump('activity');
     notifyListeners();
   }

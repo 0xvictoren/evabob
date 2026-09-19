@@ -337,7 +337,9 @@ class _GatewayScreenState extends State<GatewayScreen> {
       final inTransit = res['doNotRetry'] == true &&
           (status == 'in_transit' ||
               status == 'forwarded' ||
-              status == 'attestation_pending');
+              status == 'attestation_pending' ||
+              // Waiting for a first-time approval to be final: it goes by itself.
+              status == 'scheduled');
       final err = res['error']?.toString();
       final sources = res['sources'];
       String sourceNote = '';
@@ -360,9 +362,10 @@ class _GatewayScreenState extends State<GatewayScreen> {
                 : inTransit
                     ? (err ??
                         'Sent — it is on its way. No need to send it again.')
-                    : (err ?? 'Payment failed'),
+                    : friendlyError(err, fallback: 'Payment failed'),
           ),
           behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: status == 'scheduled' ? 10 : 4),
         ),
       );
     } catch (e) {
@@ -467,8 +470,9 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     ),
                   ),
                   Text(
+                    // Dollars only: the GA holds USDC, and euros are never
+                    // shown beside a dollar total.
                     'Wallet ${formatUsdc(wallet.usdcWallet)} · '
-                    '${formatMoney(wallet.eurcWallet, 'EURC')} · '
                     'Total ${formatUsdc(wallet.totalUsdc)}',
                     style: const TextStyle(
                         fontSize: 10, color: EvabobColors.lightDark),
@@ -492,18 +496,18 @@ class _GatewayScreenState extends State<GatewayScreen> {
                             child: Text(
                               c.name,
                               style: const TextStyle(
-                                fontSize: 10,
-                                color: EvabobColors.navy,
+                                fontSize: 11,
+                                color: EvabobColors.white,
                               ),
                             ),
                           ),
                           Text(
                             formatUsdc(wallet.usdcOnDomain(c.domain)),
                             style: const TextStyle(
-                              fontSize: 10,
+                              fontSize: 11,
                               fontWeight: FontWeight.w400,
                               fontFamily: 'monospace',
-                              color: EvabobColors.emeraldDeep,
+                              color: EvabobColors.white,
                             ),
                           ),
                         ],

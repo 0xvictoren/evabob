@@ -7,6 +7,7 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/widgets/contact_picker_sheet.dart';
+import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/agent_avatar.dart';
 import 'chat_thread_screen.dart';
@@ -244,17 +245,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   children: [
                                     t.isAgent
                                         ? const EvabobAgentAvatar(size: 40)
-                                        : CircleAvatar(
-                                            backgroundColor: t.isAgent
-                                                ? EvabobColors.lime
-                                                    .withValues(alpha: 0.25)
-                                                : EvabobColors.creamDeep,
-                                            child: Text(
-                                              letter.toUpperCase(),
-                                              style: Type.label.copyWith(
-                                                color: EvabobColors.forest,
-                                              ),
-                                            ),
+                                        : PeerAvatar(
+                                            name: letter,
+                                            avatarUrl: t.peerAvatarUrl,
+                                            bundleIndex: t.peerAvatarBundle,
                                           ),
                                     const SizedBox(width: Space.md),
                                     Expanded(

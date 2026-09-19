@@ -30,6 +30,10 @@ class MoneyAlerts {
   /// Called with an alert's data when its notification is tapped.
   void Function(Map<String, dynamic> data)? onOpen;
 
+  /// Whether to show a notification for an alert while the app is open. The
+  /// chat uses it to stay quiet about the conversation already on screen.
+  bool Function(Map<String, dynamic> alert)? shouldNotify;
+
   final _events = StreamController<Map<String, dynamic>>.broadcast();
 
   /// Every alert as it arrives, for screens that react live — the seller's
@@ -45,6 +49,17 @@ class MoneyAlerts {
     'Money',
     description: 'When money arrives or a held payment is released',
     importance: Importance.high,
+  );
+
+  /// Money reaching the person, with the app's money-in sound. Push from the
+  /// server names this channel for those alerts, so a closed app plays it too.
+  static const _moneyInChannel = AndroidNotificationChannel(
+    'evabob_money_in',
+    'Money received',
+    description: 'When money reaches you',
+    importance: Importance.high,
+    playSound: true,
+    sound: RawResourceAndroidNotificationSound('money_in'),
   );
 
   Future<void> _ensureReady() async {
@@ -67,6 +82,7 @@ class MoneyAlerts {
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
       await android?.createNotificationChannel(_channel);
+      await android?.createNotificationChannel(_moneyInChannel);
       // Asked for here rather than at launch: permission means more to someone
       // who has just been told what it is for than to someone who has not seen
       // the app yet.
@@ -113,9 +129,15 @@ class MoneyAlerts {
     final body = alert['body']?.toString() ?? '';
     if (body.isEmpty) return;
     if (!_ready) return;
+    if (shouldNotify != null && !shouldNotify!(alert)) return;
+    // While the app is open the money-in sound is played by the app itself
+    // (MoneySounds), so the notification stays silent rather than doubling it.
+    final moneyIn = alert['moneyIn'] == true ||
+        alert['moneyIn'] == '1' ||
+        alert['kind'] == 'money_in';
     final tag = alert['tag']?.toString();
     final payload = jsonEncode({
-      for (final k in ['kind', 'transferId', 'jobId', 'txHash', 'link'])
+      for (final k in ['kind', 'transferId', 'jobId', 'txHash', 'link', 'threadId'])
         if (alert[k] != null) k: alert[k].toString(),
     });
     try {
@@ -133,14 +155,15 @@ class MoneyAlerts {
         body,
         NotificationDetails(
           android: AndroidNotificationDetails(
-            _channel.id,
-            _channel.name,
-            channelDescription: _channel.description,
+            (moneyIn ? _moneyInChannel : _channel).id,
+            (moneyIn ? _moneyInChannel : _channel).name,
+            channelDescription: (moneyIn ? _moneyInChannel : _channel).description,
             importance: Importance.high,
             priority: Priority.high,
             tag: tag,
             // The second copy of the same alert replaces the first silently.
             onlyAlertOnce: true,
+            silent: moneyIn,
           ),
           iOS: const DarwinNotificationDetails(),
         ),

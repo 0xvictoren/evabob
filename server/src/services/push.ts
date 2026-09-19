@@ -204,7 +204,10 @@ export function fcmMessage(device: PushDevice, message: PushMessage) {
       android: {
         priority: "HIGH",
         notification: {
-          channel_id: "evabob_money",
+          // Money arriving plays the app's money-in sound, from a channel the
+          // app creates with it; everything else uses the phone's default.
+          channel_id: data.moneyIn === "1" ? "evabob_money_in" : "evabob_money",
+          ...(data.moneyIn === "1" ? { sound: "money_in" } : {}),
           tag: message.tag,
         },
       },

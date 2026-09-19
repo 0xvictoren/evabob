@@ -28,6 +28,12 @@ export type UserRecord = {
   injectiveAddress?: string;
   /** Data URL or path for profile photo (optional). */
   avatarUrl?: string;
+  /**
+   * One of the app's built-in pictures, when the person chose one instead of
+   * uploading a photo. Kept here so everyone they chat with sees it too — it
+   * used to live only on their own phone.
+   */
+  avatarBundleIndex?: number | null;
   /** ISO time of last handle change (null/undefined = never changed after signup default). */
   handleChangedAt?: string | null;
   /** Number of successful handle changes after the free first edit. */
@@ -46,6 +52,10 @@ export type UserRecord = {
    * a recent window rather than genesis.
    */
   inboundScannedBlock?: number;
+  /** The same, for the other networks the wallet exists on, by chain id. */
+  inboundScannedBlocks?: Record<string, number>;
+  /** One-time look back for native Arc sends missed before they were watched. */
+  inboundNativeBackfill?: { next: string; floor: string; done: boolean };
   /**
    * Payments to contacts marked as family above this many dollars need a code
    * from the account email first (services/familyCheck.ts). Unset: the default.
@@ -538,7 +548,7 @@ export const store = {
 
   updateProfile(
     userId: string,
-    patch: { displayName?: string; avatarUrl?: string },
+    patch: { displayName?: string; avatarUrl?: string; avatarBundleIndex?: number | null },
   ) {
     const user = this.getUser(userId);
     if (!user) return null;
@@ -548,6 +558,11 @@ export const store = {
     }
     if (patch.avatarUrl !== undefined) {
       user.avatarUrl = patch.avatarUrl || undefined;
+      save(db);
+      void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
+    }
+    if (patch.avatarBundleIndex !== undefined) {
+      user.avatarBundleIndex = patch.avatarBundleIndex;
       save(db);
       void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
     }
@@ -699,6 +714,41 @@ export const store = {
     );
   },
 
+  /**
+   * True when this person's activity already has a row for this transaction
+   * — their own bridge landing, a GA payment minting, a hold released to
+   * them. The chain scan must not record those again as money from outside.
+   */
+  hasActivityWithTx(userId: string, txHash: string): boolean {
+    const hash = txHash.toLowerCase();
+    return db.activity.some(
+      (a) =>
+        a.userId === userId &&
+        a.status !== "cancelled" &&
+        !(a.mode ?? "").startsWith("onchain_inbound") &&
+        (a.txHash ?? "").toLowerCase() === hash,
+    );
+  },
+
+  /**
+   * Hides chain-scan rows that duplicate one of the person's own records of
+   * the same transaction (recorded before the scan learned to check). Returns
+   * how many were hidden.
+   */
+  hideDuplicateInbound(userId: string): number {
+    let hidden = 0;
+    for (const a of db.activity) {
+      if (a.userId !== userId || a.status === "cancelled") continue;
+      if (!(a.mode ?? "").startsWith("onchain_inbound") || !a.txHash) continue;
+      if (this.hasActivityWithTx(userId, a.txHash)) {
+        a.status = "cancelled";
+        hidden += 1;
+      }
+    }
+    if (hidden) save(db);
+    return hidden;
+  },
+
   /** Every row of one multi-recipient payment, oldest first. */
   listBatchActivity(userId: string, batchId: string) {
     return db.activity
@@ -805,6 +855,10 @@ export const store = {
       title: isAgent ? "evabob Agent" : title,
       handle: isAgent ? "evabob" : peerHandle.replace(/^@/, "").toLowerCase(),
       peerUserId: otherId || null,
+      // The other person's picture, as they chose it: an uploaded photo, or
+      // one of the built-in ones.
+      peerAvatarUrl: isAgent ? null : other?.avatarUrl ?? null,
+      peerAvatarBundle: isAgent ? null : other?.avatarBundleIndex ?? null,
       subtitle: thread.subtitle,
       kind: isAgent ? "agent" : thread.kind || "dm",
       isAgent,
@@ -1280,6 +1334,22 @@ export const store = {
   },
 
   /** Records how far inbound scanning has got for one user. */
+  setInboundNativeBackfill(userId: string, state: { next: string; floor: string; done: boolean }) {
+    const u = db.users.find((x) => x.id === userId);
+    if (!u) return;
+    u.inboundNativeBackfill = state;
+    save(db);
+  },
+
+  setInboundScannedBlockFor(userId: string, chainId: number, block: number) {
+    const u = db.users.find((x) => x.id === userId);
+    if (!u) return;
+    const blocks = (u.inboundScannedBlocks ??= {});
+    if ((blocks[String(chainId)] ?? 0) >= block) return;
+    blocks[String(chainId)] = block;
+    save(db);
+  },
+
   setInboundScannedBlock(userId: string, block: number) {
     const u = db.users.find((x) => x.id === userId);
     if (!u) return;

@@ -608,6 +608,26 @@ class EvabobAuth extends ChangeNotifier {
       await prefs.remove(_avatarUrlPrefsKey(_user?.id));
     }
     notifyListeners();
+    // Saved on the server too, so the people you chat with see it. It used to
+    // live only on this phone, and everyone else saw a letter.
+    unawaited(syncAvatarChoiceToServer());
+  }
+
+  /// Sends the chosen built-in picture to the server. Called when it changes
+  /// and once after sign-in, for choices made before it was ever sent.
+  Future<void> syncAvatarChoiceToServer() async {
+    final api = _api;
+    final index = _avatarBundleIndex;
+    if (api == null || index == null) return;
+    try {
+      await api.post('/v1/users/me', body: {
+        'avatarBundle': index,
+        // A built-in picture replaces any uploaded photo.
+        'avatarUrl': '',
+      });
+    } catch (e) {
+      debugPrint('avatar sync: $e');
+    }
   }
 
   String _avatarPrefsKey(String? userId) =>

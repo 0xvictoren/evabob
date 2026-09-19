@@ -18,6 +18,11 @@ import '../../core/widgets/family_code_sheet.dart';
 import '../../core/widgets/contact_picker_sheet.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/agent_avatar.dart';
+import '../../core/api/api_client.dart';
+import '../../core/widgets/bundle_avatar.dart';
+import '../request/payment_link_screen.dart';
+import 'package:intl/intl.dart';
+import 'request_card.dart';
 
 class ChatThreadScreen extends StatefulWidget {
   const ChatThreadScreen({super.key, required this.thread});
@@ -32,12 +37,19 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   String? _confirmingId;
+  String? _cardBusyId;
+  ChatService? _chat;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final chat = context.read<ChatService>();
+      _chat = chat;
+      // This conversation is on screen: its messages refresh live, and it
+      // raises no badge or notification.
+      chat.openThreadId = widget.thread.id;
+      chat.markRead(widget.thread.id);
       await chat.refreshMoneyHint();
       await chat.loadMessages(widget.thread.id);
       // Land on the newest message, not the oldest.
@@ -82,6 +94,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
 
   @override
   void dispose() {
+    if (_chat?.openThreadId == widget.thread.id) _chat?.openThreadId = null;
     try {
       context.read<PusherService>().unsubscribeChat(widget.thread.id);
     } catch (_) {}
@@ -578,6 +591,9 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     final messages = chat.messagesFor(widget.thread.id);
     final auth = context.watch<EvabobAuth>();
     final myId = auth.circleUserId;
+    // The latest copy of this conversation, so a new name or picture shows
+    // at once rather than the one it was opened with.
+    final thread = chat.threadById(widget.thread.id) ?? widget.thread;
 
     return Scaffold(
       body: Container(
@@ -594,19 +610,13 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                       tooltip: 'Back',
                       icon: const Icon(Icons.chevron_left_rounded),
                     ),
-                    widget.thread.isAgent
+                    thread.isAgent
                         ? const EvabobAgentAvatar(size: 36)
-                        : CircleAvatar(
-                            radius: 18,
-                            backgroundColor:
-                                EvabobColors.emerald.withValues(alpha: 0.15),
-                            child: Text(
-                              widget.thread.title.characters.first,
-                              style: const TextStyle(
-                                color: EvabobColors.emeraldDeep,
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
+                        : PeerAvatar(
+                            name: thread.title,
+                            avatarUrl: thread.peerAvatarUrl,
+                            bundleIndex: thread.peerAvatarBundle,
+                            size: 36,
                           ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -614,7 +624,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.thread.title,
+                            thread.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -624,7 +634,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                             ),
                           ),
                           Text(
-                            '@${widget.thread.handle ?? (widget.thread.isAgent ? 'evabob' : widget.thread.title)}',
+                            '@${thread.handle ?? (thread.isAgent ? 'evabob' : thread.title)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -740,7 +750,130 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     );
   }
 
+  bool _isRequestCard(ChatMessage m) =>
+      m.meta?['type']?.toString() == 'invoice_card';
+
+  /// Pay a request from its card. A request raised by the person in this chat
+  /// uses the chat's own pay choices; one forwarded from someone else opens
+  /// the request itself, which pays whoever actually raised it.
+  Future<void> _payCard(ChatMessage m, String myId, ChatThread thread) async {
+    final issuer = m.meta?['issuerId']?.toString();
+    final allowed = (m.meta?['allowedStructures'] as List? ?? const []);
+    final requestId = m.meta?['requestId']?.toString() ?? '';
+    final viaLink = (issuer != null &&
+            thread.peerUserId != null &&
+            issuer != thread.peerUserId) ||
+        allowed.contains('milestones');
+    if (viaLink && requestId.isNotEmpty) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (ctx) => PaymentLinkScreen(
+            requestId: requestId,
+            onBack: () => Navigator.of(ctx).maybePop(),
+          ),
+        ),
+      );
+    } else {
+      await _choosePayMode(m, myId);
+    }
+    if (mounted) await context.read<ChatService>().loadMessages(thread.id);
+  }
+
+  Future<void> _declineCard(ChatMessage m, ChatThread thread) async {
+    final requestId = m.meta?['requestId']?.toString() ?? '';
+    if (requestId.isEmpty) return;
+    final ok = await confirmAction(
+      context,
+      title: 'Cancel this request?',
+      message: 'It closes for both of you, and ${thread.title} is told you '
+          'declined it. Nothing is paid.',
+      confirmLabel: 'Cancel request',
+      cancelLabel: 'Keep it',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _cardBusyId = m.id);
+    try {
+      await context
+          .read<ApiClient>()
+          .post('/v1/payment-requests/$requestId/decline');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(friendlyError(e)),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _cardBusyId = null);
+        await context.read<ChatService>().loadMessages(thread.id);
+      }
+    }
+  }
+
+  Future<void> _cancelOwnCard(ChatMessage m, ChatThread thread) async {
+    final requestId = m.meta?['requestId']?.toString() ?? '';
+    if (requestId.isEmpty) return;
+    final ok = await confirmAction(
+      context,
+      title: 'Cancel your request?',
+      message: 'It closes for both of you. You can always send a new one.',
+      confirmLabel: 'Cancel request',
+      cancelLabel: 'Keep it',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _cardBusyId = m.id);
+    try {
+      await context.read<ApiClient>().post(
+        '/v1/payment-requests/$requestId/mark',
+        body: {'status': 'cancelled', 'threadId': thread.id},
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(friendlyError(e)),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _cardBusyId = null);
+        await context.read<ChatService>().loadMessages(thread.id);
+      }
+    }
+  }
+
   Widget _bubble(ChatMessage m, String myId, EvabobAuth auth) {
+    if (_isRequestCard(m)) {
+      final chat = context.read<ChatService>();
+      final thread = chat.threadById(widget.thread.id) ?? widget.thread;
+      final mine = _isMine(m, auth);
+      // A pasted link: show anything said besides the link, then the card.
+      final extra = (m.kind == ChatMessageKind.text ? (m.text ?? '') : '')
+          .replaceAll(
+              RegExp(r'(evabob://pay/|https?://\S*/pay/)[0-9a-fA-F-]{36}'), '')
+          .trim();
+      final card = RequestCard(
+        meta: m.meta!,
+        mine: mine,
+        createdAt: m.createdAt,
+        busy: _cardBusyId == m.id,
+        onPay: () => _payCard(m, myId, thread),
+        onDecline: () => _declineCard(m, thread),
+        onCancel: () => _cancelOwnCard(m, thread),
+      );
+      if (extra.isEmpty) return card;
+      return Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          _textBubble(extra, mine),
+          const SizedBox(height: 6),
+          card,
+        ],
+      );
+    }
+
     if (m.kind == ChatMessageKind.system &&
         m.meta?['type']?.toString() == 'agent_confirm') {
       final status = (m.meta?['status']?.toString() ?? '').toLowerCase();
@@ -898,15 +1031,20 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                   ),
                 if (r.dateLabel != null && r.dateLabel!.isNotEmpty)
                   Text(
-                    r.dateLabel!,
+                    DateTime.tryParse(r.dateLabel!) == null
+                        ? r.dateLabel!
+                        : DateFormat('d MMM yyyy, HH:mm')
+                            .format(DateTime.parse(r.dateLabel!).toLocal()),
                     style: const TextStyle(
                       fontSize: 10,
                       color: EvabobColors.chalk,
                     ),
                   ),
-                if (r.hash != null && r.hash!.isNotEmpty)
-                  Text(
-                    '${r.hash!.startsWith('0x') ? 'Tx' : 'Hash'} ${r.hash!.length > 18 ? '${r.hash!.substring(0, 10)}…${r.hash!.substring(r.hash!.length - 6)}' : r.hash}',
+                // Only a real transaction is shown as one. A request's id is
+                // not a hash and was mislabelled as one.
+                if (r.hash != null && r.hash!.startsWith('0x'))
+                  SelectableText(
+                    'Tx ${r.hash!.length > 18 ? '${r.hash!.substring(0, 10)}…${r.hash!.substring(r.hash!.length - 6)}' : r.hash}',
                     style: const TextStyle(
                       fontSize: 10,
                       fontFamily: 'monospace',
@@ -1020,7 +1158,12 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
           );
     }
 
-    final mine = _isMine(m, auth);
+    return _textBubble(m.text ?? '', _isMine(m, auth));
+  }
+
+  /// A text message. Selectable, so any of it can be copied — long-press,
+  /// then Copy.
+  Widget _textBubble(String text, bool mine) {
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -1042,8 +1185,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 : EvabobColors.hairline,
           ),
         ),
-        child: Text(
-          m.text ?? '',
+        child: SelectableText(
+          text,
           style: const TextStyle(
             color: EvabobColors.nearBlack,
             fontSize: 14,

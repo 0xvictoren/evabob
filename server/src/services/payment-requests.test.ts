@@ -174,3 +174,39 @@ describe("due dates and milestones", async () => {
     assert.throws(() => createInvoice({ userId: "issuer-ms", amount: 50, milestones: true }), /2 to 10/);
   });
 });
+
+describe("requests shared in chat", async () => {
+  const { payLinkIds, assignInvoiceReceiver, declineInvoice, invoiceCardMeta } = await import("./payment-requests.js");
+
+  it("finds pay links in a message, in either form", () => {
+    const id = "594fc8d3-c021-40c7-8fef-a8e2dbc34f14";
+    assert.deepEqual(payLinkIds(`evabob://pay/${id}`), [id]);
+    assert.deepEqual(payLinkIds(`pay me https://evabob.app/pay/${id.toUpperCase()} thanks`), [id]);
+    assert.deepEqual(payLinkIds("no link here"), []);
+  });
+
+  it("a card shows every line and the total, and closes when declined", () => {
+    const inv = createInvoice({
+      userId: "chat-issuer",
+      items: [{ description: "Jollof", amount: 3 }, { description: "Delivery", amount: 2 }],
+    });
+    const card = invoiceCardMeta(inv);
+    assert.equal(card.type, "invoice_card");
+    assert.equal(card.total, 5);
+    assert.equal((card.items as unknown[]).length, 2);
+    assert.equal(card.open, true);
+
+    // Shared in a chat, it is addressed to the other person — and only once.
+    assert.equal(assignInvoiceReceiver(inv.id, { id: "chat-payer", handle: "payer" })?.receiverId, "chat-payer");
+    assert.equal(assignInvoiceReceiver(inv.id, { id: "someone-else" })?.receiverId, "chat-payer");
+
+    // Only the person it was sent to can decline; the sender cancels instead.
+    assert.throws(() => declineInvoice(inv.id, "chat-issuer"), InvoicePermissionError);
+    assert.throws(() => declineInvoice(inv.id, "someone-else"), InvoicePermissionError);
+    const declined = declineInvoice(inv.id, "chat-payer");
+    assert.equal(declined.status, "declined");
+    assert.equal(invoiceCardMeta(declined).open, false);
+    assert.equal(invoiceCardMeta(declined).status, "Request · declined");
+    assert.throws(() => declineInvoice(inv.id, "chat-payer"), InvoicePermissionError);
+  });
+});
