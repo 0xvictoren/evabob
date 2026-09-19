@@ -82,17 +82,17 @@ services:
       - key: GATEWAY_API_BASE
         value: https://gateway-api-testnet.circle.com/v1
       - key: ADMIN_SAFE_ADDRESS
-        value: 0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2
+        value: "0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2"
       - key: IDENTITY_REGISTRY
-        value: 0x7a74c86b6fd0b0232d5d1eb0074547dfe1a4ffd0
+        value: "0x7a74c86b6fd0b0232d5d1eb0074547dfe1a4ffd0"
       - key: ESCROW_IDENTITY_REGISTRY
-        value: 0xb14355288fcE19811cccaF1589ea85e3791320a0
+        value: "0xb14355288fcE19811cccaF1589ea85e3791320a0"
       - key: MONEY_CIRCLES_ADDRESS
-        value: 0x482497289a4F5197f67f98B2535cd23D6238d256
+        value: "0x482497289a4F5197f67f98B2535cd23D6238d256"
       - key: GROUP_POTS_ADDRESS
-        value: 0x3CBDdab2398e06d5FB496a9DbF9424abD449D795
+        value: "0x3CBDdab2398e06d5FB496a9DbF9424abD449D795"
       - key: PAYMENT_ESCROW
-        value: 0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39
+        value: "0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39"
       - key: USE_APP_KIT
         value: "true"
       - key: APP_KIT_ADAPTER
