@@ -36,6 +36,7 @@ Future<void> main() async {
     DeviceOrientation.portraitUp,
   ]);
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  Env.validateApiBase();
   Env.warnIfApiBaseUnsafe();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

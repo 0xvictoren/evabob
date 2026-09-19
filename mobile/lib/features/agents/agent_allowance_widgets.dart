@@ -12,6 +12,7 @@ import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// Sets an agent's allowance in the shape people already use for pocket
 /// money: an amount, a window, what it may be spent on, and the point above
@@ -92,7 +93,7 @@ class _AllowanceSheetState extends State<AllowanceSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final money = [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))];
+    final money = [const AmountInputFormatter()];
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(

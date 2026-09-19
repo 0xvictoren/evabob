@@ -267,6 +267,19 @@ function displayName(userId: string): string {
   return u?.handle ? `@${u.handle}` : u?.displayName || u?.email || "someone";
 }
 
+/**
+ * Who is paying, as the worker should see it. A hold an agent funded names
+ * the agent and its owner, so the person always knows who answers for it.
+ */
+function payerName(record: ProtectedEscrowRecord): string {
+  if (record.payerAgentId) {
+    const agent = store.getAgentById(record.payerAgentId);
+    const name = agent?.handle ? `@${agent.handle}` : agent?.label ?? "An agent";
+    return `${name} (agent of ${displayName(record.fromUserId)})`;
+  }
+  return displayName(record.fromUserId);
+}
+
 /** What either party sees. The reviewer's identity is never included. */
 export function viewFor(
   record: ProtectedEscrowRecord,
@@ -286,7 +299,7 @@ export function viewFor(
     memo: record.memo ?? "",
     /** The other side: who pays, or who the money is for. */
     counterparty:
-      role === "payer" ? record.recipientId : displayName(record.fromUserId),
+      role === "payer" ? record.recipientId : payerName(record),
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
     deliveredAt: record.deliveredAt,
@@ -299,6 +312,20 @@ export function viewFor(
     claimTx: record.claimTx,
     refundTx: record.refundTx,
     review,
+    /** An agent put this money aside; the worker is told before starting. */
+    payerAgent: record.payerAgentId ? agentSummary(record.payerAgentId) : null,
+    agentTaskId: record.agentTaskId ?? null,
+  };
+}
+
+function agentSummary(agentId: string) {
+  const agent = store.getAgentById(agentId);
+  if (!agent) return null;
+  const owner = store.getUser(agent.userId);
+  return {
+    label: agent.label,
+    handle: agent.handle ? `@${agent.handle}` : null,
+    owner: owner?.handle ? `@${owner.handle}` : owner?.displayName ?? null,
   };
 }
 
@@ -373,12 +400,12 @@ async function releaseToRecipient(
       userId: worker.id,
       kind: "receive",
       title: "Payment received",
-      description: `${out.amountUsdc} USDC from ${displayName(record.fromUserId)}`,
+      description: `${out.amountUsdc} USDC from ${payerName(record)}`,
       amountUsdc: out.amountUsdc,
       token: "USDC",
       amountToken: out.amountUsdc,
       receiver: target.account,
-      counterparty: displayName(record.fromUserId),
+      counterparty: payerName(record),
       txHash: out.claimTx,
       mode: "protected_escrow_claim",
       status: "completed",
@@ -387,7 +414,7 @@ async function releaseToRecipient(
       kind: "hold_released",
       moneyIn: true,
       title: "Money received",
-      body: `${out.amountUsdc} USDC from ${displayName(record.fromUserId)}`,
+      body: `${out.amountUsdc} USDC from ${payerName(record)}`,
       amountUsdc: out.amountUsdc,
       token: "USDC",
       txHash: out.claimTx,
@@ -421,12 +448,24 @@ async function refundToPayer(
     lastAutoError: undefined,
     ...(review ? { review } : {}),
   })!;
+  noteRefunded(record, refundTx);
+  return updated;
+}
+
+/**
+ * Tells the payer their held money is back. Money an agent put aside goes
+ * back to the agent's wallet, not the owner's, and the wording says so; the
+ * agent's balance is credited once it is spendable again (agentTasks.ts).
+ */
+export function noteRefunded(record: ProtectedEscrowRecord, refundTx: string | undefined) {
+  const agent = record.payerAgentId ? store.getAgentById(record.payerAgentId) : undefined;
+  const where = agent ? `back in ${agent.label}` : "back with you";
   store.addActivity({
     userId: record.fromUserId,
     kind: "system",
     title: "Money returned",
-    description: `${record.amountUsdc} USDC held for ${record.recipientId} is back with you`,
-    amountUsdc: record.amountUsdc,
+    description: `${record.amountUsdc} USDC held for ${record.recipientId} is ${where}`,
+    amountUsdc: agent ? 0 : record.amountUsdc,
     token: "USDC",
     amountToken: record.amountUsdc,
     counterparty: record.recipientId,
@@ -436,15 +475,14 @@ async function refundToPayer(
   });
   alertUser(record.fromUserId, {
     kind: "hold_refunded",
-    moneyIn: true,
+    moneyIn: !agent,
     title: "Money returned",
-    body: `${record.amountUsdc} USDC held for ${record.recipientId} is back with you`,
+    body: `${record.amountUsdc} USDC held for ${record.recipientId} is ${where}`,
     amountUsdc: record.amountUsdc,
     token: "USDC",
     txHash: refundTx,
-    transferId,
+    transferId: record.onChainTransferId,
   });
-  return updated;
 }
 
 async function extendExpiryTo(
@@ -592,7 +630,7 @@ export async function cancelHold(input: {
       alertUser(worker, {
         kind: "hold_refunded",
         title: "A held payment was cancelled",
-        body: `${displayName(record.fromUserId)} cancelled before the work was delivered. ${record.amountUsdc} USDC went back to them.`,
+        body: `${payerName(record)} cancelled before the work was delivered. ${record.amountUsdc} USDC went back to them.`,
         amountUsdc: record.amountUsdc,
         token: "USDC",
         transferId: input.transferId,
@@ -634,7 +672,7 @@ export async function cancelHold(input: {
   if (worker) {
     alertUser(worker, {
       kind: "hold_under_review",
-      title: `${displayName(record.fromUserId)} cancelled after delivery`,
+      title: `${payerName(record)} cancelled after delivery`,
       body: "The money stays held while we review it. Add your side — what you delivered and when.",
       amountUsdc: record.amountUsdc,
       token: "USDC",
@@ -836,7 +874,7 @@ export async function decideReview(input: {
     alertUser(worker, {
       kind: "hold_refunded",
       title: "Review decided",
-      body: `${record.amountUsdc} USDC went back to ${displayName(record.fromUserId)}. ${note}`,
+      body: `${record.amountUsdc} USDC went back to ${payerName(record)}. ${note}`,
       transferId: input.transferId,
     });
   }

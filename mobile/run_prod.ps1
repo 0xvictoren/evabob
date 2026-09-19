@@ -1,4 +1,5 @@
-# Run / install Evabob with production defines from dart_defines.json
+# Run / install Evabob locally with defines from dart_defines.json.
+# This script intentionally produces no distributable APK.
 # Usage:
 #   .\run_prod.ps1
 #   .\run_prod.ps1 -d emulator-5554
@@ -28,24 +29,6 @@ if ([string]::IsNullOrWhiteSpace($apiBase)) {
   Write-Host "Add it, or pass --dart-define=API_BASE_URL=https://<host> yourself." -ForegroundColor Red
   exit 1
 }
-$isLoopback = $apiBase -match '127\.0\.0\.1|localhost|10\.0\.2\.2'
-$isPlainHttp = $apiBase -notmatch '^https://'
-
-if ($args.Count -ge 1 -and $args[0] -eq "install") {
-  # This path copies the APK to the repo root "for sharing", so a loopback or
-  # plaintext base URL matters more here than for a local `flutter run`.
-  if ($isLoopback) {
-    Write-Host "API_BASE_URL is $apiBase - a loopback address." -ForegroundColor Yellow
-    Write-Host "This APK will work on this machine's emulator only." -ForegroundColor Yellow
-    $reply = Read-Host "Build and share it anyway? (y/N)"
-    if ($reply -ne 'y') { exit 1 }
-  } elseif ($isPlainHttp) {
-    Write-Host "API_BASE_URL is $apiBase - plain HTTP, not encrypted." -ForegroundColor Yellow
-    $reply = Read-Host "Build and share it anyway? (y/N)"
-    if ($reply -ne 'y') { exit 1 }
-  }
-}
-
 if ($args.Count -ge 1 -and $args[0] -eq "install") {
   flutter build apk --debug @defineArgs
   $apk = "build\app\outputs\flutter-apk\app-debug.apk"
@@ -74,9 +57,7 @@ if ($args.Count -ge 1 -and $args[0] -eq "install") {
       Write-Host "Install failed on $s" -ForegroundColor Yellow
     }
   }
-  # Also drop a copy at repo root for sharing
-  Copy-Item $apk "..\Evabob-debug.apk" -Force
-  Write-Host "Installed $apk (copied to ..\Evabob-debug.apk)"
+  Write-Host "Installed local debug build $apk. Do not distribute debug APKs."
   exit 0
 }
 

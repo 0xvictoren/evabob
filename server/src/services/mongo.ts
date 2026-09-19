@@ -36,6 +36,12 @@ export type PrimaryStoreDatasets = {
   holdLinks?: unknown;
   /** Money circles and group pots. Optional for the same reason. */
   groupMoney?: unknown;
+  /** Agent payment evidence bundles. Optional for the same reason. */
+  agentEvidence?: unknown;
+  /** Paywalls that charge software for access, and their sales. */
+  paywalls?: unknown;
+  /** Tasks agents hire people for. Optional for the same reason. */
+  agentTasks?: unknown;
 };
 
 /**
@@ -155,6 +161,13 @@ export type ProtectedEscrowRecord = {
   purpose?: HeldPurpose;
   /** Paid through a seller's hold link (services/holdLinks.ts). */
   holdLinkId?: string;
+  /**
+   * Set when an agent wallet funded the hold (services/agentTasks.ts). The
+   * owner is `fromUserId` and answers for it; the money came from, and goes
+   * back to, the agent's own wallet.
+   */
+  payerAgentId?: string;
+  agentTaskId?: string;
   fromUserId: string;
   recipientKind: "email" | "phone";
   recipientId: string;

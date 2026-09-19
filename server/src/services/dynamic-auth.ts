@@ -30,6 +30,28 @@ function jwks(envId: string) {
 export async function verifyDynamicToken(
   token: string | undefined | null,
 ): Promise<DynamicClaims | null> {
+  return (await checkDynamicToken(token)).claims;
+}
+
+/** Expired tokens already logged, so one stale phone does not flood the log. */
+const loggedExpired = new Set<string>();
+
+/**
+ * Verifies a Dynamic sign-in token and says why it failed, so an expired
+ * sign-in can be told apart from a bad one: the app asks the person to sign
+ * in again instead of retrying a token that can never work.
+ */
+export async function checkDynamicToken(
+  token: string | undefined | null,
+): Promise<{ claims: DynamicClaims | null; expired: boolean }> {
+  const claims = await verifyInner(token);
+  if (claims === "expired") return { claims: null, expired: true };
+  return { claims, expired: false };
+}
+
+async function verifyInner(
+  token: string | undefined | null,
+): Promise<DynamicClaims | null | "expired"> {
   if (!token?.trim() || !config.dynamic.environmentId) return null;
   const raw = token.replace(/^Bearer\s+/i, "").trim();
   if (raw.split(".").length < 3) return null;
@@ -54,6 +76,15 @@ export async function verifyDynamicToken(
     }
     return claims;
   } catch (e) {
+    if (e instanceof Error && e.name === "TokenExpiredError") {
+      const tail = raw.slice(-24);
+      if (!loggedExpired.has(tail)) {
+        if (loggedExpired.size > 500) loggedExpired.clear();
+        loggedExpired.add(tail);
+        console.info("dynamic jwt: a sign-in expired; the app will ask to sign in again");
+      }
+      return "expired";
+    }
     console.warn(
       "dynamic jwt:",
       e instanceof Error ? e.message : e,

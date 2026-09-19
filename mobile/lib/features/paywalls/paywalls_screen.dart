@@ -16,6 +16,7 @@ import '../../core/utils/text_safe.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// Get paid by agents: charge software for something you made.
 ///
@@ -514,7 +515,7 @@ class _NewPaywallSheetState extends State<_NewPaywallSheet> {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
+                    const AmountInputFormatter()
                   ],
                   decoration: InputDecoration(
                     labelText: _kind == 'api' ? 'Price per call' : 'Price',

@@ -11,6 +11,7 @@ import '../../core/widgets/glass.dart';
 import 'incomplete_jobs_banner.dart';
 import 'held_payments_banner.dart';
 import 'receipt_sheet.dart';
+import 'activity_thumb.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({
@@ -48,23 +49,6 @@ class _ActivityScreenState extends State<ActivityScreen> {
         context.read<CircleWalletService>().refreshOpenJobs();
       } catch (_) {}
     });
-  }
-
-  IconData _icon(String kind) {
-    switch (kind) {
-      case 'send':
-        return Icons.north_east_rounded;
-      case 'receive':
-        return Icons.south_west_rounded;
-      case 'exchange':
-        return Icons.swap_horiz_rounded;
-      case 'bridge':
-        return Icons.hub_outlined;
-      case 'agent':
-        return Icons.smart_toy_outlined;
-      default:
-        return Icons.receipt_long_rounded;
-    }
   }
 
   List<ActivityEntry> _filtered(List<ActivityEntry> items) {
@@ -154,21 +138,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: (entry.isPending
-                        ? EvabobColors.danger
-                        : EvabobColors.pageBg)
-                    .withValues(alpha: entry.isPending ? .12 : 1),
-                child: Icon(
-                  entry.isPending
-                      ? Icons.pending_actions_rounded
-                      : _icon(entry.kind),
-                  color:
-                      entry.isPending ? EvabobColors.danger : EvabobColors.blue,
-                  size: 18,
-                ),
-              ),
+              // The person's face, or the token — never a generic icon.
+              ActivityThumb(entry: entry),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

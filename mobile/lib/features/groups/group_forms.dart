@@ -9,6 +9,7 @@ import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/wallet/circle_wallet_service.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// Starts a money circle. Returns its id once it is on chain.
 Future<String?> showCreateCircle(BuildContext context) =>
@@ -157,7 +158,7 @@ class _CreateCircleScreenState extends State<_CreateCircleScreen> {
               controller: _amount,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                const AmountInputFormatter(),
               ],
               decoration: const InputDecoration(
                 labelText: 'Each person puts in',
@@ -397,7 +398,7 @@ class _CreatePotScreenState extends State<_CreatePotScreen> {
               controller: _target,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                const AmountInputFormatter(),
               ],
               decoration: const InputDecoration(
                 labelText: 'Target',

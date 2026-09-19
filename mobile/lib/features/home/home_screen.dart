@@ -22,6 +22,7 @@ import '../../core/widgets/glass.dart';
 import '../../core/widgets/motion.dart';
 import '../activity/incomplete_jobs_banner.dart';
 import '../activity/receipt_sheet.dart';
+import '../activity/activity_thumb.dart';
 import '../groups/groups_screen.dart';
 import '../hold_links/hold_links_screen.dart';
 import '../agent_tasks/agent_tasks_screen.dart';
@@ -798,19 +799,7 @@ class _ActivityRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: EvabobColors.pageBg,
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  _initials(entry.title),
-                  style: Type.body.copyWith(color: EvabobColors.blue),
-                ),
-              ),
+              ActivityThumb(entry: entry),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -849,12 +838,6 @@ class _ActivityRow extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static String _initials(String value) {
-    final parts = value.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return 'EB';
-    return parts.take(2).map((part) => part[0].toUpperCase()).join();
   }
 }
 

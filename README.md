@@ -335,10 +335,20 @@ flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:8787 --d
 | Android emulator | `http://10.0.2.2:8787` |
 | iOS simulator / desktop | `http://127.0.0.1:8787` |
 
-`dart_defines.json` now sets `API_BASE_URL` explicitly. `run_prod.ps1 install`
-builds a shareable APK, so it asks for confirmation when the base URL is a
-loopback address or plain HTTP — such a build only works on this machine's
-emulator. Pass `--dart-define=API_BASE_URL=https://<host>` for a real one.
+Local HTTP is supported only by the Android debug manifest. `run_prod.ps1 install`
+installs a local debug build and deliberately does not create a copy
+for distribution. Release APK/AAB builds fail unless `API_BASE_URL` is an exact
+HTTPS origin (no credentials, path, query, or fragment):
+
+```powershell
+Copy-Item dart_defines.render.example.json dart_defines.testnet.json
+# Replace the example origins with the deployment's real, healthy HTTPS URLs.
+flutter build appbundle --release --dart-define-from-file=dart_defines.testnet.json
+```
+
+Do not distribute any older APK. Before building a replacement, verify the
+public API health route and certificate from a network outside the development
+machine.
 
 ### 4. Contracts (optional redeploy)
 

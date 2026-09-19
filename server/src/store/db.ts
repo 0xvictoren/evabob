@@ -4,6 +4,7 @@ import { writeJsonAtomic } from "../utils/write-json-atomic.js";
 import { dirname } from "node:path";
 import { validateHandle } from "../utils/handles.js";
 import { dataPath } from "../utils/data-path.js";
+import { meterFor } from "../services/agentAllowance.js";
 import {
   markPrimaryStoreDirty,
   registerPrimaryStoreReloader,
@@ -61,6 +62,18 @@ export type UserRecord = {
    * from the account email first (services/familyCheck.ts). Unset: the default.
    */
   familyCheckAbove?: number;
+  /**
+   * Other sign-in provider (Dynamic) user ids that open this account. When
+   * Dynamic issues a new id for the same verified email — its user was
+   * deleted or recreated — the person must land back in this account and its
+   * wallet, not in a new one. See accountIdForSignIn.
+   */
+  authIds?: string[];
+  /**
+   * The account this email last signed into. When Dynamic issues a new id for
+   * the email, this is the account it opens: the one the person was using.
+   */
+  lastSignedInAt?: string;
   createdAt: string;
 };
 
@@ -208,12 +221,75 @@ export type AgentWallet = {
     key: string;
     url: string;
     amountUsdc: number;
-    status: "reserved" | "authorized" | "settled" | "ambiguous" | "released";
+    /**
+     * reserved → authorized → settled | ambiguous, or reserved → released.
+     * A seller that waits for proof adds `held` (authorised, not yet taken)
+     * and `refunded` (the response failed the check, so nothing was taken).
+     * `disputed` is a seller that took payment and returned nothing usable.
+     */
+    status:
+      | "reserved"
+      | "authorized"
+      | "held"
+      | "settled"
+      | "ambiguous"
+      | "released"
+      | "refunded"
+      | "disputed";
     createdAt: string;
     updatedAt: string;
     httpStatus?: number;
     error?: string;
+    /** Seller origin, for the meter, the seller's record and the evidence. */
+    seller?: string;
+    category?: string;
+    /** "proof": the seller only takes the money after the response passed. */
+    settlement?: "proof" | "direct";
+    /** Which approval tier let it through. */
+    tier?: "silent" | "approved";
+    approvalId?: string;
+    evidenceId?: string;
   }>;
+  /**
+   * The allowance: an amount per window, what it may be spent on, and the
+   * owner's own ask-me-above limit. Older agents have none and read their
+   * daily and per-call limits through services/agentAllowance.ts.
+   */
+  allowance?: {
+    amountUsdc: number;
+    window: "day" | "week" | "month";
+    /** Empty means anything on the approved list. */
+    categories: string[];
+    /** Payments above this ask the owner first; at or below go through. */
+    askAboveUsdc: number;
+    /** Only pay sellers that take the money after the response is checked. */
+    proofOnly: boolean;
+  };
+  /** Set while the agent may not spend. Resuming clears it. */
+  pausedAt?: string | null;
+  pauseReason?: "owner" | "loop" | "freeze" | null;
+  pauseDetail?: string | null;
+  /** Payments above the owner's limit, waiting for or given a push approval. */
+  approvals?: Array<{
+    id: string;
+    key: string;
+    url: string;
+    seller: string;
+    category: string;
+    amountUsdc: number;
+    status: "pending" | "approved" | "declined" | "expired" | "used";
+    createdAt: string;
+    expiresAt: string;
+    decidedAt?: string;
+  }>;
+  /** Payable name, e.g. "ada-research". Unique across people and agents. */
+  handle?: string;
+  /** Registry link for the handle, as an Agent identity. */
+  handleLinkTx?: string;
+  /** Last Arc block scanned for money paid to this agent. */
+  incomeScannedBlock?: number;
+  /** Inbound transfers already credited as income, so none counts twice. */
+  incomeTxHashes?: string[];
   chain?: string;
   lastFundTxHash?: string;
   /** Every funding tx already credited, so none can be replayed. */
@@ -330,8 +406,18 @@ export const store = {
   upsertUser(input: Partial<UserRecord> & { id: string; email: string }): UserRecord {
     const existing = db.users.find((u) => u.id === input.id);
     if (existing) {
-      const { evmAddress, ...rest } = input;
-      Object.assign(existing, rest);
+      // The display name and handle are the person's own choices, changed
+      // only through their profile (with its cooldowns). Sign-in used to pass
+      // the app's cached name here and overwrite a name changed since — the
+      // change was saved, then silently reverted on the next app open. On an
+      // existing account they are never overwritten, and a missing value never
+      // blanks a field.
+      const { evmAddress, displayName, handle, ...rest } = input;
+      for (const [key, value] of Object.entries(rest)) {
+        if (value !== undefined) (existing as Record<string, unknown>)[key] = value;
+      }
+      if (!existing.displayName && displayName) existing.displayName = displayName;
+      if (!existing.handle && handle) existing.handle = handle;
       // Never clobber a real wallet with empty string from a half-synced session.
       if (evmAddress && /^0x[a-fA-F0-9]{40}$/i.test(evmAddress)) {
         existing.evmAddress = evmAddress;
@@ -438,14 +524,93 @@ export const store = {
     );
   },
 
-  isHandleTaken(handle: string, exceptUserId?: string) {
+  /**
+   * People and agents share one namespace: "@name" must mean one payee,
+   * whichever kind it is.
+   */
+  isHandleTaken(handle: string, exceptUserId?: string, exceptAgentId?: string) {
     const h = handle.trim().replace(/^@/, "").toLowerCase();
     return db.users.some(
       (u) =>
         u.id !== exceptUserId &&
         ((u.handle && u.handle.toLowerCase() === h) ||
           (!u.handle && u.email.split("@")[0].toLowerCase() === h)),
+    ) || db.agents.some(
+      (a) => a.id !== exceptAgentId && a.handle?.toLowerCase() === h,
     );
+  },
+
+  /**
+   * The account a verified sign-in opens.
+   *
+   * Accounts used to be keyed on Dynamic's user id alone, and the Circle
+   * wallet on the account id. When Dynamic issued a new id for the same email
+   * (its user deleted and recreated), the person silently got a new account
+   * and a new, empty wallet — while the identity registry still sent money
+   * for their email to the original one. An account follows the verified
+   * email instead:
+   *
+   *   1. an id already attached to an account opens that account;
+   *   2. an id that is itself an account opens it;
+   *   3. a new id for an email that already has an account with a wallet
+   *      opens the account that email last signed into (or, if none is
+   *      recorded, the oldest), and is attached to it;
+   *   4. otherwise it is a new person.
+   *
+   * Every sign-in through 1 or 2 records itself as the email's last-used
+   * account, so rule 3 always returns the person to where they were.
+   */
+  accountIdForSignIn(subject: string, verifiedEmail: string | undefined): string {
+    const email = verifiedEmail?.trim().toLowerCase();
+    const known =
+      db.users.find((u) => u.authIds?.includes(subject)) ??
+      db.users.find((u) => u.id === subject);
+    if (known) {
+      if (email) this.noteSignIn(known);
+      return known.id;
+    }
+    if (!email) return subject;
+    const lastUsed = (u: UserRecord) => u.lastSignedInAt ?? "";
+    const target = db.users
+      .filter((u) => u.email?.trim().toLowerCase() === email && /^0x[a-fA-F0-9]{40}$/.test(u.evmAddress || ""))
+      .sort((a, b) => lastUsed(b).localeCompare(lastUsed(a)) || a.createdAt.localeCompare(b.createdAt))[0];
+    if (!target) return subject;
+    target.authIds = [...(target.authIds ?? []), subject];
+    this.noteSignIn(target);
+    save(db);
+    console.log(`[auth] new sign-in id for ${email} opens existing account ${target.id}`);
+    return target.id;
+  },
+
+  /** Records the email's last-used account. Saves at most once an hour. */
+  noteSignIn(user: UserRecord) {
+    const last = user.lastSignedInAt ? Date.parse(user.lastSignedInAt) : 0;
+    if (Date.now() - last < 60 * 60 * 1000) return;
+    user.lastSignedInAt = new Date().toISOString();
+    save(db);
+  },
+
+  /** Attaches a sign-in id to an account, so it opens that account from now on. */
+  attachSignInId(accountId: string, subject: string): UserRecord | null {
+    const user = db.users.find((u) => u.id === accountId);
+    if (!user) return null;
+    for (const other of db.users) {
+      if (other.authIds?.includes(subject)) other.authIds = other.authIds.filter((s) => s !== subject);
+    }
+    if (subject !== accountId && !user.authIds?.includes(subject)) {
+      user.authIds = [...(user.authIds ?? []), subject];
+    }
+    save(db);
+    return user;
+  },
+
+  findAgentByHandle(handle: string): AgentWallet | undefined {
+    const h = handle.trim().replace(/^@/, "").toLowerCase();
+    return db.agents.find((a) => a.handle?.toLowerCase() === h);
+  },
+
+  listAllAgents(): AgentWallet[] {
+    return db.agents;
   },
 
   /**
@@ -1179,7 +1344,18 @@ export const store = {
 
   reserveAgentPayment(
     agent: AgentWallet,
-    input: { key: string; url: string; amountUsdc: number },
+    input: {
+      key: string;
+      url: string;
+      amountUsdc: number;
+      /** What is left of the allowance, counting money set aside elsewhere. */
+      remainingUsdc?: number;
+      seller?: string;
+      category?: string;
+      settlement?: "proof" | "direct";
+      tier?: "silent" | "approved";
+      approvalId?: string;
+    },
   ) {
     const history = agent.paymentHistory ?? (agent.paymentHistory = []);
     const previous = history.find((row) => row.key === input.key);
@@ -1200,20 +1376,36 @@ export const store = {
       agent.spentTodayUsdc = 0;
     }
     if (amount > agent.balanceUsdc) throw new Error("Insufficient agent balance");
-    if (amount > (agent.perCallLimitUsdc ?? agent.dailyLimitUsdc)) {
-      throw new Error("Payment exceeds this agent's per-call limit");
-    }
-    if (agent.spentTodayUsdc + amount > agent.dailyLimitUsdc) {
-      throw new Error("Payment exceeds this agent's daily limit");
+    if (agent.allowance) {
+      // The allowance is the hard cap. The owner's ask-me limit is not: a
+      // payment above it arrives here only after the owner approved it.
+      const remaining = input.remainingUsdc ?? meterFor(agent, Date.now()).remainingUsdc;
+      if (amount > remaining + 1e-9) {
+        throw new Error("Payment exceeds what is left of this agent's allowance");
+      }
+    } else {
+      // An owner-approved payment is allowed past the per-call limit; that
+      // limit is exactly the point above which the owner is asked.
+      if (input.tier !== "approved" && amount > (agent.perCallLimitUsdc ?? agent.dailyLimitUsdc)) {
+        throw new Error("Payment exceeds this agent's per-call limit");
+      }
+      if (agent.spentTodayUsdc + amount > agent.dailyLimitUsdc) {
+        throw new Error("Payment exceeds this agent's daily limit");
+      }
     }
     const now = new Date().toISOString();
-    const payment = {
+    const payment: NonNullable<AgentWallet["paymentHistory"]>[number] = {
       key: input.key,
       url: input.url,
       amountUsdc: amount,
-      status: "reserved" as const,
+      status: "reserved",
       createdAt: now,
       updatedAt: now,
+      ...(input.seller ? { seller: input.seller } : {}),
+      ...(input.category ? { category: input.category } : {}),
+      ...(input.settlement ? { settlement: input.settlement } : {}),
+      ...(input.tier ? { tier: input.tier } : {}),
+      ...(input.approvalId ? { approvalId: input.approvalId } : {}),
     };
     agent.balanceUsdc = Number((agent.balanceUsdc - amount).toFixed(6));
     agent.spentTodayUsdc = Number((agent.spentTodayUsdc + amount).toFixed(6));
@@ -1226,11 +1418,34 @@ export const store = {
     agent: AgentWallet,
     key: string,
     patch: Partial<Pick<NonNullable<AgentWallet["paymentHistory"]>[number],
-      "status" | "httpStatus" | "error">>,
+      "status" | "httpStatus" | "error" | "evidenceId">>,
   ) {
     const payment = agent.paymentHistory?.find((row) => row.key === key);
     if (!payment) throw new Error("Agent payment reservation not found");
     Object.assign(payment, patch, { updatedAt: new Date().toISOString() });
+    save(db);
+    return payment;
+  },
+
+  /**
+   * Gives a proof-held payment back: the seller's response failed the check,
+   * so the authorisation was never settled and the money never left.
+   */
+  refundHeldAgentPayment(agent: AgentWallet, key: string, reason: string) {
+    const payment = agent.paymentHistory?.find((row) => row.key === key);
+    if (!payment) throw new Error("Agent payment reservation not found");
+    if (payment.status === "refunded") return payment;
+    if (payment.status !== "held" && payment.status !== "authorized") {
+      throw new Error("Only a payment still waiting for proof can be given back");
+    }
+    agent.balanceUsdc = Number((agent.balanceUsdc + payment.amountUsdc).toFixed(6));
+    if (agent.spentDay === new Date().toISOString().slice(0, 10)) {
+      agent.spentTodayUsdc = Number(Math.max(0,
+        agent.spentTodayUsdc - payment.amountUsdc).toFixed(6));
+    }
+    payment.status = "refunded";
+    payment.error = reason;
+    payment.updatedAt = new Date().toISOString();
     save(db);
     return payment;
   },
@@ -1273,8 +1488,12 @@ export const store = {
       userId: agent.userId,
       kind: "agent",
       title: agent.label,
-      description: `Deposited ${amountUsdc} USDC to agent Gateway balance`,
-      amountUsdc: -amountUsdc,
+      description: `${amountUsdc} USDC is now in the agent's balance`,
+      // The send that moved it is already in the owner's activity; this row
+      // records where it landed, not a second payment.
+      amountUsdc: 0,
+      token: "USDC",
+      amountToken: amountUsdc,
       txHash,
       mode: "agent_gateway_fund",
       status: "completed",

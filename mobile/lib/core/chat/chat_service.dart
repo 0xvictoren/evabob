@@ -997,6 +997,28 @@ class ChatService extends ChangeNotifier {
     }
   }
 
+  /// Sends a photo into a chat. Returns null when it went, or what went wrong.
+  Future<String?> sendPhoto({
+    required String threadId,
+    required String base64,
+    required String mime,
+    String caption = '',
+  }) async {
+    try {
+      await _api.post('/v1/chat/threads/$threadId/photo', body: {
+        'imageBase64': base64,
+        'mime': mime,
+        if (caption.trim().isNotEmpty) 'caption': caption.trim(),
+      });
+      await loadMessages(threadId);
+      _touchThread(threadId, caption.trim().isEmpty ? '📷 Photo' : caption.trim());
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return friendlyError(e);
+    }
+  }
+
   /// Create a payment request and post it into the chat thread immediately.
   Future<bool> sendPaymentRequest({
     required String threadId,

@@ -61,15 +61,21 @@ export function acquireLocalWriterLease(path: string): { release(): void } {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       let active = true;
+      let holder = 0;
       try {
         const row = JSON.parse(readFileSync(path, "utf8")) as { pid?: number };
-        active = pidIsAlive(Number(row.pid));
+        holder = Number(row.pid);
+        active = pidIsAlive(holder);
       } catch {
         active = false;
       }
       if (active) {
+        // Say which process and how to stop it: the usual cause is a server
+        // left running in another window or in the background.
         throw new Error(
-          "Another Evabob server is already the financial JSON writer.",
+          `Another Evabob server is already running on this computer (process ${holder}). ` +
+            `Only one may run at a time. Stop that one first — Ctrl+C in its window, or ` +
+            `"taskkill /PID ${holder} /F" — then start this again.`,
         );
       }
       try { unlinkSync(path); } catch { /* raced with another process */ }
@@ -97,13 +103,27 @@ export async function acquireFinancialWriterLease(): Promise<{
   try {
     if (mongoReady()) {
       remote = await mongoAcquireWriterLease(owner, ttlMs);
+      // No other server is running here (the local lock above is ours), so a
+      // lease still held in Mongo is almost always a server that was just
+      // stopped: its lease lapses within ttlMs. Wait it out instead of
+      // failing, so a quick restart simply works.
+      if (!remote && !serverless) {
+        console.log("[store] waiting for the previous server's lease to expire (up to a minute)…");
+        const until = Date.now() + ttlMs + 15_000;
+        while (!remote && Date.now() < until) {
+          await new Promise((r) => setTimeout(r, 5_000));
+          remote = await mongoAcquireWriterLease(owner, ttlMs);
+        }
+      }
       if (!remote && serverless) {
         console.warn(
           "[store] another instance holds the writer lease; continuing with generation-checked saves",
         );
       } else if (!remote) {
         throw new Error(
-          "Another Evabob instance holds the global financial writer lease.",
+          "Another Evabob server holds the database writer lease — one is still running " +
+            "somewhere else against the same database (another computer, or a hosted copy). " +
+            "Stop it, then start this again.",
         );
       }
     } else if (mongoConfigured() && process.env.NODE_ENV === "production") {

@@ -102,6 +102,10 @@ export function isOnCurrentContract(record: ProtectedEscrowRecord): boolean {
 
 /** How a new hold reads in the payer's activity feed. */
 function holdDescription(purpose: HeldPurpose | undefined, row: ProtectedEscrowRecord): string {
+  if (row.payerAgentId) {
+    const agent = store.getAgentById(row.payerAgentId);
+    return `Set aside by ${agent?.label ?? "your agent"} until the work arrives`;
+  }
   if (purpose === "job" && row.holdLinkId) return "Set aside until your order arrives";
   if (purpose === "job") return "Held until the work arrives";
   if (purpose === "cooling_off") return "Sending in 10 minutes · you can cancel until then";
@@ -134,6 +138,8 @@ export function trackProtectedEscrow(
     createTx: input.createTx,
     ...(input.releaseAt ? { releaseAt: input.releaseAt } : {}),
     ...(input.holdLinkId ? { holdLinkId: input.holdLinkId } : {}),
+    ...(input.payerAgentId ? { payerAgentId: input.payerAgentId } : {}),
+    ...(input.agentTaskId ? { agentTaskId: input.agentTaskId } : {}),
   };
   localEscrows.set(row.id, row);
   saveLocal();
@@ -144,7 +150,9 @@ export function trackProtectedEscrow(
     kind: "send",
     title: input.recipientId,
     description: holdDescription(row.purpose, row),
-    amountUsdc: -input.amountUsdc,
+    // Agent money never touched the owner's own balance.
+    amountUsdc: input.payerAgentId ? 0 : -input.amountUsdc,
+    ...(input.payerAgentId ? { token: "USDC", amountToken: input.amountUsdc } : {}),
     counterparty: input.recipientId,
     txHash: input.createTx,
     mode: "escrow",
@@ -364,15 +372,18 @@ export async function processExpiredEscrows(): Promise<{
         settledAt: e.settledAt,
       });
 
+      const agent = e.payerAgentId ? store.getAgentById(e.payerAgentId) : undefined;
       store.addActivity({
         userId: e.fromUserId,
         kind: "system",
         title: "Money returned",
-        description:
-          e.purpose === "job"
+        description: agent
+          ? `${e.amountUsdc} USDC held for ${e.recipientId} came back to ${agent.label}`
+          : e.purpose === "job"
             ? `${e.amountUsdc} USDC held for ${e.recipientId} came back to you`
             : `${e.amountUsdc} USDC came back — ${e.recipientId} didn't claim it`,
-        amountUsdc: e.amountUsdc,
+        // Agent money goes back to the agent's wallet, not the owner's.
+        amountUsdc: agent ? 0 : e.amountUsdc,
         counterparty: e.recipientId,
         txHash: e.refundTx,
       });

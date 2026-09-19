@@ -26,6 +26,13 @@ export async function runTickWork() {
       import("./groupMoney.js"),
     ]);
   const { runInboundSweep } = await import("./inboundChains.js");
+  const [paywalls, tasks, names] = await Promise.all([
+    import("./paywalls.js"),
+    import("./agentTasks.js"),
+    import("./agentNames.js"),
+    // Listens for bookings answered while no agent call is in flight.
+    import("./x402Pay.js"),
+  ]);
   return {
     held: await step(() => runDueHeldPaymentWork()),
     bridges: await step(() => completeAbandonedBridges()),
@@ -34,6 +41,15 @@ export async function runTickWork() {
     groups: await step(() => runGroupMoneyWork()),
     // Money arriving while the app is closed: recorded and announced anyway.
     inbound: await step(() => runInboundSweep()),
+    // §8.2: hires being locked or followed, paywall bookings nobody answered,
+    // payouts to people paid by agents, money paid to named agents.
+    // Agent top-ups that did not finish in their request, or failed.
+    agentFunding: await step(async () => (await import("./agentFunding.js")).reconcileAgentFunding()),
+    agentTasks: await step(() => tasks.runAgentTaskWork()),
+    bookings: await step(() => ({ expired: paywalls.expireBookings() })),
+    payouts: await step(() => paywalls.runPaywallPayouts()),
+    agentIncome: await step(() => names.sweepAgentIncome()),
+    agentNames: await step(async () => ({ linked: await names.linkPendingAgentHandles() })),
   };
 }
 
@@ -50,6 +66,12 @@ export function tickWasBusy(r: Awaited<ReturnType<typeof runTickWork>>): boolean
     busy(r.gateway, ["paymentsFinished", "topUpsArrived", "errors"]) ||
     busy(r.invoices, ["reminded"]) ||
     busy(r.groups, ["collected", "paidOut", "refunded", "errors"]) ||
-    busy(r.inbound, ["recorded"])
+    busy(r.inbound, ["recorded"]) ||
+    busy(r.agentFunding, ["credited", "retried", "errors"]) ||
+    busy(r.agentTasks, ["errors"]) ||
+    busy(r.bookings, ["expired"]) ||
+    busy(r.payouts, ["paid", "errors"]) ||
+    busy(r.agentIncome, ["credited", "errors"]) ||
+    busy(r.agentNames, ["linked"])
   );
 }

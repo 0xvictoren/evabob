@@ -24,6 +24,9 @@ const paths = {
   gatewayTracker: dataPath("gateway-tracker.json"),
   holdLinks: dataPath("hold-links.json"),
   groupMoney: dataPath("group-money.json"),
+  agentEvidence: dataPath("agent-evidence.json"),
+  paywalls: dataPath("paywalls.json"),
+  agentTasks: dataPath("agent-tasks.json"),
 } as const;
 
 /** Datasets added after the first snapshot: absent means "none yet". */
@@ -33,6 +36,9 @@ const LATER_DATASETS = [
   "gatewayTracker",
   "holdLinks",
   "groupMoney",
+  "agentEvidence",
+  "paywalls",
+  "agentTasks",
 ] as const;
 
 const emptyApp = {

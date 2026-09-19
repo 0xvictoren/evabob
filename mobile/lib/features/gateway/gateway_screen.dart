@@ -20,6 +20,7 @@ import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/address_scan_sheet.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 class GatewayScreen extends StatefulWidget {
   const GatewayScreen({
@@ -617,6 +618,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      inputFormatters: const [AmountInputFormatter()],
                       decoration: const InputDecoration(
                         labelText: 'Amount',
                         border: OutlineInputBorder(),
@@ -663,6 +665,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      inputFormatters: const [AmountInputFormatter()],
                       decoration: const InputDecoration(
                         labelText: 'Amount',
                         border: OutlineInputBorder(),

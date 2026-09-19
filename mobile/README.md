@@ -22,6 +22,20 @@ flutter pub get
 flutter run
 ```
 
+The checked-in `dart_defines.json` is for local debug use and may name a local
+HTTP API. Android release and profile manifests reject cleartext traffic.
+Release builds additionally fail unless `API_BASE_URL` is an exact HTTPS
+origin. Build a distributable only after the hosted API is healthy:
+
+```powershell
+Copy-Item dart_defines.render.example.json dart_defines.testnet.json
+# Confirm/update API_BASE_URL, then:
+flutter build appbundle --release --dart-define-from-file=dart_defines.testnet.json
+```
+
+`dart_defines.testnet.json` is ignored by Git so deployment-specific public
+configuration can be maintained without changing the local debug file.
+
 ### Windows desktop
 
 Requires **Developer Mode** (Settings → System → For developers). Then:

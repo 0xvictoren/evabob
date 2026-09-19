@@ -104,10 +104,13 @@ export const identityRegistryAbi = [
  * every existing link. Add new types at the end only.
  *
  * Phone is retired: the product links email and handle only. The slot stays.
+ * Agent (3) was appended in IdentityRegistryV3 for named agent wallets; the
+ * V2 registry rejects it, so agents are only ever linked in V3.
  */
 export const IdType = {
   /** Retired — reserved so the remaining ordinals do not shift. */
   Phone: 0,
   Email: 1,
   Handle: 2,
+  Agent: 3,
 } as const;

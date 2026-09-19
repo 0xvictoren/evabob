@@ -31,6 +31,28 @@ and other public testnets. Do not read "live" below as "in production" — it me
 
 ---
 
+## "For agents" batch — 2026-09-19 (research report §8.2)
+
+Agent **wallets** (not the Evabob Agent assistant). Full guide, rules and the
+agent API: `docs/AGENTS.md`. Server 378 tests (41 new), contracts 6 new,
+typecheck and Flutter analyze clean.
+
+| # | Feature | Status |
+|---|---------|--------|
+| 7 | **Allowance** — amount, window, categories; silent / push approval / refused; live meter; loop breaker (6th call to one endpoint in a minute pauses it); one-tap Freeze all | **Partial** — tested in code and wired end to end in the app; not yet exercised by a real agent |
+| 8 | **Pay after proof** — Evabob paywalls are verified, delivered, checked, then settled; failures cost nothing; outside sellers that return nothing usable are marked disputed. Evidence bundle per payment, hash-chained, shared as JSON | **Works** for Evabob paywalls — a real agent paid a $0.01 paywall on testnet: verified, delivered, checked, settled by Circle, evidence recorded. Found and fixed two bugs in the existing payment path on the way: BigInt serialisation in the signer (every paid call failed) and the missing `resource` Circle requires. Outside sellers: none on Arc testnet to try |
+| 9 | **Names and reputations** — agent handles share the people namespace; pay by handle ("Research agent · owned by @ada"); `Agent` identity type in IdentityRegistryV3; income swept into the agent's balance; record of hires and calls; seller list seeded from Evabob paywalls and Circle's catalog | **Partial** — registry deployed and migrated on testnet; naming, payee resolution and records tested; no agent named on chain yet |
+| 10 | **Agent hires a person** — fee reserved on posting, locked on chain in a job hold before the person starts; delivery releases, nothing delivered returns it to the agent | **Works** (release path) — a real $0.05 hire: locked on chain for @nzubechi_ before starting, marked delivered, accepted, released to their wallet. The "nothing delivered" return path has not run with real money |
+| 11 | **Get paid by agents** — paywalls for files, text, a person's API or time; one link for people and software; payouts in batches less 0.05% and $0.02 | **Works** (sale) — a real $0.01 sale settled on testnet. Payouts from the treasury and bookings of time not yet run with real money |
+
+### IdentityRegistryV3 — deployed 2026-09-19
+
+V2 plus one appended identity type, `Agent` (3). Existing ordinals and keys are
+unchanged; V2 rejects ordinal 3, so a new registry was required. Admin: the
+Safe; linker: the identity linker. The 8 identities V2 resolves were copied
+(no conflicts). PaymentEscrowV3 still reads V2, so people are linked in both
+(`ESCROW_IDENTITY_REGISTRY`), agents in V3 only. `/v1/health` role map OK.
+
 ## Testing feedback batch — 2026-09-19
 
 Fixes from the first round of hands-on testing. Server 337 tests, Flutter 51
@@ -771,7 +793,8 @@ Dynamic SDK, so it cannot pass under the test binding. Enabling it requires
 | Contract | Address |
 |----------|---------|
 | Admin Safe (2-of-3) | `0xe2Ef46038d30F80B39DA2E775F637BE2fa2635A2` |
-| IdentityRegistryV2 | `0xb14355288fcE19811cccaF1589ea85e3791320a0` |
+| IdentityRegistryV3 (current; adds the Agent type) | `0x7a74c86b6fd0b0232d5d1eb0074547dfe1a4ffd0` |
+| IdentityRegistryV2 (read by PaymentEscrowV3; people mirrored) | `0xb14355288fcE19811cccaF1589ea85e3791320a0` |
 | PaymentEscrowV3 | `0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39` |
 | PaymentEscrowV2 (retired 2026-09-18, never used) | `0xd6b5cbCD102C848EB402bCB31E8FbB8f0b2b6805` |
 

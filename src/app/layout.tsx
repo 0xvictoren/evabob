@@ -21,8 +21,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={numans.variable}>
-      <body className="font-sans antialiased">{children}</body>
+    // Browser extensions (Grammarly, wallet and launcher extensions) add
+    // attributes to <html> and <body> before React loads. This ignores only
+    // those two elements' own attributes, not anything inside them.
+    <html lang="en" className={numans.variable} suppressHydrationWarning>
+      <body className="font-sans antialiased" suppressHydrationWarning>{children}</body>
     </html>
   );
 }

@@ -53,10 +53,19 @@ app.use("*", secureHeaders({
   xFrameOptions: "DENY",
   xContentTypeOptions: "nosniff",
 }));
-app.use("*", bodyLimit({
+const smallBodies = bodyLimit({
   maxSize: 512 * 1024,
   onError: (c) => c.json({ error: "request_too_large" }, 413),
-}));
+});
+// A paywall carries the files it sells (up to 10 MB of them, base64).
+const paywallBodies = bodyLimit({
+  maxSize: 15 * 1024 * 1024,
+  onError: (c) => c.json({ error: "Those files are too big. Up to 10 MB per link." }, 413),
+});
+app.use("*", (c, next) =>
+  c.req.method === "POST" && c.req.path === "/v1/paywalls"
+    ? paywallBodies(c, next)
+    : smallBodies(c, next));
 
 const uploadsDir = dataPath("uploads");
 if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
@@ -169,6 +178,11 @@ app.use("/v1/agents/*/deposit", rateLimit(SENSITIVE));
 app.use("/v1/agents/*/withdraw", rateLimit(SENSITIVE));
 app.use("/v1/agents", rateLimit(ONBOARDING));
 app.use("/v1/agents/*/reveal-key", rateLimit(SENSITIVE));
+// Agents hiring people move money; paywalls take payments from anyone.
+app.on("POST", "/v1/agent-api/tasks", rateLimit(SENSITIVE));
+app.on("POST", "/v1/paywalls", rateLimit(SENSITIVE));
+app.on("POST", "/v1/agent-tasks/*/take", rateLimit(SENSITIVE));
+app.use("/x/*", rateLimit(GENERAL));
 app.use("/v1/users/me/avatar", rateLimit(SENSITIVE));
 app.use("/v1/circle/create-user", rateLimit(ONBOARDING));
 app.use("/v1/circle/session", rateLimit(ONBOARDING));
@@ -180,11 +194,15 @@ app.use("/v1/circle/prepare-pin", rateLimit(ONBOARDING));
  * the avatar filename shape is served, so nothing else on disk is reachable.
  */
 const AVATAR_FILE = /^avatar_[a-f0-9]{32}\.(jpg|png|webp)$/;
-// Review evidence photos: random names, reachable only by those given the path.
+// Review evidence and chat photos: random names, reachable only by those
+// given the path.
 const EVIDENCE_FILE = /^evidence_[a-f0-9]{32}\.(jpg|png|webp)$/;
+const CHAT_PHOTO_FILE = /^chatphoto_[a-f0-9]{32}\.(jpg|png|webp)$/;
 app.get("/uploads/:file", async (c) => {
   const file = c.req.param("file");
-  if (!AVATAR_FILE.test(file) && !EVIDENCE_FILE.test(file)) return c.notFound();
+  if (!AVATAR_FILE.test(file) && !EVIDENCE_FILE.test(file) && !CHAT_PHOTO_FILE.test(file)) {
+    return c.notFound();
+  }
   const headers = {
     "Cache-Control": "public, max-age=86400",
     "X-Content-Type-Options": "nosniff",
@@ -250,6 +268,7 @@ app.get("/health/ready", (c) => {
 
 const [
   { api },
+  { agentCommerceRoutes, agentApiRoutes, paywallResource },
   { agentRoutes },
   { appKitRoutes },
   { cctpRoutes },
@@ -259,6 +278,7 @@ const [
   { startEscrowRefundJob, processExpiredEscrows },
 ] = await Promise.all([
   import("./routes/api.js"),
+  import("./routes/agentCommerce.js"),
   import("./routes/agent.js"),
   import("./routes/app-kit.js"),
   import("./routes/cctp.js"),
@@ -269,6 +289,10 @@ const [
 ]);
 
 app.route("/v1", api);
+app.route("/v1", agentCommerceRoutes);
+app.route("/v1/agent-api", agentApiRoutes);
+// Software pays for a person's paywall here: plain HTTP 402, no session.
+app.route("/", paywallResource);
 app.route("/v1/agent", agentRoutes);
 app.route("/v1/circle", circleWallets);
 app.route("/v1/identity", identityRoutes);

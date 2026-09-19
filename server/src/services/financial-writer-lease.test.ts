@@ -12,7 +12,7 @@ test("only one local process may own the financial writer lease", () => {
   try {
     assert.throws(
       () => acquireLocalWriterLease(path),
-      /already the financial JSON writer/,
+      /Another Evabob server is already running on this computer \(process \d+\)/,
     );
     first.release();
     const next = acquireLocalWriterLease(path);

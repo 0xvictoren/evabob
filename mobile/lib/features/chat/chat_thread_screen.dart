@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/auth/evabob_auth.dart';
 import '../../core/utils/text_safe.dart';
@@ -16,7 +20,6 @@ import '../../core/widgets/confirm_action_dialog.dart';
 import '../held/held_payment_screen.dart';
 import '../../core/widgets/confirm_payment_sheet.dart';
 import '../../core/widgets/family_code_sheet.dart';
-import '../../core/widgets/contact_picker_sheet.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/agent_avatar.dart';
 import '../../core/api/api_client.dart';
@@ -24,7 +27,10 @@ import '../../core/widgets/bundle_avatar.dart';
 import '../request/payment_link_screen.dart';
 import 'package:intl/intl.dart';
 import 'request_card.dart';
+import 'link_card.dart';
+import 'photo_bubble.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 class ChatThreadScreen extends StatefulWidget {
   const ChatThreadScreen({super.key, required this.thread});
@@ -150,12 +156,17 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            // Removed rather than left in place to announce that it does
-            // nothing: its only behaviour was a snackbar saying so.
             ListTile(
-              leading: const Icon(Icons.contacts_outlined),
-              title: const Text('Contact'),
-              onTap: () => Navigator.pop(ctx, 'contact'),
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Photo'),
+              subtitle: const Text('From your gallery'),
+              onTap: () => Navigator.pop(ctx, 'photo'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Camera'),
+              subtitle: const Text('Take a photo now'),
+              onTap: () => Navigator.pop(ctx, 'camera'),
             ),
             ListTile(
               leading: const Icon(Icons.request_page_outlined),
@@ -169,38 +180,80 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     );
     if (!mounted || choice == null) return;
 
-    if (choice == 'contact') {
-      final picked = await ContactPickerSheet.open(context);
-      if (picked != null && picked.isNotEmpty && mounted) {
-        final cleaned = picked.replaceAll(RegExp(r'\s+'), '').trim();
-        if (cleaned.isEmpty) return;
-        if (!cleaned.contains('@') || cleaned.startsWith('@')) {
-          showTopSnack(
-            context,
-            const SnackBar(
-              content: Text('Only emails from contacts can be pasted.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          return;
-        }
-        final cur = _input.text;
-        setState(() {
-          if (cur.trim().isEmpty) {
-            _input.text = cleaned;
-          } else {
-            _input.text = '$cur $cleaned';
-          }
-          _input.selection = TextSelection.fromPosition(
-            TextPosition(offset: _input.text.length),
-          );
-        });
-      }
+    if (choice == 'photo' || choice == 'camera') {
+      await _sendPhoto(choice == 'camera' ? ImageSource.camera : ImageSource.gallery);
       return;
     }
 
     if (choice == 'request') {
       await _promptAndSendRequest(myId);
+    }
+  }
+
+  bool _sendingPhoto = false;
+
+  /// Picks or takes a photo, makes it small enough to send (256 KB at most),
+  /// and sends it with whatever is typed as its caption.
+  Future<void> _sendPhoto(ImageSource source) async {
+    if (_sendingPhoto) return;
+    void say(String text) => showTopSnack(
+          context,
+          SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+        );
+    try {
+      if (source == ImageSource.camera) {
+        final status = await Permission.camera.request();
+        if (!status.isGranted) {
+          if (mounted) say('Allow the camera in Settings to take a photo.');
+          return;
+        }
+      }
+      XFile? file;
+      Uint8List? bytes;
+      // Smaller each time, until it fits.
+      for (final (size, quality) in const [(1080.0, 65), (900.0, 55), (720.0, 45)]) {
+        file = await ImagePicker().pickImage(
+          source: source,
+          maxWidth: size,
+          maxHeight: size,
+          imageQuality: quality,
+        );
+        if (file == null) return;
+        bytes = await file.readAsBytes();
+        if (bytes.length <= 250 * 1024) break;
+        if (source == ImageSource.camera) break;
+        if (!mounted) return;
+        say('That photo is large — pick it again and it will be made smaller.');
+      }
+      if (file == null || bytes == null || !mounted) return;
+      if (bytes.length > 250 * 1024) {
+        say('That photo is too large to send. Try a screenshot of it.');
+        return;
+      }
+      final lower = file.name.toLowerCase();
+      final mime = lower.endsWith('.png')
+          ? 'image/png'
+          : lower.endsWith('.webp')
+              ? 'image/webp'
+              : 'image/jpeg';
+      final caption = _input.text.trim();
+      setState(() => _sendingPhoto = true);
+      final error = await context.read<ChatService>().sendPhoto(
+            threadId: widget.thread.id,
+            base64: base64Encode(bytes),
+            mime: mime,
+            caption: caption,
+          );
+      if (!mounted) return;
+      if (error == null) {
+        if (caption.isNotEmpty) _input.clear();
+      } else {
+        say(error);
+      }
+    } catch (e) {
+      if (mounted) say(friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _sendingPhoto = false);
     }
   }
 
@@ -218,6 +271,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
               controller: amountCtrl,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(
                 labelText: 'Amount',
                 border: OutlineInputBorder(),
@@ -797,11 +851,17 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                     children: [
                       IconButton(
                         tooltip: 'Attach',
-                        onPressed: () => _openAttachMenu(myId),
-                        icon: const Icon(
-                          Icons.attach_file_rounded,
-                          color: EvabobColors.emeraldDeep,
-                        ),
+                        onPressed: _sendingPhoto ? null : () => _openAttachMenu(myId),
+                        icon: _sendingPhoto
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(
+                                Icons.attach_file_rounded,
+                                color: EvabobColors.emeraldDeep,
+                              ),
                       ),
                       Expanded(
                         child: TextField(
@@ -955,6 +1015,39 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   }
 
   Widget _bubble(ChatMessage m, String myId, EvabobAuth auth) {
+    if (PhotoBubble.isPhoto(m.meta)) {
+      return PhotoBubble(meta: m.meta!, mine: _isMine(m, auth));
+    }
+    // Any other Evabob link, as its card: say what else was written, then it.
+    if (LinkCard.isLinkCard(m.meta)) {
+      final mine = _isMine(m, auth);
+      final extra = (m.kind == ChatMessageKind.text ? (m.text ?? '') : '')
+          .replaceAll(RegExp(r'(evabob://\S+|https?://\S+)'), '')
+          .trim();
+      final card = LinkCard(meta: m.meta!, mine: mine);
+      // The assistant's sentence is the explanation; people's own words stay.
+      if (extra.isEmpty || m.senderId.toLowerCase().contains('agent')) {
+        return m.senderId.toLowerCase().contains('agent') && extra.isNotEmpty
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _textBubble(extra, false),
+                  const SizedBox(height: 6),
+                  card,
+                ],
+              )
+            : card;
+      }
+      return Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          _textBubble(extra, mine),
+          const SizedBox(height: 6),
+          card,
+        ],
+      );
+    }
     if (_isRequestCard(m)) {
       final chat = context.read<ChatService>();
       final thread = chat.threadById(widget.thread.id) ?? widget.thread;

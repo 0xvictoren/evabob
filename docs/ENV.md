@@ -27,6 +27,7 @@ testnet checklist. Production is deliberately locked by
 | `ESCROW_ATTESTOR_PRIVATE_KEY` | Dedicated hot signer that releases verified protected transfers |
 | `ADMIN_SAFE_ADDRESS` | Expected 2-of-3 Safe address used by health and startup checks |
 | `IDENTITY_REGISTRY` | Arc IdentityRegistry address |
+| `ESCROW_IDENTITY_REGISTRY` | The registry PaymentEscrowV3 reads (V2) when `IDENTITY_REGISTRY` is V3. People are linked in both; agents only in V3. |
 | `PAYMENT_ESCROW` | Arc PaymentEscrow address |
 | `OPERATOR_USER_IDS` | Comma-separated Dynamic user ids allowed to use treasury and maintenance routes; empty fails closed |
 | `AGENT_RESOURCE_ORIGINS` | Exact HTTPS origins permitted for agent resource discovery; empty blocks outbound resource calls |
@@ -205,3 +206,15 @@ Public defines only (no secrets):
   `FIREBASE_ANDROID_APP_ID`, `FIREBASE_IOS_APP_ID`, `FIREBASE_IOS_BUNDLE_ID`.
   No `google-services.json` is needed; leave them empty and push stays off.
 - Circle app id is public; PIN runs via WebView against the API `/challenge` page
+
+`API_BASE_URL` has two supported modes:
+
+- Debug: local HTTP is permitted by `android/app/src/debug/AndroidManifest.xml`.
+- Release/profile: the main Android manifest blocks cleartext. Android release
+  builds fail unless the value is an exact HTTPS origin, and the app repeats
+  the check at startup as defense in depth.
+
+Use a host with a publicly trusted certificate. Do not include a path, query,
+fragment, or credentials in the origin. Verify the deployed health endpoint
+before generating a replacement APK/AAB; a valid certificate alone does not
+mean the API is serving the application.

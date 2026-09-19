@@ -10,6 +10,7 @@ import '../../core/utils/text_safe.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// Which contacts are family, and above what amount paying them needs the
 /// code from email.
@@ -136,8 +137,7 @@ class _FamilyCheckScreenState extends State<FamilyCheckScreen> {
                                     const TextInputType.numberWithOptions(
                                         decimal: true),
                                 inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                      RegExp(r'[0-9.]')),
+                                  const AmountInputFormatter(),
                                 ],
                                 decoration: const InputDecoration(
                                   prefixText: r'$ ',

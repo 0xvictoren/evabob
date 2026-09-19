@@ -59,7 +59,19 @@ export type UserAlert = {
     /** A chat message arrived. */
     | "chat_message"
     /** Someone paid, declined or cancelled a request. */
-    | "request_update";
+    | "request_update"
+    /** An agent wants to spend above its owner's limit. Approve or decline. */
+    | "agent_approval"
+    /** An agent was paused: the loop breaker, or everything frozen. */
+    | "agent_paused"
+    /** A paid call failed its check, or a seller took money for nothing. */
+    | "agent_payment_issue"
+    /** An agent hired this person, or a task they took changed. */
+    | "agent_task"
+    /** Software paid for something this person sells through a paywall. */
+    | "paywall_sale"
+    /** Software asked to book this person's time; accept or decline. */
+    | "paywall_booking";
   title: string;
   body: string;
   amountUsdc?: number;

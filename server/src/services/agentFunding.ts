@@ -185,3 +185,112 @@ export async function verifyAgentFunding(
     client,
   );
 }
+
+// ─── Top-ups left unfinished ────────────────────────────────────────────
+
+const reconciling = new Set<string>();
+
+/**
+ * Finishes agent top-ups that did not complete in the request that started
+ * them, and retries ones that failed. Runs on the tick.
+ *
+ *   depositing  the deposit transaction was sent; once Circle reports it done
+ *               and Gateway shows the money, the agent is credited.
+ *   failed      the money is still in the agent's own wallet on Arc (the old
+ *               code tried to deposit the full amount, and the network fee
+ *               made that impossible). It is deposited again, less the fee.
+ *
+ * Each top-up is credited once: completeAgentGatewayFunding refuses a funding
+ * transaction it has already counted.
+ */
+export async function reconcileAgentFunding(): Promise<{ credited: number; retried: number; errors: string[] }> {
+  const { store } = await import("../store/db.js");
+  const wallet = await import("./agentWallet.js");
+  const { fetchGatewayBalances } = await import("./gateway.js");
+  const { alertUser } = await import("./notifyUser.js");
+  const { randomUUID } = await import("node:crypto");
+  const errors: string[] = [];
+  let credited = 0;
+  let retried = 0;
+  for (const agent of store.listAllAgents()) {
+    if (agent.custodyMode !== "circle-eoa" || !agent.custodyAddress || !agent.circleWalletId) continue;
+    const open = (agent.gatewayDeposits ?? []).filter((g) => g.status !== "ready");
+    if (open.length === 0 || reconciling.has(agent.id)) continue;
+    reconciling.add(agent.id);
+    try {
+      for (const g of open) {
+        if (store.isFundTxUsed(g.fundTxHash)) {
+          g.status = "ready";
+          store.save();
+          continue;
+        }
+        if (g.status === "failed" || (g.status === "approving" && !g.depositTransactionId)) {
+          const attempts = (g as { attempts?: number }).attempts ?? 0;
+          if (attempts >= 3) continue;
+          (g as { attempts?: number }).attempts = attempts + 1;
+          try {
+            const out = await wallet.depositAgentWalletToGateway({
+              walletAddress: agent.custodyAddress as Address,
+              amountUsdc: g.amountUsdc,
+              approveIdempotencyKey: randomUUID(),
+              depositIdempotencyKey: randomUUID(),
+              async onApproveCreated(id) {
+                g.approveTransactionId = id;
+                store.save();
+              },
+              async onDepositCreated(id, amountUsdc) {
+                g.depositTransactionId = id;
+                g.amountUsdc = amountUsdc;
+                g.status = "depositing";
+                delete g.error;
+                store.save();
+              },
+            });
+            g.depositTxHash = out.depositTxHash;
+            g.amountUsdc = out.depositedUsdc;
+            g.status = "depositing";
+            retried += 1;
+          } catch (e) {
+            g.error = e instanceof Error ? e.message : String(e);
+            if (!(e instanceof wallet.GatewayDepositPendingError)) g.status = "failed";
+            store.save();
+            continue;
+          }
+        }
+        if (g.status === "depositing" && g.depositTransactionId) {
+          const tx = await wallet.circleTransactionState(g.depositTransactionId);
+          if (tx.state === "FAILED" || tx.state === "DENIED" || tx.state === "CANCELLED") {
+            g.status = "failed";
+            delete g.depositTransactionId;
+            store.save();
+            continue;
+          }
+          if (tx.state !== "COMPLETE" && tx.state !== "CONFIRMED") continue;
+          const gateway = await fetchGatewayBalances(agent.custodyAddress as `0x${string}`);
+          // Gateway credits a deposit once the source chain finalises it.
+          if (gateway.totalUsdc + 0.000001 < agent.balanceUsdc + g.amountUsdc) continue;
+          const done = store.completeAgentGatewayFunding(agent, g.fundTxHash, g.amountUsdc);
+          g.status = "ready";
+          g.depositTxHash = g.depositTxHash ?? tx.txHash;
+          store.save();
+          if (done.fresh) {
+            credited += 1;
+            alertUser(agent.userId, {
+              kind: "money_in",
+              title: `${g.amountUsdc} USDC is in ${agent.label}`,
+              body: "Its top-up has finished. It can spend it, and you can take it out.",
+              amountUsdc: g.amountUsdc,
+              token: "USDC",
+              link: `evabob://agents/${agent.id}`,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      errors.push(`${agent.id}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      reconciling.delete(agent.id);
+    }
+  }
+  return { credited, retried, errors };
+}

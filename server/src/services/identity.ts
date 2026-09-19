@@ -6,19 +6,36 @@ import {
   getPublicClient,
 } from "./arc-wallet.js";
 
-export type IdentityKind = "phone" | "email" | "handle";
+export type IdentityKind = "phone" | "email" | "handle" | "agent";
 
 function toIdType(kind: IdentityKind): number {
   if (kind === "phone") return IdType.Phone;
   if (kind === "email") return IdType.Email;
+  if (kind === "agent") return IdType.Agent;
   return IdType.Handle;
 }
 
 export function normalizeIdentifier(kind: IdentityKind, raw: string): string {
   let s = raw.trim().toLowerCase();
-  if (kind === "handle") s = s.replace(/^@/, "");
+  if (kind === "handle" || kind === "agent") s = s.replace(/^@/, "");
   if (kind === "phone") s = s.replace(/[^\d+]/g, "");
   return s;
+}
+
+/**
+ * The registry PaymentEscrowV3 reads, when it is a different contract. People
+ * are linked there too so held payments can still be claimed; agents never
+ * are — that registry predates the Agent type and rejects it.
+ */
+export function escrowRegistryAddress(): Address | null {
+  const a = config.arc.escrowIdentityRegistry;
+  if (!a || !/^0x[a-fA-F0-9]{40}$/.test(a)) return null;
+  if (a.toLowerCase() === config.arc.identityRegistry.toLowerCase()) return null;
+  return a as Address;
+}
+
+function mirrorsToEscrowRegistry(kind: IdentityKind): boolean {
+  return (kind === "email" || kind === "handle") && escrowRegistryAddress() != null;
 }
 
 export function registryAddress(): Address {
@@ -42,11 +59,12 @@ export function computeIdentityKey(kind: IdentityKind, normalized: string): Hex 
 export async function resolveIdentity(
   kind: IdentityKind,
   identifier: string,
+  registry: Address = registryAddress(),
 ): Promise<{ account: Address; active: boolean; key: Hex; normalized: string }> {
   const normalized = normalizeIdentifier(kind, identifier);
   const publicClient = getPublicClient();
   const [account, active] = await publicClient.readContract({
-    address: registryAddress(),
+    address: registry,
     abi: identityRegistryAbi,
     functionName: "resolveIdentifier",
     args: [toIdType(kind), stringToHex(normalized)],
@@ -101,11 +119,27 @@ export async function adminLinkIdentity(input: {
   normalized: string;
   status: "linked" | "already-current";
 }> {
+  const primary = await linkIn(registryAddress(), input);
+  if (mirrorsToEscrowRegistry(input.kind)) {
+    await linkIn(escrowRegistryAddress()!, input);
+  }
+  return primary;
+}
+
+async function linkIn(
+  registry: Address,
+  input: { account: Address; kind: IdentityKind; identifier: string },
+): Promise<{
+  txHash: Hex;
+  key: Hex;
+  normalized: string;
+  status: "linked" | "already-current";
+}> {
   const normalized = normalizeIdentifier(input.kind, input.identifier);
   const wallet = getIdentityLinkerWalletClient();
   const publicClient = getPublicClient();
   const onChainLinker = await publicClient.readContract({
-    address: registryAddress(),
+    address: registry,
     abi: identityRegistryAbi,
     functionName: "linker",
   }) as Address;
@@ -113,7 +147,7 @@ export async function adminLinkIdentity(input: {
     throw new IdentityAdminMismatchError(wallet.account!.address, onChainLinker);
   }
 
-  const existing = await resolveIdentity(input.kind, normalized);
+  const existing = await resolveIdentity(input.kind, normalized, registry);
   if (existing.active) {
     // Already bound to us — nothing to do.
     if (existing.account.toLowerCase() === input.account.toLowerCase()) {
@@ -137,7 +171,7 @@ export async function adminLinkIdentity(input: {
   }
 
   const hash = await wallet.writeContract({
-    address: registryAddress(),
+    address: registry,
     abi: identityRegistryAbi,
     functionName: "adminLink",
     args: [input.account, toIdType(input.kind), stringToHex(normalized)],
@@ -158,13 +192,24 @@ export async function adminUnlinkIdentity(input: {
   kind: IdentityKind;
   identifier: string;
 }): Promise<{ txHash: Hex; key: Hex; normalized: string } | { skipped: true }> {
+  const primary = await unlinkIn(registryAddress(), input);
+  if (mirrorsToEscrowRegistry(input.kind)) {
+    await unlinkIn(escrowRegistryAddress()!, input);
+  }
+  return primary;
+}
+
+async function unlinkIn(
+  registry: Address,
+  input: { kind: IdentityKind; identifier: string },
+): Promise<{ txHash: Hex; key: Hex; normalized: string } | { skipped: true }> {
   const normalized = normalizeIdentifier(input.kind, input.identifier);
-  const existing = await resolveIdentity(input.kind, normalized);
+  const existing = await resolveIdentity(input.kind, normalized, registry);
   if (!existing.active) return { skipped: true };
   const wallet = getIdentityLinkerWalletClient();
   const publicClient = getPublicClient();
   const hash = await wallet.writeContract({
-    address: registryAddress(),
+    address: registry,
     abi: identityRegistryAbi,
     functionName: "linkerUnlink",
     args: [existing.account, existing.key],

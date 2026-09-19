@@ -214,6 +214,13 @@ export const config = {
     gatewayMinter: "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B" as const,
     cctpDomain: 26,
     identityRegistry: req("IDENTITY_REGISTRY"),
+    /**
+     * The registry PaymentEscrowV3 resolves claims against, when it is not
+     * IDENTITY_REGISTRY. The escrow's registry is immutable, so after the
+     * registry moved to V3 (which adds the Agent type) people's handles and
+     * emails are linked in both until the escrow is next replaced.
+     */
+    escrowIdentityRegistry: req("ESCROW_IDENTITY_REGISTRY"),
     paymentEscrow: req("PAYMENT_ESCROW"),
     /** Ops signer: gas + working-capital USDC. Holds no contract admin role. */
     privateKey: req("PRIVATE_KEY"),

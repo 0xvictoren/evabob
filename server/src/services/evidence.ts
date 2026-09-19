@@ -15,10 +15,20 @@ import { decodeAvatar, type AvatarMime } from "./avatar.js";
 import { mongoReady, mongoSaveAvatar } from "./mongo.js";
 
 export const EVIDENCE_FILE = /^evidence_[a-f0-9]{32}\.(jpg|png|webp)$/;
+/** Photos sent in a chat: the same rules, their own name. */
+export const CHAT_PHOTO_FILE = /^chatphoto_[a-f0-9]{32}\.(jpg|png|webp)$/;
 
-export async function storeEvidencePhoto(imageBase64: string, mime: AvatarMime): Promise<string> {
+export function storeEvidencePhoto(imageBase64: string, mime: AvatarMime): Promise<string> {
+  return storePhoto("evidence", imageBase64, mime);
+}
+
+export function storeChatPhoto(imageBase64: string, mime: AvatarMime): Promise<string> {
+  return storePhoto("chatphoto", imageBase64, mime);
+}
+
+async function storePhoto(prefix: string, imageBase64: string, mime: AvatarMime): Promise<string> {
   const photo = decodeAvatar(imageBase64, mime);
-  const filename = `evidence_${randomBytes(16).toString("hex")}.${photo.extension}`;
+  const filename = `${prefix}_${randomBytes(16).toString("hex")}.${photo.extension}`;
   if (mongoReady()) await mongoSaveAvatar(filename, photo.mime, photo.bytes);
   const dir = dataPath("uploads");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });

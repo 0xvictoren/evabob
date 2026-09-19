@@ -19,6 +19,9 @@ const valid = {
   gatewayTracker: [],
   holdLinks: [],
   groupMoney: [],
+  agentEvidence: [],
+  paywalls: [],
+  agentTasks: [],
 };
 
 test("accepts a complete primary-store snapshot", () => {
@@ -34,6 +37,9 @@ test("loads a snapshot written before bridge jobs and devices were included", ()
     gatewayTracker: _gw,
     holdLinks: _links,
     groupMoney: _groups,
+    agentEvidence: _evidence,
+    paywalls: _paywalls,
+    agentTasks: _tasks,
     ...older
   } = valid;
   assert.deepEqual(validatePrimaryDatasets(older), valid);

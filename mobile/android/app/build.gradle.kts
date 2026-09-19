@@ -1,3 +1,5 @@
+import java.net.URI
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -19,6 +21,46 @@ val localProps = Properties().apply {
 val circleSdkUser: String? = localProps.getProperty("pwsdk.maven.username")
 val circleSdkToken: String? = localProps.getProperty("pwsdk.maven.password")
 val withCircleSdk = !circleSdkUser.isNullOrBlank() && !circleSdkToken.isNullOrBlank()
+
+fun decodeDartDefines(encoded: String?): Map<String, String> =
+    encoded
+        ?.split(',')
+        ?.mapNotNull { item ->
+            val decoded = runCatching {
+                String(Base64.getDecoder().decode(item), Charsets.UTF_8)
+            }.getOrNull() ?: return@mapNotNull null
+            val separator = decoded.indexOf('=')
+            if (separator <= 0) null
+            else decoded.substring(0, separator) to decoded.substring(separator + 1)
+        }
+        ?.toMap()
+        .orEmpty()
+
+fun isHttpsOrigin(value: String): Boolean {
+    val uri = runCatching { URI(value) }.getOrNull() ?: return false
+    return uri.scheme.equals("https", ignoreCase = true) &&
+        !uri.host.isNullOrBlank() &&
+        uri.rawUserInfo == null &&
+        uri.rawQuery == null &&
+        uri.rawFragment == null &&
+        (uri.rawPath.isNullOrEmpty() || uri.rawPath == "/")
+}
+
+val validateReleaseApiBaseUrl by tasks.registering {
+    group = "verification"
+    description = "Rejects Android release builds without an HTTPS API origin."
+    doLast {
+        val defines = decodeDartDefines(project.findProperty("dart-defines")?.toString())
+        val apiBaseUrl = defines["API_BASE_URL"].orEmpty()
+        if (!isHttpsOrigin(apiBaseUrl)) {
+            throw GradleException(
+                "Release API_BASE_URL must be an exact HTTPS origin " +
+                    "(for example https://api.evabob.app). Received: " +
+                    if (apiBaseUrl.isBlank()) "<missing>" else apiBaseUrl,
+            )
+        }
+    }
+}
 
 if (withCircleSdk) {
     repositories {
@@ -76,6 +118,14 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
         }
+    }
+}
+
+// Every APK/AAB release path passes this gate, including Flutter's
+// `flutter build apk` and `flutter build appbundle` commands.
+tasks.configureEach {
+    if (name == "preReleaseBuild") {
+        dependsOn(validateReleaseApiBaseUrl)
     }
 }
 

@@ -17,6 +17,7 @@ import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// Bridge USDC end-to-end via App Kit (bidirectional) or Arc CCTP fallback.
 class BridgeScreen extends StatefulWidget {
@@ -783,7 +784,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[\d.]')),
+                      const AmountInputFormatter(),
                     ],
                     decoration: InputDecoration(
                       labelText: 'Amount',

@@ -85,6 +85,12 @@ class _AppShellState extends State<AppShell> {
       if (uri.host.isNotEmpty) uri.host,
       ...uri.pathSegments,
     ];
+    // "Pay @name" from a card: Send, with who to pay already filled in.
+    if (parts.length >= 2 && parts.first.toLowerCase() == 'send') {
+      if (!_enabled('send', context.read<AppFeatures>())) return;
+      setState(() => _overlay = 'send:${Uri.decodeComponent(parts[1])}');
+      return;
+    }
     if (parts.length >= 2 && parts.first.toLowerCase() == 'pay') {
       setState(() => _overlay = 'pay:${parts[1]}');
       return;
@@ -223,6 +229,13 @@ class _AppShellState extends State<AppShell> {
         key: ValueKey(overlay),
         requestId: overlay.substring(4),
         onBack: _close,
+      );
+    }
+    if (overlay != null && overlay.startsWith('send:')) {
+      return SendScreen(
+        key: ValueKey(overlay),
+        onBack: _close,
+        initialTo: overlay.substring(5),
       );
     }
     if (overlay != null && overlay.startsWith('agents:')) {

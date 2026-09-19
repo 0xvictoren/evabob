@@ -24,9 +24,15 @@ class ActivityEntry {
     this.jobId,
     this.platformFee,
     this.platformFeeToken,
+    this.personName,
+    this.personAvatarUrl,
+    this.personAvatarBundle,
   });
 
   factory ActivityEntry.fromJson(Map<String, dynamic> j, FxService fx) {
+    final person = j['person'] is Map
+        ? Map<String, dynamic>.from(j['person'] as Map)
+        : null;
     final usdc = (j['amountUsdc'] as num?)?.toDouble() ?? 0;
     final token = j['token']?.toString();
     final amountToken = (j['amountToken'] as num?)?.toDouble();
@@ -49,8 +55,17 @@ class ActivityEntry {
       jobId: j['jobId']?.toString(),
       platformFee: (j['platformFee'] as num?)?.toDouble(),
       platformFeeToken: j['platformFeeToken']?.toString(),
+      personName: person?['name']?.toString(),
+      personAvatarUrl: person?['avatarUrl']?.toString(),
+      personAvatarBundle: (person?['avatarBundle'] as num?)?.toInt(),
     );
   }
+
+  /// The person on the other side, when there is one: their name and the
+  /// picture they chose (an upload, or one of the built-in pictures).
+  final String? personName;
+  final String? personAvatarUrl;
+  final int? personAvatarBundle;
 
   final String id;
   final String kind;

@@ -25,6 +25,8 @@ export type PayeeOk = {
   kind: PayeeKind;
   address: `0x${string}`;
   user?: UserRecord;
+  /** A named agent wallet. Its owner is always shown with it. */
+  agent?: { id: string; handle: string; label: string; owner: string };
   /** Raw 0x paste — client should offer Save / Skip. Never auto-save. */
   promptSave: boolean;
   label: string;
@@ -175,6 +177,25 @@ function resolvePayeeInner(fromUserId: string, rawInput: string): PayeeResult {
   if (HANDLE_RE.test(raw) || HANDLE_RE.test(`@${maybeHandle}`)) {
     const user = store.findUserByHandle(maybeHandle);
     if (!user) {
+      // People and agents share one namespace, so a name that is not a
+      // person may be an agent — paid into its own wallet, never its owner's.
+      const agent = store.findAgentByHandle(maybeHandle);
+      if (agent?.handle && agent.custodyAddress && EVM_RE.test(agent.custodyAddress) && !agent.revokedAt) {
+        const owner = store.getUser(agent.userId);
+        return {
+          ok: true,
+          kind: "handle",
+          address: agent.custodyAddress as `0x${string}`,
+          agent: {
+            id: agent.id,
+            handle: `@${agent.handle}`,
+            label: agent.label,
+            owner: owner?.handle ? `@${owner.handle}` : owner?.displayName || "someone",
+          },
+          promptSave: false,
+          label: `@${agent.handle}`,
+        };
+      }
       return {
         ok: false,
         code: "UNKNOWN_HANDLE",

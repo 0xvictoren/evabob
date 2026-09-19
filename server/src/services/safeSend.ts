@@ -35,6 +35,8 @@ export type PayeeCheck = {
   avatarUrl?: string;
   /** A person with an Evabob account, which is what a hold can release to. */
   isEvabobUser: boolean;
+  /** A named agent: "Research agent · owned by @ada". */
+  agent?: { handle: string; label: string; owner: string; byline: string };
   /** This sender has completed a payment to this payee before. */
   paidBefore: boolean;
   warnings: PayeeWarning[];
@@ -128,8 +130,11 @@ export function assessPayee(input: {
   }
 
   // A hold releases to an identity, so a raw address qualifies only when it
-  // belongs to an Evabob user who has a handle or email to release to.
-  const available = input.holdsEnabled && Boolean(user && identityIds.length > 0);
+  // belongs to an Evabob user who has a handle or email to release to. It is
+  // for a first payment only: once this sender has paid this person, the
+  // wait is no longer offered for them — and only for them.
+  const available = input.holdsEnabled && !paidBefore &&
+    Boolean(user && identityIds.length > 0);
   return {
     kind: input.kind,
     address: input.address,
@@ -166,17 +171,26 @@ export function checkPayee(input: {
       (u) => u.evmAddress?.toLowerCase() === resolved.address.toLowerCase(),
     );
   const sends = store.listActivity(input.userId, 1000).filter((a) => a.kind === "send");
-  return {
-    ok: true,
-    input: input.to,
-    ...assessPayee({
-      kind: resolved.kind,
-      address: resolved.address,
-      user,
-      inputText: input.to,
-      prior: priorPayees(sends),
-      coolingOffMinutes: input.coolingOffMinutes,
-      holdsEnabled: input.holdsEnabled,
-    }),
-  };
+  const assessed = assessPayee({
+    kind: resolved.kind,
+    address: resolved.address,
+    user,
+    inputText: input.to,
+    prior: priorPayees(sends),
+    coolingOffMinutes: input.coolingOffMinutes,
+    // A hold releases to a person's identity; an agent is paid directly.
+    holdsEnabled: input.holdsEnabled && !resolved.agent,
+  });
+  if (resolved.agent) {
+    const byline = `${resolved.agent.label} · owned by ${resolved.agent.owner}`;
+    return {
+      ok: true,
+      input: input.to,
+      ...assessed,
+      label: resolved.agent.handle,
+      displayName: byline,
+      agent: { ...resolved.agent, byline },
+    };
+  }
+  return { ok: true, input: input.to, ...assessed };
 }

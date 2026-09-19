@@ -54,13 +54,16 @@ export type NanopayOutcome = {
   error?: string;
   /** Which network and recipient the authorization was made out to. */
   payment?: { network?: string; payTo?: string; amountUsdc?: number };
+  /** The paid response exactly as it came back, for the evidence bundle. */
+  rawText?: string;
+  contentType?: string | null;
 };
 
 /** Reads the 402's requirements from the header, falling back to the body. */
 function parsePaymentRequired(
   headers: Record<string, string>,
   text: string,
-): { x402Version: number; accepts: PaymentRequirements[] } {
+): { x402Version: number; accepts: PaymentRequirements[]; resource?: Record<string, unknown> } {
   const header = headers["payment-required"];
 
   const decode = (raw: string): unknown => {
@@ -89,7 +92,12 @@ function parsePaymentRequired(
 
   // Gateway requires x402 version 2; honour whatever the seller declares.
   const x402Version = Number(obj.x402Version ?? 2) || 2;
-  return { x402Version, accepts };
+  // The paid request must say which resource it pays for; Circle's
+  // facilitator refuses a payment without it.
+  const resource = obj.resource && typeof obj.resource === "object"
+    ? (obj.resource as Record<string, unknown>)
+    : undefined;
+  return { x402Version, accepts, resource };
 }
 
 const ADDRESS = /^0x[a-fA-F0-9]{40}$/;
@@ -148,6 +156,11 @@ export function validateArcBatchRequirement(
  * an error string to refuse. The caller owns policy — balance, per-call and
  * daily caps — because only it knows the agent's ledger.
  */
+export type Fetcher = (
+  url: string,
+  headers?: Record<string, string>,
+) => Promise<{ status: number; text: string; headers: Record<string, string> }>;
+
 export async function nanopay(input: {
   walletId: string;
   address: Address;
@@ -155,13 +168,21 @@ export async function nanopay(input: {
   allowedOrigins: string[];
   authorize: (costUsdc: number) => Promise<string | null>;
   onAuthorized: () => Promise<void>;
+  /**
+   * How requests are made. Defaults to the SSRF-safe public GET; an Evabob
+   * paywall is served in-process instead (paywalls.ts).
+   */
+  fetcher?: Fetcher;
 }): Promise<NanopayOutcome> {
+  const get: Fetcher = input.fetcher ?? (async (url, headers) => {
+    const { safeAgentGet } = await import("./safe-agent-http.js");
+    return safeAgentGet(url, input.allowedOrigins, headers);
+  });
   // 1. Probe.
   let res: { status: number; text: string; headers: Record<string, string> };
   let text: string;
   try {
-    const { safeAgentGet } = await import("./safe-agent-http.js");
-    res = await safeAgentGet(input.url, input.allowedOrigins);
+    res = await get(input.url);
     text = res.text;
   } catch (e) {
     return {
@@ -191,7 +212,7 @@ export async function nanopay(input: {
   }
 
   // 2. Work out what it accepts, and pick a batched option.
-  const { x402Version, accepts } = parsePaymentRequired(res.headers, text);
+  const { x402Version, accepts, resource } = parsePaymentRequired(res.headers, text);
   if (accepts.length === 0) {
     return {
       ok: false,
@@ -252,8 +273,13 @@ export async function nanopay(input: {
       x402Version,
       requirement as never,
     );
-    // The seller reads `accepted` to know which option was taken.
-    paymentPayload = { ...created, accepted: requirement };
+    // The seller reads `accepted` to know which option was taken, and
+    // `resource` (echoed from its 402) to know what is being paid for.
+    paymentPayload = {
+      ...created,
+      resource: resource ?? { url: input.url, description: "", mimeType: "application/json" },
+      accepted: requirement,
+    };
     await input.onAuthorized();
   } catch (e) {
     return {
@@ -271,10 +297,7 @@ export async function nanopay(input: {
     "base64",
   );
   try {
-    const { safeAgentGet } = await import("./safe-agent-http.js");
-    const paidRes = await safeAgentGet(input.url, input.allowedOrigins, {
-      "Payment-Signature": encoded,
-    });
+    const paidRes = await get(input.url, { "Payment-Signature": encoded });
     const paidText = paidRes.text;
     let body: unknown = paidText;
     try {
@@ -285,6 +308,8 @@ export async function nanopay(input: {
     return {
       ok: paidRes.status >= 200 && paidRes.status < 300,
       status: paidRes.status,
+      rawText: paidText,
+      contentType: paidRes.headers["content-type"] ?? null,
       // Only treat it as spent when the seller accepted the authorization.
       costUsdc,
       paid: paidRes.status >= 200 && paidRes.status < 300,

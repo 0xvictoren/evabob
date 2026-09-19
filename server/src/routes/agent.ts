@@ -350,6 +350,25 @@ agentRoutes.post("/message", async (c) => {
     /* optional */
   }
 
+  // An Evabob link given to the assistant opens as its card — sell with a
+  // link, a request, a collection, a task, an agent, a claim — with the action
+  // it is for, instead of the assistant guessing at a URL.
+  {
+    const { findEvabobLinks, cardForLink, sayCard } = await import("../services/evabobLinks.js");
+    const cards: Array<Record<string, unknown>> = [];
+    for (const link of findEvabobLinks(body.text).slice(0, 3)) {
+      const found = await cardForLink(link, uid).catch(() => null);
+      if (found) cards.push(found);
+    }
+    if (cards.length > 0) {
+      let agentMsg: unknown = null;
+      for (const found of cards) {
+        agentMsg = await replyInThread({ threadId: thread.id, text: sayCard(found), meta: found });
+      }
+      return c.json({ ok: true, userMessage: userMsg, agentMessage: agentMsg });
+    }
+  }
+
   const recent = store.messagesFor(thread.id).slice(-10);
   const history =
     body.history ||

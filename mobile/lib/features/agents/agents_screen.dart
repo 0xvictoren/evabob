@@ -13,6 +13,7 @@ import '../../core/widgets/glass.dart';
 import '../../core/widgets/platform_fee_note.dart';
 import 'agent_allowance_widgets.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// Create an agentic wallet, fund it, and copy the x402 API key.
 class AgentsScreen extends StatefulWidget {
@@ -486,6 +487,7 @@ class _AgentDetailState extends State<_AgentDetail> {
               controller: amount,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(labelText: 'Amount in dollars'),
             ),
             const SizedBox(height: 8),
@@ -551,6 +553,7 @@ class _AgentDetailState extends State<_AgentDetail> {
               controller: amount,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(labelText: 'Amount in dollars'),
             ),
             const SizedBox(height: 8),

@@ -16,6 +16,7 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// Buy / swap on Arc: USDC · EURC · cirBTC · custom CA via Synthra + UCW PIN.
 /// Simple amount field + % chips (no calculator — calculator is send-only).
@@ -410,6 +411,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
           TextField(
             controller: dec,
             keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             decoration: const InputDecoration(
               labelText: 'Decimal places (usually 18)',
               border: OutlineInputBorder(),
@@ -515,9 +517,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                             decimal: true,
                           ),
                           inputFormatters: [
-                            FilteringTextInputFormatter.allow(
-                              RegExp(r'[\d.]'),
-                            ),
+                            const AmountInputFormatter(),
                           ],
                           style:
                               EvabobTheme.amountDisplay.copyWith(fontSize: 48),

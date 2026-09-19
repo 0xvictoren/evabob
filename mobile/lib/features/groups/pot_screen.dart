@@ -18,6 +18,7 @@ import '../../core/widgets/confirm_payment_sheet.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// One collection: how far it has got, chipping in, and sharing it.
 class PotScreen extends StatefulWidget {
@@ -253,7 +254,7 @@ class _PotScreenState extends State<PotScreen> {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    const AmountInputFormatter(),
                   ],
                   decoration: const InputDecoration(
                     prefixText: r'$ ',

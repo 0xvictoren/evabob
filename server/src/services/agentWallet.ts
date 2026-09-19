@@ -176,7 +176,49 @@ function amountAtomic(amountUsdc: number): string {
   return `${whole}${(fraction + "000000").slice(0, 6)}`.replace(/^0+(?=\d)/, "");
 }
 
-/** Approves and deposits a dedicated Circle EOA's USDC into Gateway. */
+/**
+ * Left in the agent's own wallet for the network fee. On Arc the fee is paid
+ * in USDC from the same balance being deposited, so depositing the full
+ * amount always failed ("ERC20: transfer amount exceeds balance") once the
+ * approval had spent a little of it.
+ */
+export const DEPOSIT_GAS_RESERVE_USDC = 0.01;
+
+/** Largest amount that can be deposited, keeping room for the fee. Pure. */
+export function depositableUsdc(requestedUsdc: number, onChainUsdc: number): number {
+  const room = Math.floor((onChainUsdc - DEPOSIT_GAS_RESERVE_USDC) * 1e6) / 1e6;
+  return Math.max(0, Math.min(requestedUsdc, room));
+}
+
+async function onChainUsdc(address: Address): Promise<number> {
+  const { getPublicClient } = await import("./arc-wallet.js");
+  const { erc20Abi } = await import("viem");
+  const units = await getPublicClient().readContract({
+    address: config.arc.usdc as Address,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [address],
+  }) as bigint;
+  return Number(units) / 1e6;
+}
+
+async function gatewayAllowance(owner: Address): Promise<bigint> {
+  const { getPublicClient } = await import("./arc-wallet.js");
+  const { erc20Abi } = await import("viem");
+  return getPublicClient().readContract({
+    address: config.arc.usdc as Address,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [owner, config.arc.gatewayWallet as Address],
+  }) as Promise<bigint>;
+}
+
+/**
+ * Approves (once, for any amount) and deposits a dedicated Circle EOA's USDC
+ * into Gateway. Deposits at most what the wallet holds less the fee reserve,
+ * and returns the amount that actually went in — that, not the amount asked
+ * for, is what the agent is credited.
+ */
 export async function depositAgentWalletToGateway(input: {
   walletAddress: Address;
   amountUsdc: number;
@@ -185,48 +227,58 @@ export async function depositAgentWalletToGateway(input: {
   approveIdempotencyKey: string;
   depositIdempotencyKey: string;
   onApproveCreated(id: string): Promise<void>;
-  onDepositCreated(id: string): Promise<void>;
-}): Promise<{ approveTransactionId: string; depositTransactionId: string; depositTxHash?: string }> {
+  onDepositCreated(id: string, amountUsdc: number): Promise<void>;
+}): Promise<{ approveTransactionId?: string; depositTransactionId: string; depositTxHash?: string; depositedUsdc: number }> {
   const api = getClient();
-  const amount = amountAtomic(input.amountUsdc);
   let approveId = input.approveTransactionId;
-  if (!approveId) {
+  if (!approveId && (await gatewayAllowance(input.walletAddress)) < 10n ** 30n) {
     const created = await api.createContractExecutionTransaction({
       idempotencyKey: input.approveIdempotencyKey,
       walletAddress: input.walletAddress,
       blockchain: ARC_TESTNET,
       contractAddress: config.arc.usdc,
       abiFunctionSignature: "approve(address,uint256)",
-      abiParameters: [config.arc.gatewayWallet, amount],
+      // Approve once for good: each later top-up is a single deposit.
+      abiParameters: [config.arc.gatewayWallet, (2n ** 256n - 1n).toString()],
       fee: { type: "level", config: { feeLevel: "MEDIUM" } },
     });
     approveId = created.data?.id;
     if (!approveId) throw new Error("Circle returned no approval transaction id");
     await input.onApproveCreated(approveId);
   }
-  await waitForCircleTransaction(approveId);
+  if (approveId) await waitForCircleTransaction(approveId);
 
   let depositId = input.depositTransactionId;
+  let deposited = input.amountUsdc;
   if (!depositId) {
+    deposited = depositableUsdc(input.amountUsdc, await onChainUsdc(input.walletAddress));
+    if (!(deposited > 0)) throw new Error("Nothing in the agent's wallet to deposit yet");
     const created = await api.createContractExecutionTransaction({
       idempotencyKey: input.depositIdempotencyKey,
       walletAddress: input.walletAddress,
       blockchain: ARC_TESTNET,
       contractAddress: config.arc.gatewayWallet,
       abiFunctionSignature: "deposit(address,uint256)",
-      abiParameters: [config.arc.usdc, amount],
+      abiParameters: [config.arc.usdc, amountAtomic(deposited)],
       fee: { type: "level", config: { feeLevel: "MEDIUM" } },
     });
     depositId = created.data?.id;
     if (!depositId) throw new Error("Circle returned no Gateway deposit transaction id");
-    await input.onDepositCreated(depositId);
+    await input.onDepositCreated(depositId, deposited);
   }
-  const deposited = await waitForCircleTransaction(depositId);
+  const done = await waitForCircleTransaction(depositId);
   return {
     approveTransactionId: approveId,
     depositTransactionId: depositId,
-    depositTxHash: deposited.txHash,
+    depositTxHash: done.txHash,
+    depositedUsdc: deposited,
   };
+}
+
+/** A Circle transaction's state, for reconciling deposits left in flight. */
+export async function circleTransactionState(id: string): Promise<{ state: string; txHash?: string }> {
+  const row = (await getClient().getTransaction({ id })).data?.transaction as CircleTransaction | undefined;
+  return { state: row?.state || "UNKNOWN", txHash: row?.txHash };
 }
 
 /**
@@ -285,7 +337,11 @@ export function circleBatchSigner(input: {
       };
       const signed = await api.signTypedData({
         walletId: input.walletId,
-        data: JSON.stringify(payload),
+        // The batching scheme passes value, validAfter and validBefore as
+        // bigints, which JSON.stringify refuses — every paid call failed here
+        // until this replacer was added. Circle takes them as decimal strings.
+        data: JSON.stringify(payload, (_key, value) =>
+          typeof value === "bigint" ? value.toString() : value),
       });
       const signature = signed.data?.signature;
       if (!signature) {
@@ -331,4 +387,39 @@ export function circleGatewayBurnSigner(input: {
       return signature as Hex;
     },
   };
+}
+
+/**
+ * Runs one contract call from an agent's own wallet and waits for it.
+ *
+ * `existingId` resumes a call already submitted — the idempotency key makes a
+ * repeated submission return the same transaction rather than a second one.
+ */
+export async function agentContractCall(input: {
+  walletAddress: Address;
+  contractAddress: string;
+  abiFunctionSignature: string;
+  abiParameters: Array<string | number | boolean>;
+  idempotencyKey: string;
+  existingId?: string;
+  onCreated?(id: string): Promise<void> | void;
+}): Promise<{ id: string; txHash?: string }> {
+  const api = getClient();
+  let id = input.existingId;
+  if (!id) {
+    const created = await api.createContractExecutionTransaction({
+      idempotencyKey: input.idempotencyKey,
+      walletAddress: input.walletAddress,
+      blockchain: ARC_TESTNET,
+      contractAddress: input.contractAddress,
+      abiFunctionSignature: input.abiFunctionSignature,
+      abiParameters: input.abiParameters,
+      fee: { type: "level", config: { feeLevel: "MEDIUM" } },
+    });
+    id = created.data?.id;
+    if (!id) throw new Error("Circle returned no transaction id");
+    await input.onCreated?.(id);
+  }
+  const done = await waitForCircleTransaction(id);
+  return { id, txHash: done.txHash };
 }

@@ -12,8 +12,10 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/receive_qr_sheet.dart';
 import 'invoice_history.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:evabob_mobile/core/utils/amount_input.dart';
 
 /// Getting paid, two ways.
 ///
@@ -165,6 +167,14 @@ class _ShareDetailsTab extends StatelessWidget {
                 value: rows[i].$2,
                 copyable: rows[i].$3,
                 icon: rows[i].$4,
+                onQr: i == 2 && rows[i].$3 != null
+                    ? () => showReceiveQr(
+                          context,
+                          address: rows[i].$3!,
+                          network: 'Arc',
+                          handle: handle,
+                        )
+                    : null,
               ),
             ),
           ),
@@ -179,12 +189,16 @@ class _CopyRow extends StatelessWidget {
     required this.value,
     required this.copyable,
     required this.icon,
+    this.onQr,
   });
 
   final String label;
   final String value;
   final String? copyable;
   final IconData icon;
+
+  /// Shows the value as a QR code to scan (the wallet address row).
+  final VoidCallback? onQr;
 
   @override
   Widget build(BuildContext context) {
@@ -255,6 +269,15 @@ class _CopyRow extends StatelessWidget {
                 children: [
                   const Icon(Icons.copy_rounded,
                       size: 18, color: EvabobColors.navyMuted),
+                  if (onQr != null)
+                    IconButton(
+                      tooltip: 'Show QR code',
+                      constraints:
+                          const BoxConstraints(minWidth: 44, minHeight: 44),
+                      onPressed: onQr,
+                      icon: const Icon(Icons.qr_code_2_rounded,
+                          size: 20, color: EvabobColors.navyMuted),
+                    ),
                   IconButton(
                     tooltip: 'Share',
                     constraints:
@@ -742,6 +765,7 @@ class _LineRow extends StatelessWidget {
               textAlign: TextAlign.right,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: const [AmountInputFormatter()],
               onChanged: (_) => onChanged(),
               style: Type.amount.copyWith(color: EvabobColors.nearBlack),
               decoration: InputDecoration(

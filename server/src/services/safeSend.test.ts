@@ -79,7 +79,23 @@ describe("payee checks", () => {
     assert.equal(r.paidBefore, true);
     assert.deepEqual(r.warnings, []);
     assert.equal(r.coolingOff.recommended, false);
-    assert.equal(r.coolingOff.available, true, "still available if they want it");
+    // Paid before: the wait is not offered for this person again.
+    assert.equal(r.coolingOff.available, false);
+  });
+
+  it("@name and name are the same payee when deciding whether they were paid", () => {
+    const r = assessPayee({
+      kind: "handle",
+      address: maya.evmAddress!,
+      user: maya,
+      inputText: "maya",
+      // Paid earlier as "maya", without the @.
+      prior: priorPayees([send({ counterparty: "maya" })]),
+      coolingOffMinutes: 10,
+      holdsEnabled: true,
+    });
+    assert.equal(r.paidBefore, true);
+    assert.equal(r.coolingOff.available, false);
   });
 
   it("warns plainly on a new raw address and cannot hold for it", () => {

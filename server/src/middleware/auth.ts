@@ -13,12 +13,15 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
 import { config } from "../config.js";
 import {
-  verifyDynamicToken,
+  checkDynamicToken,
   type DynamicClaims,
 } from "../services/dynamic-auth.js";
 
 export type AuthState = {
+  /** The account this request acts for (store.accountIdForSignIn). */
   userId: string;
+  /** The sign-in provider's own user id, when it differs from the account. */
+  subject?: string;
   email?: string;
   claims: DynamicClaims | null;
   /** true when the id came from a verified JWT, false for the dev fallback. */
@@ -59,6 +62,9 @@ const PUBLIC_PREFIXES = [
   "/v1/public/receipts/",
   "/v1/public/hold-links/",
   "/v1/public/groups/",
+  "/v1/public/agents/",
+  "/v1/public/paywalls/",
+  "/v1/public/tasks/",
 ] as const;
 
 /**
@@ -69,6 +75,12 @@ const PUBLIC_PREFIXES = [
  * feature unusable by the only caller it exists for.
  */
 const AGENT_KEY_PATHS = new Set(["/v1/x402/pay"]);
+/** The agent's own API: its tasks, approvals and allowance (routes/agentCommerce.ts). */
+const AGENT_KEY_PREFIXES = ["/v1/agent-api/"] as const;
+
+function acceptsAgentKey(path: string): boolean {
+  return AGENT_KEY_PATHS.has(path) || AGENT_KEY_PREFIXES.some((p) => path.startsWith(p));
+}
 
 function isPublic(path: string): boolean {
   return PUBLIC_PATHS.has(path) || PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix));
@@ -100,7 +112,7 @@ export function createAuthMiddleware(
 
     // Agent wallet key. Checked before the JWT path because these tokens are
     // not JWTs and would otherwise fall straight through to a 401.
-    if (AGENT_KEY_PATHS.has(c.req.path) && looksLikeAgentKey(raw)) {
+    if (acceptsAgentKey(c.req.path) && looksLikeAgentKey(raw)) {
       const { findAgentByApiKey } = await import("../services/x402Pay.js");
       const agent = findAgentByApiKey(raw);
       if (!agent) {
@@ -130,11 +142,18 @@ export function createAuthMiddleware(
       return next();
     }
 
-    const claims = await verifyDynamicToken(raw);
+    const { claims, expired } = await checkDynamicToken(raw);
 
     if (claims?.sub) {
+      // The account follows the verified email, not Dynamic's id, so a
+      // recreated Dynamic user opens the same account and wallet. The store
+      // is imported here, not at the top: it must load after the primary
+      // store is restored (index.ts).
+      const { store } = await import("../store/db.js");
+      const accountId = store.accountIdForSignIn(claims.sub, claims.email);
       c.set("auth", {
-        userId: claims.sub,
+        userId: accountId,
+        subject: claims.sub,
         email: claims.email,
         claims,
         verified: true,
@@ -151,6 +170,19 @@ export function createAuthMiddleware(
         principal: "none",
       } satisfies AuthState);
       return next();
+    }
+
+    // A sign-in that has ended. Said plainly, with a code the app acts on:
+    // it stops retrying and asks the person to sign in again.
+    if (expired) {
+      return c.json(
+        {
+          error: "session_expired",
+          code: "SESSION_EXPIRED",
+          detail: "Your sign-in has ended. Sign in again to carry on.",
+        },
+        401,
+      );
     }
 
     if (allowHeaderFallback) {

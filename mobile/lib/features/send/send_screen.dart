@@ -30,10 +30,18 @@ import 'package:evabob_mobile/core/widgets/top_snack.dart';
 /// Send flow: amount in real tokens (USDC / EURC), plus token toggle.
 /// Recipient by @username / email / 0x.
 class SendScreen extends StatefulWidget {
-  const SendScreen({super.key, this.onBack, this.isFund = false});
+  const SendScreen({
+    super.key,
+    this.onBack,
+    this.isFund = false,
+    this.initialTo,
+  });
 
   final VoidCallback? onBack;
   final bool isFund;
+
+  /// Who to pay, when Send is opened from a link or a card ("Pay @name").
+  final String? initialTo;
 
   @override
   State<SendScreen> createState() => _SendScreenState();
@@ -66,6 +74,8 @@ class _SendScreenState extends State<SendScreen> {
   @override
   void initState() {
     super.initState();
+    final to = widget.initialTo?.trim();
+    if (to != null && to.isNotEmpty) _to.text = to;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ContactsService>().refresh();
     });

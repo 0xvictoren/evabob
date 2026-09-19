@@ -173,7 +173,11 @@ export async function payableServices(): Promise<PayableService[]> {
  * origins only, which fails closed.
  */
 export async function resolvedAgentOrigins(): Promise<string[]> {
-  const configured = config.agents.resourceOrigins;
+  // Nothing configured means the curated marketplace, not nothing at all: an
+  // empty list is one nobody fills in (services/agentMarketplace.ts).
+  const configured = config.agents.resourceOrigins.length > 0
+    ? config.agents.resourceOrigins
+    : [MARKETPLACE_ORIGINS_TOKEN];
   const explicit = configured.filter((o) => o !== MARKETPLACE_ORIGINS_TOKEN);
   if (!configured.includes(MARKETPLACE_ORIGINS_TOKEN)) return explicit;
   try {

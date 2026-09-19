@@ -28,8 +28,9 @@ import {
   ensureAgentThread,
   pinAgentThreads,
 } from "../services/evabobAgent.js";
-import { store } from "../store/db.js";
+import { store, type AgentWallet } from "../store/db.js";
 import { USER_CHANNEL_PREFIX } from "../services/notifyUser.js";
+import { allowanceView } from "../services/agentControls.js";
 import { getUserId, getAuth } from "../middleware/auth.js";
 import { requireUser, operatorOnly } from "../middleware/authorization.js";
 import { ucwSessionBoundary } from "../middleware/ucw-session.js";
@@ -503,7 +504,10 @@ api.post("/users/session", async (c) => {
     .parse(await c.req.json());
 
   const auth = getAuth(c);
-  if (!auth.email || body.id !== auth.userId || body.email.trim().toLowerCase() !== auth.email.trim().toLowerCase()) {
+  // The app sends the sign-in id it knows: Dynamic's, or the account id the
+  // server gave it before. Either names this same verified person.
+  const knownIds = new Set([auth.userId, auth.subject].filter(Boolean));
+  if (!auth.email || !knownIds.has(body.id) || body.email.trim().toLowerCase() !== auth.email.trim().toLowerCase()) {
     return c.json({ error: "Session identity does not match the authenticated user." }, 403);
   }
   const { createSession, listUserWallets, pickPrimaryArcWallet } = await import("../services/circle-ucw.js");
@@ -2643,8 +2647,45 @@ api.post("/synthra/bridge/quote", async (c) => {
 
 api.get("/activity", (c) => {
   const items = store.listActivity(userId(c), Number(c.req.query("limit") || 50));
-  return c.json({ items });
+  return c.json({ items: withPeople(items) });
 });
+
+/**
+ * Adds who is on the other side of each payment — name and picture — so a
+ * row can show their face instead of a generic icon. Looked up from the
+ * account behind the handle, email or address; nothing for rows that are not
+ * with a person (conversions, moves between networks, top-ups).
+ */
+function withPeople<T extends { kind: string; counterparty?: string; receiver?: string; sender?: string }>(items: T[]) {
+  const cache = new Map<string, Record<string, unknown> | null>();
+  const personFor = (raw: string | undefined) => {
+    const key = (raw ?? "").trim();
+    if (!key) return null;
+    if (cache.has(key)) return cache.get(key)!;
+    let person: Record<string, unknown> | null = null;
+    const user = store.findUserByRecipient(key);
+    if (user) {
+      const url = user.avatarUrl && !user.avatarUrl.startsWith("data:") ? user.avatarUrl : null;
+      person = {
+        name: user.displayName || (user.handle ? `@${user.handle}` : user.email),
+        handle: user.handle ? `@${user.handle}` : null,
+        avatarUrl: url,
+        avatarBundle: user.avatarBundleIndex ?? null,
+      };
+    } else {
+      const agent = store.findAgentByHandle(key.replace(/^@/, ""));
+      if (agent?.handle) person = { name: agent.label, handle: `@${agent.handle}`, avatarUrl: null, avatarBundle: null, agent: true };
+    }
+    cache.set(key, person);
+    return person;
+  };
+  return items.map((row) => {
+    if (!["send", "receive", "escrow"].includes(row.kind)) return row;
+    const person = personFor(row.counterparty) ??
+      personFor(row.kind === "receive" ? row.sender : row.receiver);
+    return person ? { ...row, person } : row;
+  });
+}
 
 /**
  * Money that has come in, newest first, for the seller's "Money in" screen.
@@ -2696,11 +2737,16 @@ api.get("/chat/threads/:id/messages", async (c) => {
   // Request cards show where the request stands now — paid, declined,
   // cancelled — not what it was when it was posted.
   const { getPaymentRequest, invoiceCardMeta } = await import("../services/payment-requests.js");
-  const messages = store.messagesFor(c.req.param("id")).map((m) => {
+  const { cardForLink } = await import("../services/evabobLinks.js");
+  const messages = await Promise.all(store.messagesFor(c.req.param("id")).map(async (m) => {
+    if (m.meta?.type === "link_card" && m.meta.link) {
+      const fresh = await cardForLink(m.meta.link as never, uid).catch(() => null);
+      return fresh ? { ...m, meta: { ...m.meta, ...fresh } } : m;
+    }
     const requestId = m.meta?.type === "invoice_card" ? String(m.meta.requestId ?? "") : "";
     const inv = requestId ? getPaymentRequest(requestId) : undefined;
     return inv ? { ...m, meta: { ...m.meta, ...invoiceCardMeta(inv) } } : m;
-  });
+  }));
   return c.json({ messages });
 });
 
@@ -2739,6 +2785,12 @@ api.post("/chat/threads/:id/messages", async (c) => {
     card = invoiceCardMeta(inv);
     break;
   }
+  // Any other Evabob link — sell with a link, a collection, a task, an agent,
+  // a claim, a proof of payment — becomes the card for it.
+  if (!card) {
+    const { firstCardIn } = await import("../services/evabobLinks.js");
+    card = (await firstCardIn(body.text, uid)) ?? undefined;
+  }
 
   // Always stamp sender as authenticated user (never trust client "me").
   const msg = store.addMessage({
@@ -2747,6 +2799,43 @@ api.post("/chat/threads/:id/messages", async (c) => {
     kind: body.kind,
     text: body.text,
     ...(card ? { meta: card } : {}),
+  });
+  await announceChatMessage(thread, uid, msg);
+  return c.json({ message: msg });
+});
+
+/**
+ * A photo sent in a chat. Checked and stored like a profile photo (256 KB at
+ * most, JPEG/PNG/WebP whose bytes match), under a random name only the chat
+ * is given.
+ */
+api.post("/chat/threads/:id/photo", async (c) => {
+  const body = z
+    .object({
+      imageBase64: z.string().min(32).max(400_000),
+      mime: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
+      caption: z.string().max(500).optional(),
+    })
+    .parse(await c.req.json());
+  const uid = userId(c);
+  const thread = store.listThreads().find((t) => t.id === c.req.param("id"));
+  if (!thread || !thread.members.includes(uid)) {
+    return c.json({ error: "Not a member of this chat" }, 403);
+  }
+  const { storeChatPhoto } = await import("../services/evidence.js");
+  let url: string;
+  try {
+    url = await storeChatPhoto(body.imageBase64, body.mime);
+  } catch (error) {
+    return c.json({ error: clientError(error, "That photo could not be sent") }, 400);
+  }
+  const caption = body.caption?.trim() ?? "";
+  const msg = store.addMessage({
+    threadId: thread.id,
+    senderId: uid,
+    kind: "text",
+    text: caption || "📷 Photo",
+    meta: { type: "photo", url, caption },
   });
   await announceChatMessage(thread, uid, msg);
   return c.json({ message: msg });
@@ -2778,7 +2867,9 @@ async function announceChatMessage(
       body:
         msg.meta?.type === "invoice_card"
           ? `Sent you a request for ${String(msg.meta.amount ?? "")} ${String(msg.meta.token ?? "USDC")}`.trim()
-          : msg.text.slice(0, 140),
+          : msg.meta?.type === "photo"
+            ? "Sent you a photo"
+            : msg.text.slice(0, 140),
       link: `evabob://chat/${thread.id}`,
       threadId: thread.id,
     });
@@ -3258,6 +3349,14 @@ api.post("/chat/threads", async (c) => {
 
 // ─── Agent wallets + x402 nanopayments ─────────────────────────────────
 
+export const allowanceBody = z.object({
+  amountUsdc: z.number().positive(),
+  window: z.enum(["day", "week", "month"]),
+  categories: z.array(z.enum(["research", "data", "media", "ai", "finance", "people", "tools"])).max(7).default([]),
+  askAboveUsdc: z.number().min(0),
+  proofOnly: z.boolean().default(true),
+});
+
 /**
  * What an agent wallet can pay for on this network, from Circle's catalog.
  *
@@ -3393,8 +3492,15 @@ api.post("/agents", async (c) => {
         .positive()
         .max(config.agents.maxDailyLimitUsdc)
         .optional(),
+      /** "$20 this week, research services only", ask me above $2. */
+      allowance: allowanceBody.optional(),
     })
     .parse(await c.req.json().catch(() => ({})));
+  if (body.allowance) {
+    const { validateAllowance } = await import("../services/agentAllowance.js");
+    const problem = validateAllowance(body.allowance, config.agents.maxDailyLimitUsdc * 31);
+    if (problem) return c.json({ error: problem }, 400);
+  }
 
   const rawKey = `sk_evabob_${randomUUID().replace(/-/g, "")}`;
   const prefix = rawKey.slice(0, 16);
@@ -3423,6 +3529,10 @@ api.post("/agents", async (c) => {
     circleWalletId: provisioned.walletId,
     chain: "Arc_Testnet",
   });
+  if (body.allowance) {
+    wallet.allowance = body.allowance;
+    store.save();
+  }
   store.addActivity({
     userId: uid,
     kind: "agent",
@@ -3586,8 +3696,10 @@ api.post("/agents/:id/deposit", async (c) => {
           store.save();
           await flushPrimaryStore();
         },
-        async onDepositCreated(id) {
+        async onDepositCreated(id, amountUsdc) {
           deposit!.depositTransactionId = id;
+          // What actually goes in: the top-up less the network fee reserve.
+          deposit!.amountUsdc = amountUsdc;
           deposit!.status = "depositing";
           store.save();
           await flushPrimaryStore();
@@ -3596,6 +3708,7 @@ api.post("/agents/:id/deposit", async (c) => {
       deposit.approveTransactionId = result.approveTransactionId;
       deposit.depositTransactionId = result.depositTransactionId;
       deposit.depositTxHash = result.depositTxHash;
+      deposit.amountUsdc = result.depositedUsdc;
       const { fetchGatewayBalances } = await import("../services/gateway.js");
       const gateway = await fetchGatewayBalances(w.custodyAddress as `0x${string}`);
       // Circle may confirm the deposit transaction before Gateway's source
@@ -3645,11 +3758,11 @@ api.post("/agents/:id/deposit", async (c) => {
 
   // Credit only after Gateway accepted the deposit. A retry after a crash is
   // idempotent because the funding hash is globally unique.
-  store.completeAgentGatewayFunding(w, verified.txHash, verified.creditedUsdc);
+  store.completeAgentGatewayFunding(w, verified.txHash, deposit.amountUsdc);
   await flushPrimaryStore();
   return c.json({
     wallet: publicAgent(w),
-    creditedUsdc: verified.creditedUsdc,
+    creditedUsdc: deposit.amountUsdc,
     gatewayDeposit: deposit,
   });
 });
@@ -3829,25 +3942,14 @@ api.post("/agents/:id/rotate-key", async (c) => {
   });
 });
 
-function publicAgent(w: {
-  id: string;
-  label: string;
-  balanceUsdc: number;
-  dailyLimitUsdc: number;
-  spentTodayUsdc: number;
-  apiKeyPrefix: string;
-  createdAt: string;
-  custodyAddress?: string;
-  custodyMode?: string;
-  chain?: string;
-  lastFundTxHash?: string;
-  revokedAt?: string | null;
-  perCallLimitUsdc?: number;
-  circleWalletId?: string;
-  gatewayDeposits?: Array<{ status: string; amountUsdc: number; fundTxHash: string }>;
-}) {
+export function publicAgent(w: AgentWallet) {
   const latestGatewayDeposit = w.gatewayDeposits?.at(-1);
   return {
+    // The allowance, its live meter, pause state and anything waiting on the
+    // owner (services/agentControls.ts).
+    ...allowanceView(w),
+    handle: w.handle ? `@${w.handle}` : null,
+    handleOnChain: Boolean(w.handleLinkTx),
     id: w.id,
     label: w.label,
     balanceUsdc: w.balanceUsdc,

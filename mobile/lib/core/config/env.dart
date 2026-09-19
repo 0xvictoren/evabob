@@ -76,11 +76,31 @@ class Env {
   /// True when the API base is plain HTTP or points at the local machine.
   /// Session tokens and PIN challenge ids travel over this connection.
   static bool get hasInsecureApiBase {
-    final url = resolveApiBaseUrl();
-    if (!url.startsWith('https://')) return true;
-    return url.contains('127.0.0.1') ||
-        url.contains('localhost') ||
-        url.contains('10.0.2.2');
+    return !isHttpsOrigin(resolveApiBaseUrl());
+  }
+
+  /// Accepts only an origin: HTTPS, a host, and no credentials, path, query,
+  /// or fragment. Keeping the API base this narrow also avoids accidentally
+  /// sending bearer tokens to a URL assembled from untrusted components.
+  static bool isHttpsOrigin(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri == null) return false;
+    return uri.scheme.toLowerCase() == 'https' &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty &&
+        (uri.path.isEmpty || uri.path == '/') &&
+        !uri.hasQuery &&
+        !uri.hasFragment;
+  }
+
+  /// Defense in depth for non-Android release/profile builds. Android release
+  /// builds are rejected earlier by Gradle, before an APK or AAB is produced.
+  static void validateApiBase() {
+    if (kDebugMode || isHttpsOrigin(resolveApiBaseUrl())) return;
+    throw StateError(
+      'Release API_BASE_URL must be an exact HTTPS origin. '
+      'Pass --dart-define=API_BASE_URL=https://<host>.',
+    );
   }
 
   /// Logs once at startup so an accidentally-loopback build is visible in the

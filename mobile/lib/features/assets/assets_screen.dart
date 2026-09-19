@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/evabob_colors.dart';
@@ -9,7 +8,8 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/evabob_ui.dart';
-import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import '../../core/widgets/receive_qr_sheet.dart';
+import '../../core/auth/evabob_auth.dart';
 
 /// Figma Wallet · Balances frame (`16:383`).
 class AssetsScreen extends StatefulWidget {
@@ -84,16 +84,6 @@ class _AssetsScreenState extends State<AssetsScreen> {
     ];
   }
 
-  Future<void> _copy(String value, String label) async {
-    if (value.isEmpty) return;
-    await Clipboard.setData(ClipboardData(text: value));
-    if (!mounted) return;
-    showTopSnack(
-      context,
-      SnackBar(content: Text('$label copied')),
-    );
-  }
-
   Future<void> _networkActions(Map<String, dynamic> network) async {
     final name = network['name']?.toString() ?? 'Network';
     final address = network['address']?.toString() ?? '';
@@ -130,8 +120,16 @@ class _AssetsScreenState extends State<AssetsScreen> {
                 label: 'Get paid',
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  _copy(address, '$name address');
-                  widget.onReceive();
+                  if (address.isEmpty) {
+                    widget.onReceive();
+                    return;
+                  }
+                  showReceiveQr(
+                    context,
+                    address: address,
+                    network: name,
+                    handle: context.read<EvabobAuth>().user?.handle,
+                  );
                 },
               ),
               _SheetAction(
