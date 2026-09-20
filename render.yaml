@@ -9,7 +9,7 @@ services:
     plan: 0.5c-512mb
     rootDir: server
     numInstances: 1
-    buildCommand: npm ci --legacy-peer-deps && npm run build
+    buildCommand: npm ci --legacy-peer-deps --include=dev && npm run build
     startCommand: npm run start:prod
     healthCheckPath: /health/ready
     autoDeployTrigger: commit
@@ -167,7 +167,7 @@ services:
     runtime: node
     region: frankfurt
     plan: 0.5c-512mb
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
