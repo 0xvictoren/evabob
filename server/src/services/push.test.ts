@@ -105,6 +105,10 @@ describe("FCM message", () => {
       },
     );
     assert.equal(m.message.token, token(99));
+    assert.deepEqual(m.message.notification, {
+      title: "Evabob",
+      body: "You have a new private update.",
+    });
     assert.equal(m.message.android.notification.tag, "money_in:0xabc");
     assert.equal(m.message.android.notification.channel_id, "evabob_money");
     assert.equal(m.message.apns.headers["apns-collapse-id"], "money_in:0xabc");

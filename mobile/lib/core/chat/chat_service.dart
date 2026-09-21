@@ -202,6 +202,31 @@ class ChatService extends ChangeNotifier {
     return t;
   }
 
+  Future<bool> acceptThread(String threadId) async {
+    final data = await _api.post('/v1/chat/threads/$threadId/accept');
+    final raw = data['thread'];
+    if (raw is! Map) return false;
+    final accepted = ChatThread.fromJson(Map<String, dynamic>.from(raw));
+    final index = threads.indexWhere((thread) => thread.id == threadId);
+    if (index >= 0) threads[index] = accepted;
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> blockThread(String threadId) async {
+    await _api.post('/v1/chat/threads/$threadId/block');
+    threads.removeWhere((thread) => thread.id == threadId);
+    _messages.remove(threadId);
+    notifyListeners();
+  }
+
+  Future<void> reportThread(String threadId, String reason) async {
+    await _api.post(
+      '/v1/chat/threads/$threadId/report',
+      body: {'reason': reason.trim()},
+    );
+  }
+
   Future<void> loadMessages(String threadId) async {
     try {
       final data = await _api.get('/v1/chat/threads/$threadId/messages');

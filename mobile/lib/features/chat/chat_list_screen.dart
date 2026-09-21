@@ -6,7 +6,6 @@ import '../../core/utils/text_safe.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/theme/evabob_tokens.dart';
-import '../../core/widgets/contact_picker_sheet.dart';
 import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/agent_avatar.dart';
@@ -59,7 +58,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Find someone by @username or email.',
+                  'Find someone by their @username.',
                   style: TextStyle(
                     fontSize: 10,
                     color: EvabobColors.navyMuted,
@@ -70,7 +69,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   controller: handleCtrl,
                   autofocus: true,
                   decoration: const InputDecoration(
-                    labelText: '@username or email',
+                    labelText: '@username',
                     hintText: '@adaobi',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.alternate_email_rounded),
@@ -78,32 +77,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
                 ),
                 const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final picked = await ContactPickerSheet.open(ctx);
-                    if (picked != null && picked.isNotEmpty && ctx.mounted) {
-                      if (!picked.contains('@') || picked.startsWith('@')) {
-                        showTopSnack(
-                          ctx,
-                          const SnackBar(
-                            content: Text(
-                              'Pick a contact with an email. Phone is not a payee.',
-                            ),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        );
-                        return;
-                      }
-                      Navigator.pop(
-                        ctx,
-                        picked.replaceAll(RegExp(r'\s+'), '').trim(),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.contacts_outlined),
-                  label: const Text('Pick email from contacts'),
-                ),
-                const SizedBox(height: 8),
                 FilledButton(
                   onPressed: () => Navigator.pop(ctx, handleCtrl.text.trim()),
                   child: const Text('Start chat'),
@@ -267,7 +240,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
-                                            t.subtitle,
+                                            t.isPending
+                                                ? 'Invitation · approval required'
+                                                : t.subtitle,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: Type.caption.copyWith(

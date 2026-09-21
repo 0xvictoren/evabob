@@ -131,9 +131,9 @@ class MoneyAlerts {
 
   void _show(Map<String, dynamic> alert) {
     _events.add(alert);
-    final title = alert['title']?.toString() ?? 'Evabob';
-    final body = alert['body']?.toString() ?? '';
-    if (body.isEmpty) return;
+    // Never expose names, amounts or message text on the lock screen.
+    const title = 'Evabob';
+    const body = 'You have a new private update.';
     if (!_ready) return;
     if (shouldNotify != null && !shouldNotify!(alert)) return;
     // While the app is open the money-in sound is played by the app itself
@@ -178,6 +178,7 @@ class MoneyAlerts {
             // The second copy of the same alert replaces the first silently.
             onlyAlertOnce: true,
             silent: moneyIn,
+            visibility: NotificationVisibility.private,
           ),
           iOS: const DarwinNotificationDetails(),
         ),

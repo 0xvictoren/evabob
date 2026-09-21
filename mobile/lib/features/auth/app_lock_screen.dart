@@ -26,18 +26,23 @@ class _AppLockScreenState extends State<AppLockScreen> {
   bool _confirming = false;
   String? _firstPin;
   String? _localError;
-  int _failedAttempts = 0;
-  DateTime? _lockedUntil;
   Timer? _lockTimer;
 
-  bool get _isLocked =>
-      _lockedUntil != null && DateTime.now().isBefore(_lockedUntil!);
+  bool get _isLocked => context.read<AppLockService>().pinBlocked;
 
   @override
   void initState() {
     super.initState();
     if (!widget.setupMode) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _tryBio());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final lock = context.read<AppLockService>();
+        if (lock.pinBlocked) {
+          _startLockout();
+        } else {
+          _tryBio();
+        }
+      });
     }
   }
 
@@ -70,20 +75,12 @@ class _AppLockScreenState extends State<AppLockScreen> {
       setState(() => _busy = false);
       return;
     }
-    _failedAttempts += 1;
-    if (_failedAttempts >= 5) {
-      _startLockout();
-    } else {
-      setState(() {
-        _busy = false;
-        _localError = 'Wrong PIN. Try again.';
-      });
-    }
+    _startLockout();
   }
 
   void _startLockout() {
-    _lockedUntil = DateTime.now().add(const Duration(seconds: 30));
-    _localError = null;
+    final lock = context.read<AppLockService>();
+    _localError = lock.error;
     _busy = false;
     _lockTimer?.cancel();
     _lockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -91,8 +88,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
       if (!_isLocked) {
         timer.cancel();
         setState(() {
-          _lockedUntil = null;
-          _failedAttempts = 0;
+          _localError = null;
         });
       } else {
         setState(() {});
@@ -103,8 +99,8 @@ class _AppLockScreenState extends State<AppLockScreen> {
 
   Future<void> _submitSetup() async {
     final value = _pin.text.trim();
-    if (value.length < 4) {
-      setState(() => _localError = 'Use at least 4 digits');
+    if (!RegExp(r'^\d{6,12}$').hasMatch(value)) {
+      setState(() => _localError = 'Use at least 6 digits');
       return;
     }
     if (!_confirming) {
@@ -224,7 +220,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
             ? 'Enter the same PIN again so we know you have it.'
             : 'Use a PIN to keep money and messages private on this phone.')
         : (_isLocked
-            ? 'Try again in ${_lockedUntil!.difference(DateTime.now()).inSeconds + 1} seconds.'
+            ? 'Try again in ${lock.retryAfter.inSeconds + 1} seconds.'
             : 'Enter your PIN to open Evabob.');
 
     return Scaffold(

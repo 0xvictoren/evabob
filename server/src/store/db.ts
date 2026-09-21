@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { writeJsonAtomic } from "../utils/write-json-atomic.js";
 import { dirname } from "node:path";
@@ -62,18 +62,17 @@ export type UserRecord = {
    * from the account email first (services/familyCheck.ts). Unset: the default.
    */
   familyCheckAbove?: number;
+  /** External model processing is opt-in; undefined is treated as opted out. */
+  aiOptOut?: boolean;
   /**
-   * Other sign-in provider (Dynamic) user ids that open this account. When
-   * Dynamic issues a new id for the same verified email — its user was
-   * deleted or recreated — the person must land back in this account and its
-   * wallet, not in a new one. See accountIdForSignIn.
+   * Other sign-in provider (Dynamic) user ids explicitly linked to this
+   * account through the recovery flow. Email equality alone never adds one.
    */
   authIds?: string[];
-  /**
-   * The account this email last signed into. When Dynamic issues a new id for
-   * the email, this is the account it opens: the one the person was using.
-   */
+  /** Last successful sign-in, retained for security notifications/audit. */
   lastSignedInAt?: string;
+  /** Tombstone retained only to preserve financial and blockchain records. */
+  deletedAt?: string;
   createdAt: string;
 };
 
@@ -138,6 +137,8 @@ export type ActivityItem = {
    * payer's account can see it (services/publicReceipts.ts).
    */
   publicId?: string;
+  /** Optional expiry for the capability URL. */
+  publicExpiresAt?: string;
   createdAt: string;
 };
 
@@ -149,6 +150,12 @@ export type ChatThread = {
   handle?: string;
   /** Pinned system agent conversation. */
   kind?: "agent" | "dm";
+  /** New DMs are inert until the recipient accepts. Existing rows are accepted. */
+  state?: "pending" | "accepted" | "blocked";
+  invitedBy?: string;
+  acceptedAt?: string;
+  blockedBy?: string;
+  reports?: Array<{ by: string; reason: string; at: string }>;
   /** Last incomplete agent money intent (follow-up answers merge into this). */
   pendingIntent?: Record<string, unknown> | null;
   updatedAt: string;
@@ -311,6 +318,32 @@ export type ContactRecord = {
   createdAt: string;
 };
 
+export type MediaRecord = {
+  filename: string;
+  kind: "chat" | "review";
+  ownerUserId: string;
+  contextId: string;
+  participants: string[];
+  createdAt: string;
+  expiresAt: string;
+  retentionState: "active" | "deleted";
+};
+
+export type AccountRecoveryRequest = {
+  id: string;
+  requestingSubject: string;
+  targetAccountId: string;
+  email: string;
+  codeHash: string;
+  attempts: number;
+  createdAt: string;
+  codeExpiresAt: string;
+  confirmedAt?: string;
+  executeAfter?: string;
+  cancelledAt?: string;
+  completedAt?: string;
+};
+
 type DbShape = {
   users: UserRecord[];
   activity: ActivityItem[];
@@ -319,6 +352,8 @@ type DbShape = {
   transfers: TransferRecord[];
   agents: AgentWallet[];
   contacts: ContactRecord[];
+  media: MediaRecord[];
+  accountRecoveries: AccountRecoveryRequest[];
   security?: {
     plaintextAgentKeysPurgedAt?: string;
   };
@@ -335,13 +370,21 @@ function empty(): DbShape {
     transfers: [],
     agents: [],
     contacts: [],
+    media: [],
+    accountRecoveries: [],
   };
 }
 
 function load(): DbShape {
   try {
     if (!existsSync(DATA_PATH)) return empty();
-    return JSON.parse(readFileSync(DATA_PATH, "utf8")) as DbShape;
+    const parsed = JSON.parse(readFileSync(DATA_PATH, "utf8")) as Partial<DbShape>;
+    return {
+      ...empty(),
+      ...parsed,
+      media: parsed.media ?? [],
+      accountRecoveries: parsed.accountRecoveries ?? [],
+    };
   } catch {
     return empty();
   }
@@ -475,6 +518,139 @@ export const store = {
     return db.users.find((u) => u.id === id);
   },
 
+  registerMedia(record: MediaRecord): MediaRecord {
+    const index = db.media.findIndex((row) => row.filename === record.filename);
+    if (index >= 0) db.media[index] = record;
+    else db.media.push(record);
+    save(db);
+    return record;
+  },
+
+  mediaByFilename(filename: string): MediaRecord | undefined {
+    return db.media.find((row) => row.filename === filename);
+  },
+
+  deleteMediaForUser(userId: string): number {
+    let changed = 0;
+    for (const row of db.media) {
+      if (row.ownerUserId === userId && row.retentionState !== "deleted") {
+        row.retentionState = "deleted";
+        changed += 1;
+      }
+    }
+    if (changed) save(db);
+    return changed;
+  },
+
+  mediaForUser(userId: string): MediaRecord[] {
+    return db.media.filter((row) => row.ownerUserId === userId);
+  },
+
+  exportForUser(userId: string) {
+    const user = this.getUser(userId);
+    if (!user) return null;
+    const threads = db.threads.filter((thread) => thread.members.includes(userId));
+    const threadIds = new Set(threads.map((thread) => thread.id));
+    return {
+      exportedAt: new Date().toISOString(),
+      profile: user,
+      contacts: db.contacts.filter((contact) => contact.ownerUserId === userId),
+      chats: {
+        threads,
+        messages: db.messages.filter((message) => threadIds.has(message.threadId)),
+      },
+      activity: db.activity.filter((item) => item.userId === userId),
+      transfers: db.transfers.filter((row) => row.fromUserId === userId),
+      agents: db.agents
+        .filter((agent) => agent.userId === userId)
+        .map(({ apiKeyHash: _apiKeyHash, ...agent }) => agent),
+      media: db.media.filter((row) => row.ownerUserId === userId),
+      limitations: [
+        "Public blockchain records are not controlled by Evabob and cannot be erased.",
+        "Security secrets and credential hashes are never included in an export.",
+      ],
+    };
+  },
+
+  anonymizeUser(userId: string) {
+    const user = this.getUser(userId);
+    if (!user) return null;
+    const now = new Date().toISOString();
+    const pseudonym = createHash("sha256")
+      .update(`deleted:${userId}`)
+      .digest("hex")
+      .slice(0, 16);
+    const threadIds = new Set(
+      db.threads
+        .filter((thread) => thread.members.includes(userId))
+        .map((thread) => thread.id),
+    );
+    user.email = `deleted+${pseudonym}@invalid.evabob`;
+    user.displayName = "Deleted user";
+    user.deletedAt = now;
+    delete user.handle;
+    delete user.phone;
+    delete user.phoneLinkedAt;
+    delete user.avatarUrl;
+    delete user.avatarBundleIndex;
+    delete user.authIds;
+    db.contacts = db.contacts.filter((contact) => contact.ownerUserId !== userId);
+    for (const thread of db.threads) {
+      thread.members = thread.members.map((member) =>
+        member === userId ? `deleted_${pseudonym}` : member,
+      );
+      if (threadIds.has(thread.id)) delete thread.pendingIntent;
+    }
+    for (const message of db.messages) {
+      if (!threadIds.has(message.threadId) || message.senderId !== userId) continue;
+      message.senderId = `deleted_${pseudonym}`;
+      if (message.kind === "receipt") {
+        message.text = "Payment record from a deleted account";
+        if (message.meta) {
+          delete message.meta.memo;
+          delete message.meta.sender;
+          delete message.meta.receiver;
+          delete message.meta.destinationAddress;
+        }
+      } else {
+        message.text = "Message deleted";
+        delete message.meta;
+      }
+    }
+    for (const activity of db.activity) {
+      if (activity.userId !== userId) continue;
+      delete activity.publicId;
+      delete activity.publicExpiresAt;
+      delete activity.memo;
+      if (activity.sender) activity.sender = "Deleted user";
+    }
+    for (const agent of db.agents) {
+      if (agent.userId !== userId) continue;
+      agent.revokedAt = now;
+      agent.pausedAt = now;
+      agent.pauseReason = "owner";
+    }
+    this.deleteMediaForUser(userId);
+    save(db);
+    void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
+    return {
+      deletedAt: now,
+      retained: ["financial transaction evidence", "public blockchain records"],
+    };
+  },
+
+  saveAccountRecovery(record: AccountRecoveryRequest): AccountRecoveryRequest {
+    const index = db.accountRecoveries.findIndex((row) => row.id === record.id);
+    if (index >= 0) db.accountRecoveries[index] = record;
+    else db.accountRecoveries.push(record);
+    save(db);
+    return record;
+  },
+
+  accountRecovery(id: string): AccountRecoveryRequest | undefined {
+    return db.accountRecoveries.find((row) => row.id === id);
+  },
+
   /** Address must come from the authenticated user's Circle wallet listing. */
   bindVerifiedWallet(id: string, address: string) {
     const user = db.users.find(u => u.id === id);
@@ -540,42 +716,19 @@ export const store = {
   /**
    * The account a verified sign-in opens.
    *
-   * Accounts used to be keyed on Dynamic's user id alone, and the Circle
-   * wallet on the account id. When Dynamic issued a new id for the same email
-   * (its user deleted and recreated), the person silently got a new account
-   * and a new, empty wallet — while the identity registry still sent money
-   * for their email to the original one. An account follows the verified
-   * email instead:
-   *
-   *   1. an id already attached to an account opens that account;
-   *   2. an id that is itself an account opens it;
-   *   3. a new id for an email that already has an account with a wallet
-   *      opens the account that email last signed into (or, if none is
-   *      recorded, the oldest), and is attached to it;
-   *   4. otherwise it is a new person.
-   *
-   * Every sign-in through 1 or 2 records itself as the email's last-used
-   * account, so rule 3 always returns the person to where they were.
+   * Only the exact Dynamic subject or a subject explicitly attached by the
+   * recovery flow may open an existing account. A matching email is not an
+   * account credential and must never silently inherit its wallet or history.
    */
-  accountIdForSignIn(subject: string, verifiedEmail: string | undefined): string {
-    const email = verifiedEmail?.trim().toLowerCase();
+  accountIdForSignIn(subject: string, _verifiedEmail: string | undefined): string {
     const known =
       db.users.find((u) => u.authIds?.includes(subject)) ??
       db.users.find((u) => u.id === subject);
     if (known) {
-      if (email) this.noteSignIn(known);
+      this.noteSignIn(known);
       return known.id;
     }
-    if (!email) return subject;
-    const lastUsed = (u: UserRecord) => u.lastSignedInAt ?? "";
-    const target = db.users
-      .filter((u) => u.email?.trim().toLowerCase() === email && /^0x[a-fA-F0-9]{40}$/.test(u.evmAddress || ""))
-      .sort((a, b) => lastUsed(b).localeCompare(lastUsed(a)) || a.createdAt.localeCompare(b.createdAt))[0];
-    if (!target) return subject;
-    target.authIds = [...(target.authIds ?? []), subject];
-    this.noteSignIn(target);
-    save(db);
-    return target.id;
+    return subject;
   },
 
   /** Records the email's last-used account. Saves at most once an hour. */
@@ -938,6 +1091,7 @@ export const store = {
         | "memoId"
         | "memoOnchain"
         | "publicId"
+        | "publicExpiresAt"
       >
     >,
   ) {
@@ -1053,6 +1207,8 @@ export const store = {
     subtitle?: string;
     handle?: string;
     kind?: "agent" | "dm";
+    state?: "pending" | "accepted";
+    invitedBy?: string;
   }) {
     const handle = input.handle?.replace(/^@/, "").toLowerCase();
     const [m0, m1] = input.members;
@@ -1067,6 +1223,8 @@ export const store = {
       subtitle: input.subtitle || "New conversation",
       handle,
       kind: input.kind,
+      state: input.state,
+      invitedBy: input.invitedBy,
       updatedAt: new Date().toISOString(),
     };
     db.threads.unshift(row);
@@ -1215,6 +1373,47 @@ export const store = {
     const user = this.getUser(userId);
     if (!user) return null;
     user.familyCheckAbove = amount;
+    save(db);
+    void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
+    return user;
+  },
+
+  acceptThread(threadId: string, userId: string): ChatThread | null {
+    const thread = db.threads.find((row) => row.id === threadId);
+    if (!thread || !thread.members.includes(userId) || thread.invitedBy === userId) return null;
+    if (thread.state === "blocked") return null;
+    thread.state = "accepted";
+    thread.acceptedAt = new Date().toISOString();
+    thread.updatedAt = thread.acceptedAt;
+    save(db);
+    return thread;
+  },
+
+  blockThread(threadId: string, userId: string): ChatThread | null {
+    const thread = db.threads.find((row) => row.id === threadId);
+    if (!thread || !thread.members.includes(userId)) return null;
+    thread.state = "blocked";
+    thread.blockedBy = userId;
+    thread.updatedAt = new Date().toISOString();
+    save(db);
+    return thread;
+  },
+
+  reportThread(threadId: string, userId: string, reason: string): ChatThread | null {
+    const thread = db.threads.find((row) => row.id === threadId);
+    if (!thread || !thread.members.includes(userId)) return null;
+    thread.reports = [
+      ...(thread.reports ?? []).filter((report) => report.by !== userId),
+      { by: userId, reason: reason.slice(0, 500), at: new Date().toISOString() },
+    ];
+    save(db);
+    return thread;
+  },
+
+  setAiOptOut(userId: string, aiOptOut: boolean) {
+    const user = this.getUser(userId);
+    if (!user) return null;
+    user.aiOptOut = aiOptOut;
     save(db);
     void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
     return user;

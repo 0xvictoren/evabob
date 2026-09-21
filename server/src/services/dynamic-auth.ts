@@ -5,11 +5,88 @@ import { config } from "../config.js";
 export type DynamicClaims = {
   sub: string;
   email?: string;
-  environment_id?: string;
-  scope?: string;
-  iss?: string;
-  iat?: number;
+  environment_id: string;
+  scope: string | string[];
+  scopes?: string[];
+  iss: string;
+  aud: string | string[];
+  iat: number;
+  exp: number;
+  verified_credentials: Array<Record<string, unknown>>;
 };
+
+const CLOCK_TOLERANCE_SECONDS = 30;
+
+export function dynamicIssuer(environmentId: string): string {
+  return `app.dynamic.xyz/${environmentId}`;
+}
+
+function audiences(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function scopes(value: Record<string, unknown>): string[] {
+  const singular = value.scope;
+  const plural = value.scopes;
+  return [
+    ...(typeof singular === "string" ? singular.split(/\s+/) : []),
+    ...(Array.isArray(singular) ? singular : []),
+    ...(Array.isArray(plural) ? plural : []),
+  ].filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+/** Email ownership comes only from Dynamic's verified credential collection. */
+export function verifiedEmailFromClaims(value: Record<string, unknown>): string | undefined {
+  const credentials = value.verified_credentials;
+  if (!Array.isArray(credentials)) return undefined;
+  const wanted = typeof value.email === "string" ? value.email.trim().toLowerCase() : "";
+  const emails = credentials
+    .map((credential) =>
+      credential && typeof credential === "object" && typeof credential.email === "string"
+        ? credential.email.trim().toLowerCase()
+        : "",
+    )
+    .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+  if (wanted && emails.includes(wanted)) return wanted;
+  return emails.length === 1 ? emails[0] : undefined;
+}
+
+/**
+ * Validates the security-relevant claims after the RS256 signature has been
+ * checked. Exported so malformed and wrong-token payloads are regression
+ * tested without contacting Dynamic's JWKS endpoint.
+ */
+export function validateDynamicClaims(
+  value: unknown,
+  options: { environmentId: string; audience: string; nowSeconds?: number },
+): DynamicClaims | null {
+  if (!value || typeof value !== "object") return null;
+  const claims = value as Record<string, unknown>;
+  const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (typeof claims.sub !== "string" || !claims.sub.trim()) return null;
+  if (claims.iss !== dynamicIssuer(options.environmentId)) return null;
+  if (claims.environment_id !== options.environmentId) return null;
+  if (!audiences(claims.aud).includes(options.audience)) return null;
+  if (!Number.isFinite(claims.iat) || !Number.isFinite(claims.exp)) return null;
+  const issuedAt = claims.iat as number;
+  const expiresAt = claims.exp as number;
+  if (issuedAt > now + CLOCK_TOLERANCE_SECONDS || expiresAt <= now - CLOCK_TOLERANCE_SECONDS) {
+    return null;
+  }
+  if (issuedAt >= expiresAt) return null;
+  const granted = scopes(claims);
+  if (!granted.includes("user:basic") || granted.includes("requiresAdditionalAuth")) {
+    return null;
+  }
+  if (!Array.isArray(claims.verified_credentials)) return null;
+  return {
+    ...(claims as DynamicClaims),
+    email: verifiedEmailFromClaims(claims),
+  };
+}
 
 const clients = new Map<string, JwksClient>();
 
@@ -64,17 +141,17 @@ async function verifyInner(
     const key = kid
       ? await jwks(config.dynamic.environmentId).getSigningKey(kid)
       : await jwks(config.dynamic.environmentId).getSigningKey();
-    const claims = jwt.verify(raw, key.getPublicKey(), {
+    const verified = jwt.verify(raw, key.getPublicKey(), {
       algorithms: ["RS256"],
-    }) as DynamicClaims;
-    const scopes = (claims.scope || "").split(/\s+/).filter(Boolean);
-    if (scopes.length && !scopes.includes("user:basic")) return null;
-    if (
-      claims.environment_id &&
-      claims.environment_id !== config.dynamic.environmentId
-    ) {
-      return null;
-    }
+      issuer: dynamicIssuer(config.dynamic.environmentId),
+      audience: config.dynamic.audience,
+      clockTolerance: CLOCK_TOLERANCE_SECONDS,
+    });
+    const claims = validateDynamicClaims(verified, {
+      environmentId: config.dynamic.environmentId,
+      audience: config.dynamic.audience,
+    });
+    if (!claims) return null;
     if (config.dynamic.sessionInvalidBefore) {
       const cutoffMs = Date.parse(config.dynamic.sessionInvalidBefore);
       if (!Number.isFinite(cutoffMs)) {

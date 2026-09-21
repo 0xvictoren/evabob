@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/held/operator_reviews_api.dart';
@@ -166,11 +167,57 @@ class ProfileScreen extends StatelessWidget {
       icon: Icons.description_outlined,
       title: 'Terms',
       body:
-          'Use Evabob only for money you are allowed to move. Payments can be final once they arrive, so check the person and amount before you confirm.',
+          'Use Evabob only for money you are allowed to move. Blockchain payments can be final. Review the person, network, token and amount before confirming. Full terms: https://evabob.app/terms',
       footnote:
           'Evabob never asks for your PIN, API key, recovery phrase, or private key.',
       primaryLabel: 'Done',
     );
+  }
+
+  Future<void> _showPrivacy(BuildContext context) {
+    return _showProfileSheet(
+      context,
+      icon: Icons.privacy_tip_outlined,
+      title: 'Privacy',
+      body:
+          'Evabob processes account, wallet, payment, chat, contact, photo and notification data only to provide and protect the features you use. Blockchain records cannot usually be erased. Full notice: https://evabob.app/privacy',
+      footnote:
+          'Private photos require sign-in. Lock-screen notifications hide names, amounts and messages.',
+      primaryLabel: 'Done',
+    );
+  }
+
+  Future<void> _exportAccount(BuildContext context) async {
+    try {
+      final data = await context.read<ApiClient>().get('/v1/users/me/export');
+      final dir = await getTemporaryDirectory();
+      final path = p.join(
+        dir.path,
+        'evabob-export-${DateTime.now().millisecondsSinceEpoch}.json',
+      );
+      await File(path).writeAsString(
+        const JsonEncoder.withIndent('  ').convert(data),
+        flush: true,
+      );
+      await SharePlus.instance.share(
+        ShareParams(
+          subject: 'Your Evabob data export',
+          files: [XFile(path, mimeType: 'application/json')],
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      showTopSnack(
+        context,
+        SnackBar(
+          content: Text(
+            error is ApiException && error.status == 403
+                ? 'For security, sign out and sign in again before exporting.'
+                : friendlyError(error),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _showHelp(BuildContext context) {
@@ -256,16 +303,30 @@ class ProfileScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 56,
                 child: FilledButton(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    showTopSnack(
-                      context,
-                      const SnackBar(
-                        content: Text(
-                          'Account deletion is handled by support while your wallet still has money.',
+                  onPressed: () async {
+                    try {
+                      await context.read<ApiClient>().delete(
+                        '/v1/users/me',
+                        body: {'confirm': 'DELETE'},
+                      );
+                      if (!context.mounted) return;
+                      Navigator.pop(sheetContext);
+                      await context.read<EvabobAuth>().signOut();
+                    } catch (error) {
+                      if (!sheetContext.mounted) return;
+                      Navigator.pop(sheetContext);
+                      if (!context.mounted) return;
+                      showTopSnack(
+                        context,
+                        SnackBar(
+                          content: Text(
+                            error is ApiException && error.status == 403
+                                ? 'For security, sign out and sign in again before deleting.'
+                                : friendlyError(error),
+                          ),
                         ),
-                      ),
-                    );
+                      );
+                    }
                   },
                   style: FilledButton.styleFrom(
                     backgroundColor: EvabobColors.alert,
@@ -273,7 +334,7 @@ class ProfileScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text('Continue with support'),
+                  child: const Text('Delete my account'),
                 ),
               ),
               const SizedBox(height: 8),
@@ -744,6 +805,7 @@ class ProfileScreen extends StatelessWidget {
                 // Confirm payments with fingerprint or Face ID instead of the
                 // PIN. Shown only in builds that include Circle's native SDK.
                 const _BiometricConfirmTile(),
+                const _ExternalAiTile(),
                 Divider(
                     height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
                 _tile(
@@ -780,6 +842,22 @@ class ProfileScreen extends StatelessWidget {
                   'Terms',
                   'How Evabob and payments work',
                   () => _showTerms(context),
+                ),
+                Divider(
+                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                _tile(
+                  Icons.privacy_tip_outlined,
+                  'Privacy',
+                  'What is collected, retained, and shared',
+                  () => _showPrivacy(context),
+                ),
+                Divider(
+                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                _tile(
+                  Icons.download_outlined,
+                  'Export my data',
+                  'Create a private JSON copy of your account data',
+                  () => _exportAccount(context),
                 ),
                 Divider(
                     height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
@@ -982,6 +1060,73 @@ class _BiometricConfirmTileState extends State<_BiometricConfirmTile> {
                 ? 'Payments ask for your fingerprint or face. Your PIN still works.'
                 : 'Instead of typing your PIN each time. You set it up once with your PIN.',
             style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ExternalAiTile extends StatefulWidget {
+  const _ExternalAiTile();
+
+  @override
+  State<_ExternalAiTile> createState() => _ExternalAiTileState();
+}
+
+class _ExternalAiTileState extends State<_ExternalAiTile> {
+  bool _enabled = false;
+  bool _busy = true;
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<ApiClient>().get('/v1/users/me').then((response) {
+      final user = response['user'];
+      if (!mounted) return;
+      setState(() {
+        _enabled = user is Map && user['aiOptOut'] == false;
+        _busy = false;
+      });
+    }).catchError((_) {
+      if (mounted) setState(() => _busy = false);
+    });
+  }
+
+  Future<void> _toggle(bool value) async {
+    setState(() => _busy = true);
+    try {
+      await context.read<ApiClient>().post(
+        '/v1/users/me/ai-preference',
+        body: {'externalAi': value},
+      );
+      if (mounted) setState(() => _enabled = value);
+    } catch (error) {
+      if (mounted) {
+        showTopSnack(context, SnackBar(content: Text(friendlyError(error))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Divider(height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: _enabled,
+          onChanged: _busy ? null : _toggle,
+          secondary: const Icon(
+            Icons.auto_awesome_outlined,
+            color: EvabobColors.emeraldDeep,
+          ),
+          title: const Text('External AI assistant'),
+          subtitle: const Text(
+            'Off by default. Core wallet and payment features still work.',
+            style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
           ),
         ),
       ],

@@ -1,6 +1,12 @@
 import { AutoRefresh } from "@/components/auto-refresh";
 import { money, PublicPaymentShell } from "@/components/public-payment-shell";
 import { loadPublic, shortDate } from "@/lib/public-api";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, noarchive: true },
+  referrer: "no-referrer",
+};
 
 type Stage = "sending" | "on_the_way" | "done" | "held" | "returned" | "failed";
 

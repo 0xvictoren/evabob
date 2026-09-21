@@ -19,6 +19,12 @@ type UcwSessionFingerprint = {
   expiresAt: Date;
 };
 
+type RateLimitBucket = {
+  _id: string;
+  count: number;
+  resetAt: Date;
+};
+
 export type PrimaryStoreDatasets = {
   app: unknown;
   paymentRequests: unknown;
@@ -302,6 +308,7 @@ export async function connectMongo(): Promise<{ ok: boolean; detail: string }> {
     await writerLeases().createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await ucwSessions().createIndex({ tokenHash: 1 }, { unique: true });
     await ucwSessions().createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await rateLimits().createIndex({ resetAt: 1 }, { expireAfterSeconds: 0 });
     ready = true;
     console.log(`[mongo] connected db=${config.mongo.dbName}`);
     return { ok: true, detail: `connected ${config.mongo.dbName}` };
@@ -515,6 +522,52 @@ export async function mongoSavePrimaryStore(
     .deleteMany({ generation: { $lt: next - 1 } })
     .catch(() => undefined);
   return next;
+}
+
+function rateLimits(): Collection<RateLimitBucket> {
+  if (!db) throw new Error("mongo not ready");
+  return db.collection<RateLimitBucket>("rate_limits");
+}
+
+/** Shared atomic rate-limit counter for every API instance. */
+export async function mongoConsumeRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
+  nowMs: number,
+): Promise<{ allowed: boolean; count: number; resetAt: number } | null> {
+  if (!mongoReady()) return null;
+  const now = new Date(nowMs);
+  const active = await rateLimits().findOneAndUpdate(
+    { _id: key, resetAt: { $gt: now }, count: { $lt: limit } },
+    { $inc: { count: 1 } },
+    { returnDocument: "after" },
+  );
+  if (active) {
+    return { allowed: true, count: active.count, resetAt: active.resetAt.getTime() };
+  }
+  try {
+    const fresh = await rateLimits().findOneAndUpdate(
+      { _id: key, resetAt: { $lte: now } },
+      { $set: { count: 1, resetAt: new Date(nowMs + windowMs) } },
+      { upsert: true, returnDocument: "after" },
+    );
+    if (fresh) {
+      return { allowed: true, count: 1, resetAt: fresh.resetAt.getTime() };
+    }
+  } catch (error) {
+    if ((error as { code?: number }).code !== 11000) throw error;
+  }
+  const exhausted = await rateLimits().findOne({ _id: key });
+  return exhausted
+    ? { allowed: false, count: exhausted.count, resetAt: exhausted.resetAt.getTime() }
+    : null;
+}
+
+export async function mongoDeleteAvatars(filenames: string[]): Promise<number> {
+  if (!mongoReady() || filenames.length === 0) return 0;
+  const result = await avatars().deleteMany({ _id: { $in: filenames } });
+  return result.deletedCount;
 }
 
 /**

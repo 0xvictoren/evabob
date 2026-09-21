@@ -16,6 +16,7 @@
 import { randomUUID } from "node:crypto";
 import { pusherTrigger } from "./pusher.js";
 import { sendPush } from "./push.js";
+import { logPseudonym, safeError } from "../utils/safe-log.js";
 
 /**
  * Channel namespace for a single user's alerts.
@@ -71,7 +72,9 @@ export type UserAlert = {
     /** Software paid for something this person sells through a paywall. */
     | "paywall_sale"
     /** Software asked to book this person's time; accept or decline. */
-    | "paywall_booking";
+    | "paywall_booking"
+    /** A new Dynamic subject requested explicit access to an older account. */
+    | "account_recovery";
   title: string;
   body: string;
   amountUsdc?: number;
@@ -124,8 +127,8 @@ export function alertUser(userId: string, alert: UserAlert): void {
     at: new Date().toISOString(),
   }).catch((e) => {
     console.warn(
-      `[notify-user] ${alert.kind} → ${userId} failed:`,
-      e instanceof Error ? e.message.split("\n")[0] : e,
+      `[notify-user] ${alert.kind} user=${logPseudonym(userId) ?? "-"} failed:`,
+      safeError(e),
     );
   });
 }

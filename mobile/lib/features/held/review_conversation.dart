@@ -5,11 +5,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/config/env.dart';
+import '../../core/api/api_client.dart';
 import '../../core/held/held_payments_api.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/glass.dart';
+import 'package:provider/provider.dart';
 
 /// The conversation on a payment under review: the payer, the person being
 /// paid and the reviewer, each message with its own links and photos.
@@ -142,6 +144,7 @@ class _ReviewConversationState extends State<ReviewConversation> {
   @override
   Widget build(BuildContext context) {
     final df = DateFormat('d MMM, HH:mm');
+    final mediaHeaders = context.read<ApiClient>().mediaHeaders;
     return Glass(
       padding: const EdgeInsets.all(Space.lg),
       child: Column(
@@ -208,7 +211,10 @@ class _ReviewConversationState extends State<ReviewConversation> {
                                   context: context,
                                   builder: (_) => Dialog(
                                     child: InteractiveViewer(
-                                      child: Image.network(_photoUrl(p)),
+                                      child: Image.network(
+                                        _photoUrl(p),
+                                        headers: mediaHeaders,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -216,10 +222,12 @@ class _ReviewConversationState extends State<ReviewConversation> {
                                   borderRadius: Radii.all(Radii.sm),
                                   child: Image.network(
                                     _photoUrl(p),
+                                    headers: mediaHeaders,
                                     width: 84,
                                     height: 84,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const SizedBox(
+                                    errorBuilder: (_, __, ___) =>
+                                        const SizedBox(
                                       width: 84,
                                       height: 84,
                                       child: Icon(Icons.broken_image_outlined),

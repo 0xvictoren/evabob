@@ -5,6 +5,7 @@
 
 import nodemailer from "nodemailer";
 import { config } from "../config.js";
+import { logPseudonym, safeError } from "../utils/safe-log.js";
 
 export type NotifySendInput = {
   toEmail?: string;
@@ -111,9 +112,8 @@ export async function notifySend(input: NotifySendInput): Promise<{
 
   if (!smtpConfigured()) {
     console.log("[notify:email] SMTP not configured — would send", {
-      to: input.toEmail,
-      subject: msg.subject,
-      claimUrl: link,
+      recipient: logPseudonym(input.toEmail),
+      mode: input.mode,
     });
     return { emailSent: false, detail: "smtp not configured", claimUrl: link };
   }
@@ -129,10 +129,9 @@ export async function notifySend(input: NotifySendInput): Promise<{
     });
     const sandbox = /mailtrap/i.test(config.smtp.host || "");
     console.log("[notify:email] sent", {
-      to: input.toEmail,
-      subject: msg.subject,
+      recipient: logPseudonym(input.toEmail),
       mode: input.mode,
-      messageId: info.messageId,
+      message: logPseudonym(info.messageId),
       host: config.smtp.host,
       sandbox,
     });
@@ -144,7 +143,7 @@ export async function notifySend(input: NotifySendInput): Promise<{
       claimUrl: link,
     };
   } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
+    const detail = safeError(e);
     console.warn("[notify:email] failed", detail);
     return { emailSent: false, detail, claimUrl: link };
   }
@@ -174,11 +173,8 @@ This code expires in 15 minutes. If you did not request this, ignore this email.
     return { emailSent: false, detail: "no recipient email" };
   }
   if (!smtpConfigured()) {
-    console.log("[notify:verify] SMTP not configured — code", {
-      to: input.toEmail,
-      code: input.code,
-    });
-    return { emailSent: false, detail: "smtp not configured (code logged)" };
+    console.log("[notify:verify] SMTP not configured");
+    return { emailSent: false, detail: "smtp not configured" };
   }
   try {
     await transporter()!.sendMail({
@@ -190,7 +186,7 @@ This code expires in 15 minutes. If you did not request this, ignore this email.
     });
     return { emailSent: true, detail: "sent" };
   } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
+    const detail = safeError(e);
     console.warn("[notify:verify] failed", detail);
     return { emailSent: false, detail };
   }
@@ -227,7 +223,7 @@ export async function notifyWhatsApp(input: {
   const to = input.toPhone.replace(/\D/g, "");
 
   if (!config.whatsapp.token || !config.whatsapp.phoneNumberId) {
-    console.log("[notify:whatsapp:stub]", { to, text, memo: input.memo });
+    console.log("[notify:whatsapp:stub]", { recipient: logPseudonym(to) });
     return {
       sent: false,
       detail: "whatsapp stub — set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID",
@@ -251,16 +247,16 @@ export async function notifyWhatsApp(input: {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      console.warn("[notify:whatsapp] failed", res.status, data);
+      console.warn("[notify:whatsapp] failed", res.status, safeError(JSON.stringify(data)));
       return {
         sent: false,
         detail: `whatsapp api ${res.status}`,
       };
     }
-    console.log("[notify:whatsapp] sent", { to });
+    console.log("[notify:whatsapp] sent", { recipient: logPseudonym(to) });
     return { sent: true, detail: "sent" };
   } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
+    const detail = safeError(e);
     console.warn("[notify:whatsapp] error", detail);
     return { sent: false, detail };
   }

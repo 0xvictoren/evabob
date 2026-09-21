@@ -31,7 +31,7 @@ import {
 import { store, type AgentWallet } from "../store/db.js";
 import { USER_CHANNEL_PREFIX } from "../services/notifyUser.js";
 import { allowanceView } from "../services/agentControls.js";
-import { getUserId, getAuth } from "../middleware/auth.js";
+import { getUserId, getAuth, requireRecentAuth } from "../middleware/auth.js";
 import { requireUser, operatorOnly } from "../middleware/authorization.js";
 import { ucwSessionBoundary } from "../middleware/ucw-session.js";
 import { syncInboundInBackground } from "../services/inbound.js";
@@ -40,6 +40,9 @@ import { jsonSafe } from "../utils/json-safe.js";
 import { flushPrimaryStore, primaryStoreHealth } from "../services/primary-store.js";
 import { avatarFilename, decodeAvatar } from "../services/avatar.js";
 import { dataPath } from "../utils/data-path.js";
+import { llmConfigured } from "../services/llm.js";
+import { safeError } from "../utils/safe-log.js";
+import { consumeNamedRateLimit } from "../middleware/rate-limit.js";
 
 export const api = new Hono();
 api.use("*", async (c, next) => {
@@ -80,22 +83,21 @@ async function linkOne(
   try {
     const r = await adminLinkIdentity({ account, kind, identifier });
     if (r.status === "linked") {
-      console.log(`[identity] linked ${kind} → ${account} (${r.txHash})`);
+      console.log(`[identity] linked ${kind}`);
     }
     return { retryable: false };
   } catch (e) {
     if (e instanceof IdentityConflictError) {
       console.warn(
-        `[identity] ${kind} conflict — ${e.normalized} is bound to ` +
-          `${e.boundTo}, not ${e.wanted}. Not retrying. Resolve with an ` +
-          `explicit unlink+relink; until then /v1/identity/resolve reports ` +
+        `[identity] ${kind} conflict. Not retrying. Resolve with an ` +
+          `explicit unlink+relink; until then identity resolution reports ` +
           `the old wallet for this ${kind}.`,
       );
       return { retryable: false };
     }
     console.warn(
       `[identity] ${kind} link failed (will retry):`,
-      e instanceof Error ? e.message : e,
+      safeError(e),
     );
     return { retryable: true };
   }
@@ -262,7 +264,7 @@ api.get("/health", async (c) => {
       config.circle.apiKey &&
       config.circle.entitySecret
     ),
-    llmConfigured: Boolean(config.llm.apiKey),
+    llmConfigured: llmConfigured(),
     llmModel: config.llm.model,
     whatsappConfigured: Boolean(
       config.whatsapp.token && config.whatsapp.phoneNumberId,
@@ -568,6 +570,77 @@ api.post("/users/session", async (c) => {
   });
 });
 
+async function recoveryAction(c: Context, run: () => Promise<unknown> | unknown) {
+  const { AccountRecoveryError } = await import("../services/account-recovery.js");
+  try {
+    return c.json(jsonSafe(await run()));
+  } catch (error) {
+    if (error instanceof AccountRecoveryError) {
+      return c.json({ error: error.message }, error.status);
+    }
+    throw error;
+  }
+}
+
+function recoveryView(record: import("../store/db.js").AccountRecoveryRequest) {
+  return {
+    id: record.id,
+    codeExpiresAt: record.codeExpiresAt,
+    confirmedAt: record.confirmedAt ?? null,
+    executeAfter: record.executeAfter ?? null,
+    cancelledAt: record.cancelledAt ?? null,
+    completedAt: record.completedAt ?? null,
+  };
+}
+
+/** Starts explicit account recovery; sign-in itself never merges by email. */
+api.post("/users/recovery/start", async (c) => {
+  const auth = getAuth(c);
+  if (!auth.subject || !auth.email) {
+    return c.json({ error: "A verified email sign-in is required" }, 403);
+  }
+  const { startAccountRecovery } = await import("../services/account-recovery.js");
+  return recoveryAction(c, () =>
+    startAccountRecovery({ subject: auth.subject!, verifiedEmail: auth.email! }),
+  );
+});
+
+api.post("/users/recovery/:id/confirm", async (c) => {
+  const body = z.object({ code: z.string().regex(/^\d{6}$/) }).parse(await c.req.json());
+  const auth = getAuth(c);
+  const { confirmAccountRecovery } = await import("../services/account-recovery.js");
+  return recoveryAction(c, () => ({
+    recovery: recoveryView(confirmAccountRecovery({
+      requestId: c.req.param("id"),
+      subject: auth.subject ?? auth.userId,
+      code: body.code,
+    })),
+  }));
+});
+
+api.post("/users/recovery/:id/cancel", async (c) => {
+  const auth = getAuth(c);
+  const { cancelAccountRecovery } = await import("../services/account-recovery.js");
+  return recoveryAction(c, () => ({
+    recovery: recoveryView(cancelAccountRecovery({
+      requestId: c.req.param("id"),
+      userId: auth.userId,
+    })),
+  }));
+});
+
+api.post("/users/recovery/:id/complete", async (c) => {
+  const auth = getAuth(c);
+  const { completeAccountRecovery } = await import("../services/account-recovery.js");
+  return recoveryAction(c, () => {
+    const recovery = completeAccountRecovery({
+      requestId: c.req.param("id"),
+      subject: auth.subject ?? auth.userId,
+    });
+    return { recovery: recoveryView(recovery), accountId: recovery.targetAccountId };
+  });
+});
+
 api.get("/users/me", (c) => {
   const id = userId(c);
   const user = store.getUser(id);
@@ -576,6 +649,61 @@ api.get("/users/me", (c) => {
     user,
     /** Can decide held-payment reviews; the app shows the review screen. */
     operator: config.auth.operatorUserIds.includes(id),
+  });
+});
+
+api.post("/users/me/ai-preference", async (c) => {
+  const body = z.object({ externalAi: z.boolean() }).parse(await c.req.json());
+  const user = store.setAiOptOut(userId(c), !body.externalAi);
+  if (!user) return c.json({ error: "account_not_found" }, 404);
+  return c.json({ externalAi: user.aiOptOut === false });
+});
+
+/** Portable authenticated export. A recently issued Dynamic token is step-up. */
+api.get("/users/me/export", (c) => {
+  const denied = requireRecentAuth(c);
+  if (denied) return denied;
+  const exported = store.exportForUser(userId(c));
+  if (!exported) return c.json({ error: "account_not_found" }, 404);
+  c.header("Cache-Control", "private, no-store");
+  c.header("Content-Disposition", `attachment; filename="evabob-export-${Date.now()}.json"`);
+  return c.json(jsonSafe(exported));
+});
+
+/**
+ * Deletes or anonymizes off-chain account data. Public-chain transaction
+ * evidence remains, and provider-side legal records require their own
+ * retention/deletion process.
+ */
+api.delete("/users/me", async (c) => {
+  const denied = requireRecentAuth(c);
+  if (denied) return denied;
+  const body = z.object({ confirm: z.literal("DELETE") }).parse(
+    await c.req.json().catch(() => ({})),
+  );
+  const uid = userId(c);
+  const user = store.getUser(uid);
+  if (!user) return c.json({ error: "account_not_found" }, 404);
+  const filenames = store.mediaForUser(uid).map((row) => row.filename);
+  const avatarFile = user.avatarUrl?.match(/\/uploads\/([^?/#]+)/)?.[1];
+  if (avatarFile) filenames.push(avatarFile);
+  const { deleteStoredMedia } = await import("../services/evidence.js");
+  const { unregisterAllPushDevices } = await import("../services/push.js");
+  const pushDevicesRemoved = unregisterAllPushDevices(uid);
+  const result = store.anonymizeUser(uid);
+  await deleteStoredMedia([...new Set(filenames)]);
+  return c.json({
+    ok: true,
+    ...result,
+    pushDevicesRemoved,
+    publicLinksRevoked: true,
+    processorPropagation: {
+      dynamic: "session invalidation must be completed through Dynamic",
+      circle: "wallet and legally retained transaction records remain",
+      deepseek: "external AI processing is disabled",
+      firebase: "device tokens removed from Evabob",
+      pusher: "no retained user content",
+    },
   });
 });
 
@@ -1147,10 +1275,24 @@ api.post("/escrow/held/:transferId/messages", async (c) => {
     })
     .parse(await c.req.json());
   const { addReviewMessage, viewFor, roleFor } = await import("../services/heldPayments.js");
+  const { findTrackedByTransferId } = await import("../services/escrow-jobs.js");
   return heldAction(c, async (uid) => {
-    const photos = await storePhotos(body.photos);
+    const transferId = c.req.param("transferId");
+    const beforeUpload = findTrackedByTransferId(transferId);
+    if (!beforeUpload) throw new (await import("../services/heldPayments.js")).HeldPaymentError("Held payment not found", 404);
+    if (!roleFor(beforeUpload, uid)) {
+      throw new (await import("../services/heldPayments.js")).HeldPaymentError("This payment is not yours", 403);
+    }
+    if (beforeUpload.review?.status !== "under_review") {
+      throw new (await import("../services/heldPayments.js")).HeldPaymentError("This review is closed", 409);
+    }
+    const photos = await storePhotos(body.photos, {
+      ownerUserId: uid,
+      contextId: transferId,
+      participants: reviewParticipants(beforeUpload, uid),
+    });
     const { record, message } = addReviewMessage({
-      transferId: c.req.param("transferId"),
+      transferId,
       userId: uid,
       text: body.text,
       links: body.links,
@@ -1203,10 +1345,27 @@ const evidencePhotos = z
   .max(3)
   .optional();
 
-async function storePhotos(photos: z.infer<typeof evidencePhotos>): Promise<string[]> {
+function reviewParticipants(
+  record: import("../services/mongo.js").ProtectedEscrowRecord,
+  uploaderId: string,
+): string[] {
+  const recipient = record.recipientId.includes("@")
+    ? store.findUserByEmail(record.recipientId)
+    : store.findUserByHandle(record.recipientId);
+  return [record.fromUserId, recipient?.id, uploaderId].filter(
+    (value): value is string => Boolean(value),
+  );
+}
+
+async function storePhotos(
+  photos: z.infer<typeof evidencePhotos>,
+  context: import("../services/evidence.js").PrivateMediaContext,
+): Promise<string[]> {
   const { storeEvidencePhoto } = await import("../services/evidence.js");
   const out: string[] = [];
-  for (const p of photos ?? []) out.push(await storeEvidencePhoto(p.imageBase64, p.mime));
+  for (const p of photos ?? []) {
+    out.push(await storeEvidencePhoto(p.imageBase64, p.mime, context));
+  }
   return out;
 }
 
@@ -1220,10 +1379,20 @@ api.post("/operator/reviews/:transferId/messages", operatorOnly, async (c) => {
     })
     .parse(await c.req.json());
   const { addReviewMessage } = await import("../services/heldPayments.js");
+  const { findTrackedByTransferId } = await import("../services/escrow-jobs.js");
   return heldAction(c, async (uid) => {
-    const photos = await storePhotos(body.photos);
+    const transferId = c.req.param("transferId");
+    const beforeUpload = findTrackedByTransferId(transferId);
+    if (!beforeUpload?.review || beforeUpload.review.status !== "under_review") {
+      return Promise.reject(new Error("Open review not found"));
+    }
+    const photos = await storePhotos(body.photos, {
+      ownerUserId: uid,
+      contextId: transferId,
+      participants: reviewParticipants(beforeUpload, uid),
+    });
     const { record, message } = addReviewMessage({
-      transferId: c.req.param("transferId"),
+      transferId,
       userId: uid,
       asReviewer: true,
       text: body.text,
@@ -2706,7 +2875,20 @@ api.get("/activity/incoming", (c) => {
 api.post("/activity/:id/share", async (c) => {
   const { sharePayment, ReceiptError } = await import("../services/publicReceipts.js");
   try {
-    return c.json(sharePayment(userId(c), c.req.param("id")));
+    const body = z
+      .object({ expiresAt: z.string().datetime().optional(), rotate: z.boolean().optional() })
+      .parse(await c.req.json().catch(() => ({})));
+    return c.json(sharePayment(userId(c), c.req.param("id"), body));
+  } catch (error) {
+    if (error instanceof ReceiptError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+});
+
+api.delete("/activity/:id/share", async (c) => {
+  const { revokePublicReceipt, ReceiptError } = await import("../services/publicReceipts.js");
+  try {
+    return c.json({ ok: revokePublicReceipt(userId(c), c.req.param("id")) });
   } catch (error) {
     if (error instanceof ReceiptError) return c.json({ error: error.message }, error.status);
     throw error;
@@ -2730,6 +2912,9 @@ api.get("/chat/threads/:id/messages", async (c) => {
   const thread = store.listThreads().find((t) => t.id === c.req.param("id"));
   if (!thread || !thread.members.includes(uid)) {
     return c.json({ error: "Not a member of this chat" }, 403);
+  }
+  if (thread.state === "pending" || thread.state === "blocked") {
+    return c.json({ error: "Chat must be accepted before messages are available" }, 403);
   }
   // Request cards show where the request stands now — paid, declined,
   // cancelled — not what it was when it was posted.
@@ -2762,6 +2947,9 @@ api.post("/chat/threads/:id/messages", async (c) => {
   const thread = store.listThreads().find((t) => t.id === c.req.param("id"));
   if (!thread || !thread.members.includes(uid)) {
     return c.json({ error: "Not a member of this chat" }, 403);
+  }
+  if (thread.state === "pending" || thread.state === "blocked") {
+    return c.json({ error: "Chat must be accepted before sending messages" }, 403);
   }
 
   // A pasted pay link becomes a request card. The card is built here from the
@@ -2819,10 +3007,17 @@ api.post("/chat/threads/:id/photo", async (c) => {
   if (!thread || !thread.members.includes(uid)) {
     return c.json({ error: "Not a member of this chat" }, 403);
   }
+  if (thread.state === "pending" || thread.state === "blocked") {
+    return c.json({ error: "Chat must be accepted before sending photos" }, 403);
+  }
   const { storeChatPhoto } = await import("../services/evidence.js");
   let url: string;
   try {
-    url = await storeChatPhoto(body.imageBase64, body.mime);
+    url = await storeChatPhoto(body.imageBase64, body.mime, {
+      ownerUserId: uid,
+      contextId: thread.id,
+      participants: thread.members,
+    });
   } catch (error) {
     return c.json({ error: clientError(error, "That photo could not be sent") }, 400);
   }
@@ -2884,6 +3079,9 @@ api.post("/chat/threads/:id/request", async (c) => {
   if (!thread || !thread.members.includes(uid)) {
     return c.json({ error: "Not a member of this chat" }, 403);
   }
+  if (thread.state === "pending" || thread.state === "blocked") {
+    return c.json({ error: "Chat must be accepted before sending requests" }, 403);
+  }
   const { getPaymentRequest, invoiceCardMeta, assignInvoiceReceiver } = await import(
     "../services/payment-requests.js"
   );
@@ -2938,6 +3136,9 @@ api.post("/chat/threads/:id/send-command", async (c) => {
 
   const thread = store.listThreads().find(t => t.id === c.req.param("id"));
   if (!thread || !thread.members.includes(userId(c))) return c.json({ error: "Chat not found" }, 404);
+  if (thread.state === "pending" || thread.state === "blocked") {
+    return c.json({ error: "Chat must be accepted before attaching payments" }, 403);
+  }
   const fromId = userId(c);
   const fromUser = store.getUser(fromId);
   const receiverHandle = normalizeRecipient(body.peerHandle);
@@ -3099,6 +3300,9 @@ api.post("/chat/threads/:id/money-command", async (c) => {
   const thread = store.listThreads().find((t) => t.id === threadId);
   if (!thread || !thread.members.includes(uid)) {
     return c.json({ error: "Not a member of this chat" }, 403);
+  }
+  if (thread.state === "pending" || thread.state === "blocked") {
+    return c.json({ error: "Chat must be accepted before payment commands" }, 403);
   }
 
   if (!config.appKit.enabled) {
@@ -3302,7 +3506,7 @@ api.patch("/activity/:id", async (c) => {
   }
 });
 
-/** Create a chat thread with another user (@handle / email). */
+/** Create a pending chat invitation by public handle. Emails are never probed. */
 api.post("/chat/threads", async (c) => {
   const body = z
     .object({
@@ -3312,17 +3516,44 @@ api.post("/chat/threads", async (c) => {
     .parse(await c.req.json());
   const uid = userId(c);
   const raw = body.peer.trim();
-  const handle = raw.replace(/^@/, "").toLowerCase();
-  const peer =
-    store.findUserByEmail(raw) ||
-    store.findUserByHandle(handle) ||
-    store.findUserByRecipient(raw);
-  if (!peer) {
-    const who = raw.includes("@") && !raw.startsWith("@")
-      ? `email ${raw.toLowerCase()}`
-      : `username @${handle}`;
+  if (raw.includes("@") && !raw.startsWith("@")) {
     return c.json(
-      { error: `No user with ${who}.`, code: "USER_NOT_FOUND" },
+      {
+        status: "invite_required",
+        detail: "Use an @handle or share an invite link.",
+      },
+      202,
+    );
+  }
+  const handle = raw.replace(/^@/, "").toLowerCase();
+  const account = store.getUser(uid);
+  const accountAgeMs = account ? Date.now() - Date.parse(account.createdAt) : 0;
+  const inviteLimit = accountAgeMs < 24 * 60 * 60_000 ? 3 : 20;
+  const actorLimit = await consumeNamedRateLimit(
+    "chat-invite-account",
+    uid,
+    inviteLimit,
+    24 * 60 * 60_000,
+  );
+  const targetLimit = await consumeNamedRateLimit(
+    "chat-invite-target",
+    `${uid}:${handle}`,
+    3,
+    24 * 60 * 60_000,
+  );
+  if (!actorLimit.allowed || !targetLimit.allowed) {
+    const retryAfter = Math.max(
+      actorLimit.allowed ? 0 : actorLimit.retryAfterSeconds,
+      targetLimit.allowed ? 0 : targetLimit.retryAfterSeconds,
+    );
+    c.header("Retry-After", String(retryAfter));
+    return c.json({ error: "Too many chat invitations. Try again later." }, 429);
+  }
+  const peer =
+    store.findUserByHandle(handle);
+  if (!peer) {
+    return c.json(
+      { error: "That handle cannot receive a chat invitation.", code: "INVITE_UNAVAILABLE" },
       404,
     );
   }
@@ -3336,12 +3567,32 @@ api.post("/chat/threads", async (c) => {
     title,
     subtitle: "Say hello",
     handle: peerHandle,
+    state: "pending",
+    invitedBy: uid,
   });
   // Always return peer-relative view for the creator
   return c.json({
     thread: store.threadForViewer(thread, uid),
-    peerFound: Boolean(peer),
+    requiresAcceptance: thread.state === "pending",
   });
+});
+
+api.post("/chat/threads/:id/accept", (c) => {
+  const thread = store.acceptThread(c.req.param("id"), userId(c));
+  return thread
+    ? c.json({ thread: store.threadForViewer(thread, userId(c)) })
+    : c.json({ error: "Chat invitation not found" }, 404);
+});
+
+api.post("/chat/threads/:id/block", (c) => {
+  const thread = store.blockThread(c.req.param("id"), userId(c));
+  return thread ? c.json({ ok: true }) : c.json({ error: "Chat not found" }, 404);
+});
+
+api.post("/chat/threads/:id/report", async (c) => {
+  const body = z.object({ reason: z.string().min(3).max(500) }).parse(await c.req.json());
+  const thread = store.reportThread(c.req.param("id"), userId(c), body.reason);
+  return thread ? c.json({ ok: true }) : c.json({ error: "Chat not found" }, 404);
 });
 
 // ─── Agent wallets + x402 nanopayments ─────────────────────────────────

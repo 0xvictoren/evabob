@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/config/env.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
@@ -23,6 +25,7 @@ class PhotoBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final url = resolve(meta['url'].toString());
+    final headers = context.read<ApiClient>().mediaHeaders;
     final caption = meta['caption']?.toString().trim() ?? '';
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -33,7 +36,7 @@ class PhotoBubble extends StatelessWidget {
               mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             GestureDetector(
-              onTap: () => _openFull(context, url),
+              onTap: () => _openFull(context, url, headers),
               child: Semantics(
                 image: true,
                 label: caption.isEmpty ? 'Photo' : 'Photo: $caption',
@@ -41,15 +44,18 @@ class PhotoBubble extends StatelessWidget {
                   borderRadius: BorderRadius.circular(18),
                   child: Image.network(
                     url,
+                    headers: headers,
                     fit: BoxFit.cover,
-                    loadingBuilder: (context, child, progress) => progress == null
+                    loadingBuilder: (context, child, progress) => progress ==
+                            null
                         ? child
                         : Container(
                             width: 220,
                             height: 220,
                             color: EvabobColors.sheet,
                             alignment: Alignment.center,
-                            child: const CircularProgressIndicator(strokeWidth: 2),
+                            child:
+                                const CircularProgressIndicator(strokeWidth: 2),
                           ),
                     errorBuilder: (context, error, stack) => Container(
                       width: 220,
@@ -60,7 +66,8 @@ class PhotoBubble extends StatelessWidget {
                       child: Text(
                         'This photo could not be loaded.',
                         textAlign: TextAlign.center,
-                        style: Type.caption.copyWith(color: EvabobColors.navyMuted),
+                        style: Type.caption
+                            .copyWith(color: EvabobColors.navyMuted),
                       ),
                     ),
                   ),
@@ -83,7 +90,11 @@ class PhotoBubble extends StatelessWidget {
     );
   }
 
-  static void _openFull(BuildContext context, String url) {
+  static void _openFull(
+    BuildContext context,
+    String url,
+    Map<String, String> headers,
+  ) {
     showDialog<void>(
       context: context,
       barrierColor: Colors.black87,
@@ -94,7 +105,13 @@ class PhotoBubble extends StatelessWidget {
             Positioned.fill(
               child: InteractiveViewer(
                 maxScale: 4,
-                child: Center(child: Image.network(url, fit: BoxFit.contain)),
+                child: Center(
+                  child: Image.network(
+                    url,
+                    headers: headers,
+                    fit: BoxFit.contain,
+                  ),
+                ),
               ),
             ),
             Positioned(

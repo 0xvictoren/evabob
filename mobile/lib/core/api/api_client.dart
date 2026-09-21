@@ -22,6 +22,14 @@ class ApiClient {
 
   void setAuthToken(String? token) => _authToken = token;
 
+  /// Authentication headers for private media fetched by Image.network.
+  Map<String, String> get mediaHeaders {
+    final token = _authToken;
+    return token == null || token.isEmpty
+        ? const <String, String>{}
+        : <String, String>{'Authorization': 'Bearer $token'};
+  }
+
   /// Called when the server says the sign-in has ended (401 with code
   /// SESSION_EXPIRED). EvabobAuth signs out once and asks to sign in again.
   void Function()? onSessionExpired;

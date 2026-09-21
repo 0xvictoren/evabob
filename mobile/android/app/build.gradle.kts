@@ -22,6 +22,19 @@ val circleSdkUser: String? = localProps.getProperty("pwsdk.maven.username")
 val circleSdkToken: String? = localProps.getProperty("pwsdk.maven.password")
 val withCircleSdk = !circleSdkUser.isNullOrBlank() && !circleSdkToken.isNullOrBlank()
 
+// Release signing is supplied by the build environment/CI, never by a checked-in
+// file. Debug builds remain available for local testing.
+val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+val releaseKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+val releaseSigningReady = listOf(
+    releaseKeystorePath,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
 fun decodeDartDefines(encoded: String?): Map<String, String> =
     encoded
         ?.split(',')
@@ -106,15 +119,26 @@ android {
         multiDexEnabled = true
     }
 
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
             isShrinkResources = false
         }
         release {
-            // Debug signing so release APK can be sideloaded during testing
-            signingConfig = signingConfigs.getByName("debug")
-            // shrinkResources requires minifyEnabled — keep both off for simple debug-style builds
+            if (releaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -126,13 +150,21 @@ android {
 tasks.configureEach {
     if (name == "preReleaseBuild") {
         dependsOn(validateReleaseApiBaseUrl)
+        doFirst {
+            if (!releaseSigningReady) {
+                throw GradleException(
+                    "Release signing is not configured. Set ANDROID_KEYSTORE_PATH, " +
+                        "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD.",
+                )
+            }
+        }
     }
 }
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     if (withCircleSdk) {
-        implementation("circle.programmablewallet:sdk:1.0.+")
+        implementation("circle.programmablewallet:sdk:1.0.1189")
     }
 }
 

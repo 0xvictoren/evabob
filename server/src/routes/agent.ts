@@ -439,11 +439,16 @@ agentRoutes.post("/message", async (c) => {
   // what the user approves. When the model is unreachable the deterministic parser
   // below still handles the turn, so a money instruction never depends on the
   // model being up.
-  const turn = await runAgentTurn({
-    ctx: { userId: uid },
-    message: body.text,
-    history,
-  });
+  // External AI is explicit opt-in. Undefined and true both stay local.
+  const externalAiAllowed = store.getUser(uid)?.aiOptOut === false;
+  const turn = externalAiAllowed
+    ? await runAgentTurn({
+        ctx: { userId: uid },
+        message: body.text,
+        // Do not disclose earlier chat turns to the processor.
+        history: [],
+      })
+    : { reply: "", toolsUsed: [], answered: false as const };
 
   if (turn.proposal) {
     const p = turn.proposal;

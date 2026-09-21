@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { safeError } from "./safe-log.js";
 
 /**
  * Message safe to return to a client.
@@ -10,7 +11,7 @@ import { config } from "../config.js";
  * detail is worth more than the disclosure.
  */
 export function clientError(e: unknown, fallback: string): string {
-  console.error(`[error] ${fallback}:`, e);
+  console.error(`[error] ${fallback}:`, safeError(e));
   if (config.nodeEnv === "production") return fallback;
   return e instanceof Error ? e.message : fallback;
 }

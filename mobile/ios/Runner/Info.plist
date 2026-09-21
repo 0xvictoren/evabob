@@ -74,11 +74,11 @@
 	<key>NSContactsUsageDescription</key>
 	<string>Evabob uses your contacts so you can quickly send money to people you know.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Evabob uses your photo library for your profile picture.</string>
+	<string>Choose a profile picture or attach evidence and chat photos you decide to share.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Evabob uses the camera to scan wallet QR codes.</string>
+	<string>Scan wallet QR codes or take evidence and chat photos when you choose.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Evabob uses Face ID to unlock the app and confirm payments.</string>
+	<string>Use Face ID to unlock Evabob and confirm a payment only after you review it.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

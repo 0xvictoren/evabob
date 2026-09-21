@@ -458,13 +458,7 @@ class EvabobAuth extends ChangeNotifier {
       _profileWaiter = Completer<UserProfile>();
       _tokenWaiter = Completer<String>();
 
-      debugPrint('EvabobAuth: verifying OTP…');
       await _sdk!.auth.email.verifyOTP(trimmedCode);
-      debugPrint(
-        'EvabobAuth: verifyOTP ok '
-        'profile=${_sdk!.auth.authenticatedUser != null} '
-        'token=${(_readToken() ?? '').isNotEmpty}',
-      );
 
       // HARD FINISH: must obtain a real Dynamic JWT (not provisional email id).
       final session = await _awaitHardSession(
@@ -475,12 +469,6 @@ class EvabobAuth extends ChangeNotifier {
       if (session == null ||
           session.authToken == null ||
           session.authToken!.isEmpty) {
-        debugPrint(
-          'EvabobAuth: hard session failed '
-          'profilePresent=${_sdk!.auth.authenticatedUser != null} '
-          'tokenPresent=${(_sdk!.auth.token ?? '').isNotEmpty} '
-          'minTokenPresent=${(_sdk!.auth.minAuthToken ?? '').isNotEmpty}',
-        );
         _error = 'Sign-in did not complete. Request a new code and try again. '
             'Stay on this screen until the session loads.';
         needsNewOtp = true;
@@ -493,8 +481,8 @@ class EvabobAuth extends ChangeNotifier {
       HapticFeedback.lightImpact();
       debugPrint('EvabobAuth: hard finish completed');
       return true;
-    } catch (e, st) {
-      debugPrint('loginWithEmailCode: $e\n$st');
+    } catch (e) {
+      debugPrint('loginWithEmailCode failed: ${e.runtimeType}');
       _error = _friendly(e);
       needsNewOtp = _isInvalidOtp(e);
       return false;

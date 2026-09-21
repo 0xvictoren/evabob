@@ -77,6 +77,8 @@ export const config = {
   })() as "local" | "testnet" | "production",
   productionLaunchEnabled: req("ENABLE_PRODUCTION_LAUNCH", "false") === "true",
   appName: req("APP_NAME", "evabob"),
+  /** Honor X-Forwarded-For only behind the configured hosting proxy. */
+  trustProxy: envFlag("TRUST_PROXY", false),
 
   /** 0.05% platform fee (gas excluded). recipient "" = disabled. */
   platformFee,
@@ -115,6 +117,8 @@ export const config = {
       "5be16cc5-2968-4265-a14b-86caf3963a72",
     ),
     apiToken: req("DYNAMIC_API_TOKEN"),
+    /** Exact `aud` expected on end-user session JWTs. */
+    audience: req("DYNAMIC_JWT_AUDIENCE", "https://evabob.app"),
     /**
      * Incident-response cutoff. A signed token issued before this instant is
      * treated as expired, forcing every device that used the former HTTP API

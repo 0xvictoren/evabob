@@ -59,7 +59,9 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       chat.openThreadId = widget.thread.id;
       chat.markRead(widget.thread.id);
       await chat.refreshMoneyHint();
-      await chat.loadMessages(widget.thread.id);
+      if (!widget.thread.isPending) {
+        await chat.loadMessages(widget.thread.id);
+      }
       // Land on the newest message, not the oldest.
       _scrollToBottom();
       if (!mounted) return;
@@ -134,6 +136,75 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       isAgent: widget.thread.isAgent,
     );
     _scrollToBottom(animate: true);
+  }
+
+  Future<void> _acceptInvitation() async {
+    try {
+      final chat = context.read<ChatService>();
+      if (await chat.acceptThread(widget.thread.id)) {
+        await chat.loadMessages(widget.thread.id);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      showTopSnack(
+        context,
+        SnackBar(content: Text(friendlyError(error, fallback: 'Could not accept invitation.'))),
+      );
+    }
+  }
+
+  Future<void> _blockConversation() async {
+    try {
+      await context.read<ChatService>().blockThread(widget.thread.id);
+      if (mounted) Navigator.pop(context);
+    } catch (error) {
+      if (!mounted) return;
+      showTopSnack(
+        context,
+        SnackBar(content: Text(friendlyError(error, fallback: 'Could not block this account.'))),
+      );
+    }
+  }
+
+  Future<void> _reportConversation() async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: const Text('Report conversation'),
+          content: TextField(
+            controller: controller,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(hintText: 'What happened?'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.length >= 3) Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Report'),
+            ),
+          ],
+        );
+      },
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await context.read<ChatService>().reportThread(widget.thread.id, reason);
+      if (mounted) {
+        showTopSnack(context, const SnackBar(content: Text('Report received')));
+      }
+    } catch (error) {
+      if (!mounted) return;
+      showTopSnack(
+        context,
+        SnackBar(content: Text(friendlyError(error, fallback: 'Could not submit report.'))),
+      );
+    }
   }
 
   Future<void> _openAttachMenu(String myId) async {
@@ -701,6 +772,26 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                   subtitle: Text('@${thread.handle ?? thread.title}'),
                   onTap: () => Navigator.pop(sheetContext, 'copy'),
                 ),
+              if (!thread.isAgent)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(
+                    backgroundColor: EvabobColors.pageBg,
+                    child: Icon(Icons.flag_outlined, color: EvabobColors.alert),
+                  ),
+                  title: const Text('Report conversation'),
+                  onTap: () => Navigator.pop(sheetContext, 'report'),
+                ),
+              if (!thread.isAgent)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(
+                    backgroundColor: EvabobColors.pageBg,
+                    child: Icon(Icons.block_rounded, color: EvabobColors.alert),
+                  ),
+                  title: const Text('Block account'),
+                  onTap: () => Navigator.pop(sheetContext, 'block'),
+                ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const CircleAvatar(
@@ -736,6 +827,14 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       }
       return;
     }
+    if (action == 'report') {
+      await _reportConversation();
+      return;
+    }
+    if (action == 'block') {
+      await _blockConversation();
+      return;
+    }
     if (action == 'close' && mounted) {
       Navigator.pop(context);
     }
@@ -750,6 +849,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     // The latest copy of this conversation, so a new name or picture shows
     // at once rather than the one it was opened with.
     final thread = chat.threadById(widget.thread.id) ?? widget.thread;
+    final awaitingMe = thread.awaitingMyAcceptance(myId);
 
     return Scaffold(
       body: Container(
@@ -810,7 +910,38 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 ),
               ),
               Expanded(
-                child: messages.isEmpty
+                child: thread.isPending
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.mark_chat_unread_outlined, size: 42),
+                              const SizedBox(height: 16),
+                              Text(
+                                awaitingMe
+                                    ? '${thread.title} wants to start a conversation.'
+                                    : 'Invitation sent. You can message after ${thread.title} accepts.',
+                                textAlign: TextAlign.center,
+                                style: Type.body.copyWith(color: EvabobColors.navyMuted),
+                              ),
+                              if (awaitingMe) ...[
+                                const SizedBox(height: 20),
+                                FilledButton(
+                                  onPressed: _acceptInvitation,
+                                  child: const Text('Accept conversation'),
+                                ),
+                                TextButton(
+                                  onPressed: _blockConversation,
+                                  child: const Text('Block'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      )
+                    : messages.isEmpty
                     // A brand-new thread was a blank white area above a
                     // composer, with nothing saying what to type.
                     ? Center(
@@ -841,7 +972,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                       ),
               ),
               // Composer
-              Padding(
+              if (!thread.isPending)
+                Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 child: Glass(
                   borderRadius: 20,

@@ -1,0 +1,104 @@
+name: Security release gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm }
+      - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm sbom --sbom-format cyclonedx > web-npm.cdx.json
+      - run: npm test --if-present
+      - run: npm run build
+      - run: npm ci --legacy-peer-deps
+        working-directory: server
+      - run: npm run security:audit
+        working-directory: server
+      - run: npm sbom --sbom-format cyclonedx > server-npm.cdx.json
+        working-directory: server
+      - run: npm test
+        working-directory: server
+      - run: npm run build
+        working-directory: server
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: evabob-full.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: application-sboms
+          path: |
+            evabob-full.cdx.json
+            web-npm.cdx.json
+            server/server-npm.cdx.json
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+        working-directory: mobile
+      - run: flutter analyze
+        working-directory: mobile
+      - run: flutter test
+        working-directory: mobile
+      - run: flutter pub deps --json > dart-dependencies.json
+        working-directory: mobile
+      - run: ./gradlew :app:dependencies > gradle-dependencies.txt
+        working-directory: mobile/android
+      - uses: anchore/sbom-action@v0
+        with:
+          path: mobile
+          format: cyclonedx-json
+          output-file: mobile.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-sbom
+          path: |
+            mobile.cdx.json
+            mobile/dart-dependencies.json
+            mobile/android/gradle-dependencies.txt
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with: { version: v1.3.5 }
+      - run: forge test
+        working-directory: contracts
+      - uses: crytic/slither-action@v0.4.2
+        continue-on-error: true
+        with:
+          target: contracts
+          slither-version: "0.11.6"
+      - run: forge tree > foundry-dependencies.txt
+        working-directory: contracts
+      - uses: anchore/sbom-action@v0
+        with:
+          path: contracts
+          format: cyclonedx-json
+          output-file: contracts.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contract-sbom
+          path: |
+            contracts.cdx.json
+            contracts/foundry-dependencies.txt

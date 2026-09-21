@@ -3,10 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'nonce-evabob-circle-v1'; style-src 'unsafe-inline'; img-src data: blob: https://pw-auth.circle.com; font-src data:; frame-src https://pw-auth.circle.com; connect-src https://pw-auth.circle.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com; worker-src blob:" />
   <title>Evabob · Secure confirm</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Numans&display=swap" rel="stylesheet" />
   <style>
     /* Never style Circle PIN inputs — text-security breaks W3S (red glyphs). */
     /* Evabob tokens — keep in step with mobile/lib/core/theme/evabob_colors.dart */
@@ -83,8 +81,9 @@
       <button id="run" type="button">Continue</button>
     </div>
   </div>
-  <script type="module">
-    import { W3SSdk } from 'https://cdn.jsdelivr.net/npm/@circle-fin/w3s-pw-web-sdk@1.1.11/+esm';
+  <script nonce="evabob-circle-v1">/*__CIRCLE_SDK_BUNDLE__*/</script>
+  <script nonce="evabob-circle-v1">
+    const { W3SSdk } = CircleW3S;
 
     const statusEl = document.getElementById('status');
     const runBtn = document.getElementById('run');
@@ -108,7 +107,6 @@
         }
       } catch (_) {}
       try {
-        window.parent && window.parent.postMessage(msg, '*');
       } catch (_) {}
     }
 
@@ -326,16 +324,6 @@
         textInteractive: INK,
         interactiveBg: '#F0FAFF',
       });
-      const resources = {
-        // Circle's docs spell the key `URL`; accept either spelling.
-        fontFamily: {
-          name: 'Numans',
-          URL: 'https://fonts.googleapis.com/css2?family=Numans&display=swap',
-          url: 'https://fonts.googleapis.com/css2?family=Numans&display=swap',
-        },
-      };
-      call('setResources', resources);
-      call('setResource', resources);
       call('setLocalizations', {
         enterPincode: {
           headline: 'Enter your {{pin}}',
@@ -652,10 +640,17 @@
       setTimeout(go, 350);
     }
 
-    boot().catch((e) => {
-      setStatus('Boot failed: ' + shortMsg(errText(e)), true);
-      post('error', { message: String(errText(e)) });
-    });
+    let started = false;
+    window.startEvabobChallenge = (payload) => {
+      if (started || !payload || typeof payload !== 'object') return;
+      started = true;
+      window.__EVABOB_CHALLENGE__ = payload;
+      boot().catch((e) => {
+        setStatus('Boot failed: ' + shortMsg(errText(e)), true);
+        post('error', { message: String(errText(e)) });
+      });
+    };
+    post('local_ready', {});
   </script>
 </body>
 </html>

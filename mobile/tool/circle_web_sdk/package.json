@@ -1,0 +1,19 @@
+{
+  "name": "evabob-circle-web-sdk-bundle",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@circle-fin/w3s-pw-web-sdk": "1.1.11"
+  },
+  "overrides": {
+    "undici": "6.28.1",
+    "uuid": "11.1.1"
+  },
+  "devDependencies": {
+    "vite": "8.3.0",
+    "vite-plugin-node-polyfills": "0.28.0"
+  }
+}

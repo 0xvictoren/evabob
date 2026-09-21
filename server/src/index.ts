@@ -1,6 +1,5 @@
 import { serve } from "@hono/node-server";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { Hono } from "hono";
 import { ZodError } from "zod";
@@ -26,6 +25,9 @@ import {
   refreshPrimaryStoreIfStale,
 } from "./services/primary-store.js";
 import { assertProductionSafety } from "./services/production-safety.js";
+import { installSafeConsole, logPseudonym, routeTemplate, safeError } from "./utils/safe-log.js";
+
+installSafeConsole();
 
 export const app = new Hono();
 // Serverless adapters can use the default Hono export. Render and local Node
@@ -122,18 +124,13 @@ app.use("*", async (c, next) => {
  */
 const httpLogPath = dataPath("http.jsonl");
 
-function pseudonym(userId: string | undefined): string | null {
-  if (!userId) return null;
-  return createHash("sha256").update(userId).digest("hex").slice(0, 12);
-}
-
 app.use("*", async (c, next) => {
   const started = Date.now();
   await next();
-  const path = c.req.path;
+  const path = routeTemplate(c.req.path);
   if (path === "/v1/health" || path === "/v1/fx/rates") return;
   const auth = c.get("auth") as { userId: string } | undefined;
-  const user = pseudonym(auth?.userId);
+  const user = logPseudonym(auth?.userId);
   const line = JSON.stringify({
     at: new Date().toISOString(),
     method: c.req.method,
@@ -187,6 +184,7 @@ app.on("POST", "/v1/paywalls", rateLimit(SENSITIVE));
 app.on("POST", "/v1/agent-tasks/*/take", rateLimit(SENSITIVE));
 app.use("/x/*", rateLimit(GENERAL));
 app.use("/v1/users/me/avatar", rateLimit(SENSITIVE));
+app.use("/v1/users/recovery/*", rateLimit(SENSITIVE));
 app.use("/v1/circle/create-user", rateLimit(ONBOARDING));
 app.use("/v1/circle/session", rateLimit(ONBOARDING));
 app.use("/v1/circle/prepare-pin", rateLimit(ONBOARDING));
@@ -201,13 +199,39 @@ const AVATAR_FILE = /^avatar_[a-f0-9]{32}\.(jpg|png|webp)$/;
 // given the path.
 const EVIDENCE_FILE = /^evidence_[a-f0-9]{32}\.(jpg|png|webp)$/;
 const CHAT_PHOTO_FILE = /^chatphoto_[a-f0-9]{32}\.(jpg|png|webp)$/;
+app.use("/uploads/*", async (c, next) => {
+  const file = c.req.path.split("/").pop() ?? "";
+  if (AVATAR_FILE.test(file)) return next();
+  return authMiddleware(c, next);
+});
 app.get("/uploads/:file", async (c) => {
   const file = c.req.param("file");
   if (!AVATAR_FILE.test(file) && !EVIDENCE_FILE.test(file) && !CHAT_PHOTO_FILE.test(file)) {
     return c.notFound();
   }
+  const privateMedia = EVIDENCE_FILE.test(file) || CHAT_PHOTO_FILE.test(file);
+  if (privateMedia) {
+    const { store } = await import("./store/db.js");
+    const media = store.mediaByFilename(file);
+    if (!media || media.retentionState !== "active") return c.notFound();
+    if (Date.parse(media.expiresAt) <= Date.now()) return c.body(null, 410);
+    const auth = c.get("auth") as { userId?: string } | undefined;
+    const uid = auth?.userId ?? "";
+    let allowed = media.participants.includes(uid);
+    if (media.kind === "chat") {
+      allowed = store.listThreads().some(
+        (thread) => thread.id === media.contextId && thread.members.includes(uid),
+      );
+    } else {
+      const { findTrackedByTransferId } = await import("./services/escrow-jobs.js");
+      const { roleFor } = await import("./services/heldPayments.js");
+      const hold = findTrackedByTransferId(media.contextId);
+      allowed = Boolean(hold && roleFor(hold, uid)) || config.auth.operatorUserIds.includes(uid);
+    }
+    if (!allowed) return c.json({ error: "media_access_denied" }, 403);
+  }
   const headers = {
-    "Cache-Control": "public, max-age=86400",
+    "Cache-Control": privateMedia ? "private, no-store" : "public, max-age=86400",
     "X-Content-Type-Options": "nosniff",
   };
   try {
@@ -323,7 +347,7 @@ app.onError((err, c) => {
       400,
     );
   }
-  console.error("[unhandled]", c.req.method, c.req.path, err);
+  console.error("[unhandled]", c.req.method, routeTemplate(c.req.path), safeError(err));
   return c.json(
     {
       error: "internal_error",

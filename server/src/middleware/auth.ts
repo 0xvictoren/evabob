@@ -145,12 +145,20 @@ export function createAuthMiddleware(
     const { claims, expired } = await checkDynamicToken(raw);
 
     if (claims?.sub) {
-      // The account follows the verified email, not Dynamic's id, so a
-      // recreated Dynamic user opens the same account and wallet. The store
-      // is imported here, not at the top: it must load after the primary
-      // store is restored (index.ts).
+      // Email equality never selects an account. Only this exact Dynamic
+      // subject or an explicitly recovered link may open existing data.
       const { store } = await import("../store/db.js");
       const accountId = store.accountIdForSignIn(claims.sub, claims.email);
+      if (store.getUser(accountId)?.deletedAt) {
+        return c.json(
+          {
+            error: "account_deleted",
+            code: "ACCOUNT_DELETED",
+            detail: "This Evabob account has been deleted.",
+          },
+          403,
+        );
+      }
       c.set("auth", {
         userId: accountId,
         subject: claims.sub,
@@ -246,5 +254,23 @@ export function requireVerified(c: Context): Response | null {
         "fallback is not accepted here.",
     },
     401,
+  );
+}
+
+/** Step-up gate for exports, deletion and account linking. */
+export function requireRecentAuth(c: Context, maxAgeSeconds = 5 * 60): Response | null {
+  const auth = getAuth(c);
+  const issuedAt = auth.claims?.iat;
+  const age = typeof issuedAt === "number" ? Math.floor(Date.now() / 1000) - issuedAt : Infinity;
+  if (auth.verified && auth.principal === "user" && age >= -30 && age <= maxAgeSeconds) {
+    return null;
+  }
+  return c.json(
+    {
+      error: "step_up_required",
+      code: "STEP_UP_REQUIRED",
+      detail: "Sign in again before exporting or deleting account data.",
+    },
+    403,
   );
 }

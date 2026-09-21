@@ -11,6 +11,8 @@ class ChatThread {
     this.peerUserId,
     this.peerAvatarUrl,
     this.peerAvatarBundle,
+    this.state,
+    this.invitedBy,
   });
 
   final String id;
@@ -25,8 +27,14 @@ class ChatThread {
   final String? peerUserId;
   final String? peerAvatarUrl;
   final int? peerAvatarBundle;
+  final String? state;
+  final String? invitedBy;
 
-  ChatThread copyWith({String? subtitle, int? unread}) => ChatThread(
+  bool get isPending => state == 'pending';
+  bool awaitingMyAcceptance(String myId) =>
+      isPending && invitedBy != null && invitedBy != myId;
+
+  ChatThread copyWith({String? subtitle, int? unread, String? state}) => ChatThread(
         id: id,
         title: title,
         subtitle: subtitle ?? this.subtitle,
@@ -36,6 +44,8 @@ class ChatThread {
         peerUserId: peerUserId,
         peerAvatarUrl: peerAvatarUrl,
         peerAvatarBundle: peerAvatarBundle,
+        state: state ?? this.state,
+        invitedBy: invitedBy,
       );
 
   factory ChatThread.fromJson(Map<String, dynamic> j, {String? fallbackTitle}) =>
@@ -51,6 +61,8 @@ class ChatThread {
         peerUserId: j['peerUserId']?.toString(),
         peerAvatarUrl: j['peerAvatarUrl']?.toString(),
         peerAvatarBundle: (j['peerAvatarBundle'] as num?)?.toInt(),
+        state: j['state']?.toString(),
+        invitedBy: j['invitedBy']?.toString(),
       );
 }
 

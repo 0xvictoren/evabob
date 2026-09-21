@@ -33,6 +33,7 @@ dependencies:
   local_auth: ^3.0.2
   flutter_secure_storage: ^10.3.1
   crypto: ^3.0.7
+  cryptography: 2.9.0
   app_links: ^6.4.1
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
@@ -49,6 +50,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/challenge.html
+    - assets/circle_w3s_sdk.js
+    - assets/circle_w3s_sdk.js.sha256
     - assets/dp-pic-asset/
     - assets/icons/
     - assets/icons-png/

@@ -101,6 +101,14 @@ export function unregisterPushDevice(userId: string, token: string): boolean {
   return true;
 }
 
+export function unregisterAllPushDevices(userId: string): number {
+  const rows = load();
+  const next = rows.filter((device) => device.userId !== userId);
+  const removed = rows.length - next.length;
+  if (removed) save(next);
+  return removed;
+}
+
 export function listPushDevices(userId: string): PushDevice[] {
   return load().filter((d) => d.userId === userId);
 }
@@ -199,7 +207,10 @@ export function fcmMessage(device: PushDevice, message: PushMessage) {
   return {
     message: {
       token: device.token,
-      notification: { title: message.title, body: message.body },
+      notification: {
+        title: "Evabob",
+        body: "You have a new private update.",
+      },
       data,
       android: {
         priority: "HIGH",

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:crypto/crypto.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -61,6 +62,7 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
   String _status = 'Loading secure confirmation…';
   bool _done = false;
   bool _initialDocumentLoaded = false;
+  bool _credentialsInjected = false;
   final List<String> _completedIds = [];
   final List<String> _failedIds = [];
 
@@ -81,12 +83,11 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
   @override
   void initState() {
     super.initState();
-    debugPrint(
-      'CircleChallengeScreen: challenges=${widget.challengeIds} '
-      'tokenLen=${widget.userToken.length} '
-      'keyLen=${widget.encryptionKey.trim().length} '
-      'appId=${widget.appId}',
-    );
+    if (kDebugMode) {
+      debugPrint(
+        'CircleChallengeScreen: challenges=${widget.challengeIds.length}',
+      );
+    }
     _boot();
   }
 
@@ -95,14 +96,24 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
     setState(() => _status = shortUiText(message, max: 200));
   }
 
-  /// Embed auth JSON in HTML so the module never races JS injection.
-  String _embedAuth(String html) {
-    final payload = jsonEncode(_authPayload);
-    final boot = '<script>window.__EVABOB_CHALLENGE__=$payload;</script>';
-    if (html.contains('</head>')) {
-      return html.replaceFirst('</head>', '$boot</head>');
+  Future<String> _trustedDocument() async {
+    final html = await rootBundle.loadString('assets/challenge.html');
+    final sdk = await rootBundle.loadString('assets/circle_w3s_sdk.js');
+    final checksum = (await rootBundle.loadString(
+      'assets/circle_w3s_sdk.js.sha256',
+    ))
+        .trim()
+        .split(RegExp(r'\s+'))
+        .first;
+    final actual = sha256.convert(utf8.encode(sdk)).toString();
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(checksum) || actual != checksum) {
+      throw StateError('Bundled Circle SDK integrity check failed');
     }
-    return '$boot$html';
+    const marker = '/*__CIRCLE_SDK_BUNDLE__*/';
+    if (!html.contains(marker) || sdk.contains('</script')) {
+      throw StateError('Bundled Circle SDK document is invalid');
+    }
+    return html.replaceFirst(marker, sdk);
   }
 
   Future<void> _configureAndroid(WebViewController controller) async {
@@ -123,7 +134,9 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
         });
       }
     } catch (e) {
-      debugPrint('CircleChallengeScreen android config: $e');
+      if (kDebugMode) {
+        debugPrint('CircleChallengeScreen android config: $e');
+      }
     }
   }
 
@@ -135,23 +148,27 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
         widget.userToken.trim().isEmpty ||
         widget.appId.trim().isEmpty) {
       _setStatus('Missing session — close and try again');
-      debugPrint(
-        'CircleChallengeScreen abort: empty auth '
-        'ids=${widget.challengeIds.length} appId=${widget.appId.isNotEmpty}',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          'CircleChallengeScreen abort: incomplete local challenge input',
+        );
+      }
       return;
     }
 
-    String html;
+    late final String html;
     try {
-      html = await rootBundle.loadString('assets/challenge.html');
+      html = await _trustedDocument();
     } catch (e) {
-      debugPrint('CircleChallengeScreen asset load failed: $e');
-      html = _fallbackHtml();
+      if (kDebugMode) {
+        debugPrint('CircleChallengeScreen local asset verification failed: $e');
+      }
+      _setStatus('Secure confirmation could not be loaded');
+      return;
     }
-    html = _embedAuth(html);
 
-    final controller = WebViewController()
+    late final WebViewController controller;
+    controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       // Light background — Circle PIN UI is light; black + broken CSS = red garbage.
       ..setBackgroundColor(EvabobColors.pageBg)
@@ -164,25 +181,37 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
           onNavigationRequest: (request) {
             // Circle's PIN sheet runs in subframes. The app document itself
             // must never navigate after credentials have been embedded.
-            if (!request.isMainFrame) return NavigationDecision.navigate;
+            if (!request.isMainFrame) {
+              return _isTrustedCircleResource(request.url)
+                  ? NavigationDecision.navigate
+                  : NavigationDecision.prevent;
+            }
             if (!_initialDocumentLoaded && _isInitialDocument(request.url)) {
               return NavigationDecision.navigate;
             }
             _setStatus('Unexpected navigation blocked');
             return NavigationDecision.prevent;
           },
-          onPageFinished: (url) {
+          onPageFinished: (url) async {
             if (!_initialDocumentLoaded && _isInitialDocument(url)) {
               _initialDocumentLoaded = true;
+              if (!_credentialsInjected) {
+                _credentialsInjected = true;
+                await controller.runJavaScript(
+                  'window.startEvabobChallenge(${jsonEncode(_authPayload)});',
+                );
+              }
               if (!_done) _setStatus('Enter your PIN when prompted');
             }
           },
           onWebResourceError: (err) {
             final failedHost = Uri.tryParse(err.url ?? '')?.host;
-            debugPrint(
-              'CircleChallengeScreen resource error: '
-              '${err.errorCode} host=${failedHost?.isNotEmpty == true ? failedHost : "unknown"}',
-            );
+            if (kDebugMode) {
+              debugPrint(
+                'CircleChallengeScreen resource error: '
+                '${err.errorCode} host=${failedHost?.isNotEmpty == true ? failedHost : "unknown"}',
+              );
+            }
             if (!_done) {
               _setStatus('Network error loading secure UI');
             }
@@ -218,6 +247,19 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
         uri.host == 'evabob.app' &&
         uri.path == '/_circle-challenge/' &&
         !uri.hasQuery &&
+        !uri.hasFragment;
+  }
+
+  bool _isTrustedCircleResource(String raw) {
+    if (raw == 'about:blank') return true;
+    final uri = Uri.tryParse(raw);
+    return uri != null &&
+        uri.scheme == 'https' &&
+        const {
+          'pw-auth.circle.com',
+          'identitytoolkit.googleapis.com',
+          'securetoken.googleapis.com',
+        }.contains(uri.host) &&
         !uri.hasFragment;
   }
 
@@ -312,9 +354,7 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final type = data['type']?.toString();
-      debugPrint(
-        'CircleChallengeScreen bridge: $type ${shortUiText(raw, max: 180)}',
-      );
+      if (kDebugMode) debugPrint('CircleChallengeScreen bridge event: $type');
       _collectIds(data);
       if (type == 'success') {
         // Fill completed from payload or assume all requested ids.
@@ -346,61 +386,9 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
         _setStatus(data['message'] ?? _status);
       }
     } catch (e) {
-      debugPrint('CircleChallengeScreen bad bridge payload: $e');
+      if (kDebugMode) debugPrint('CircleChallengeScreen bad bridge payload');
     }
   }
-
-  String _fallbackHtml() => '''
-<!DOCTYPE html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-<style>
-html,body{margin:0;padding:16px;background:#F0FAFF;color:#0B1620;font-family:system-ui,sans-serif;overflow-x:hidden;max-width:100vw;word-break:break-word}
-#s{max-height:5em;overflow:hidden}
-</style></head><body>
-<p id="s">Loading…</p>
-<script type="module">
-import { W3SSdk } from 'https://cdn.jsdelivr.net/npm/@circle-fin/w3s-pw-web-sdk@1.1.11/+esm';
-const s = document.getElementById('s');
-const short = (m) => { const t = String(m||''); return t.length>180?t.slice(0,140)+'…':t; };
-const wait = async () => {
-  for (let i=0;i<160;i++) {
-    if (window.__EVABOB_CHALLENGE__?.encryptionKey) return window.__EVABOB_CHALLENGE__;
-    await new Promise(r=>setTimeout(r,50));
-  }
-  return null;
-};
-const post = (o) => { try { window.EvabobBridge.postMessage(JSON.stringify(o)); } catch(e){} };
-(async () => {
-  const a = await wait();
-  if (!a) { s.textContent = 'Session missing'; post({type:'error',message:'Session missing'}); return; }
-  const ids = Array.isArray(a.challengeIds) && a.challengeIds.length ? a.challengeIds : [a.challengeId];
-  const sdk = new W3SSdk({ appSettings: { appId: a.appId } });
-  try {
-    const did = await sdk.getDeviceId();
-    if (!did) throw new Error('no device id');
-  } catch (e) {
-    s.textContent = 'Device session failed';
-    post({type:'error',message:'Device session failed'});
-    return;
-  }
-  sdk.setAuthentication({ userToken: a.userToken, encryptionKey: a.encryptionKey });
-  for (let i=0;i<ids.length;i++) {
-    s.textContent = 'Step ' + (i+1) + ' of ' + ids.length + ' — enter PIN if asked';
-    post({type:'progress',message:s.textContent,challengeId:ids[i]});
-    await new Promise((resolve, reject) => {
-      sdk.execute(ids[i], (err, res) => err ? reject(err) : resolve(res));
-    }).catch((err) => {
-      const message = short(err && (err.message||err.reason) || err || 'PIN failed');
-      s.textContent = 'Failed: ' + message;
-      post({type:'error',message});
-      throw err;
-    });
-  }
-  s.textContent = 'Done';
-  post({type:'success',result:{},challengeIds:ids});
-})();
-</script></body></html>
-''';
 
   @override
   Widget build(BuildContext context) {

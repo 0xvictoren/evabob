@@ -56,9 +56,14 @@ export function receiptUrl(publicId: string): string {
 /**
  * Makes a payment shareable (idempotent) and returns its link. Owner only.
  */
-export function sharePayment(userId: string, activityId: string): {
+export function sharePayment(
+  userId: string,
+  activityId: string,
+  options: { expiresAt?: string; rotate?: boolean } = {},
+): {
   publicId: string;
   url: string;
+  expiresAt: string | null;
 } {
   const row = store.getActivity(activityId);
   if (!row || row.userId !== userId) throw new ReceiptError("No such payment", 404);
@@ -68,9 +73,27 @@ export function sharePayment(userId: string, activityId: string): {
   if (row.status === "cancelled") {
     throw new ReceiptError("This payment was cancelled, so there is nothing to show");
   }
-  const publicId = row.publicId ?? newPublicId();
-  if (!row.publicId) store.updateActivity(row.id, { publicId });
-  return { publicId, url: receiptUrl(publicId) };
+  let expiresAt: string | undefined;
+  if (options.expiresAt) {
+    const expiry = Date.parse(options.expiresAt);
+    if (!Number.isFinite(expiry) || expiry < Date.now() + 60 * 60_000) {
+      throw new ReceiptError("Receipt expiry must be at least one hour from now");
+    }
+    if (expiry > Date.now() + 90 * 24 * 60 * 60_000) {
+      throw new ReceiptError("Receipt expiry cannot be more than 90 days away");
+    }
+    expiresAt = new Date(expiry).toISOString();
+  }
+  const publicId = options.rotate || !row.publicId ? newPublicId() : row.publicId;
+  store.updateActivity(row.id, { publicId, publicExpiresAt: expiresAt });
+  return { publicId, url: receiptUrl(publicId), expiresAt: expiresAt ?? null };
+}
+
+export function revokePublicReceipt(userId: string, activityId: string): boolean {
+  const row = store.getActivity(activityId);
+  if (!row || row.userId !== userId) throw new ReceiptError("No such payment", 404);
+  store.updateActivity(row.id, { publicId: undefined, publicExpiresAt: undefined });
+  return true;
 }
 
 /** Where a payment stands, in the words the public page uses. Pure. */
@@ -135,7 +158,13 @@ async function checkOnChain(row: ActivityItem, payerAddress: string | undefined)
 }
 
 function nameFor(label: string | undefined, fallbackAddress?: string): string {
-  if (label && !/^0x[a-fA-F0-9]{40}$/.test(label)) return label;
+  if (label && !/^0x[a-fA-F0-9]{40}$/.test(label)) {
+    const cleaned = label.trim();
+    if (cleaned.startsWith("@") && /^@[a-zA-Z0-9_.-]{2,32}$/.test(cleaned)) return cleaned;
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleaned)) return "Evabob user";
+    // A public receipt does not need the account's full display name.
+    return cleaned.split(/\s+/)[0]?.slice(0, 32) || "Evabob user";
+  }
   const a = label || fallbackAddress || "";
   return /^0x[a-fA-F0-9]{40}$/.test(a) ? `${a.slice(0, 6)}…${a.slice(-4)}` : a || "someone";
 }
@@ -145,6 +174,7 @@ export async function publicReceipt(publicId: string) {
   if (!/^[A-Za-z0-9_-]{16,40}$/.test(publicId)) return null;
   const row = store.findActivityByPublicId(publicId);
   if (!row) return null;
+  if (row.publicExpiresAt && Date.parse(row.publicExpiresAt) <= Date.now()) return null;
   const payer = store.getUser(row.userId);
 
   let jobStage: Parameters<typeof stageOf>[0]["jobStage"];

@@ -18,6 +18,7 @@
     "migrate:identities": "tsx src/scripts/migrate-identities.ts",
     "security:remediate-credentials": "tsx src/scripts/remediate-credentials.ts",
     "security:revoke-dynamic-sessions": "tsx src/scripts/revoke-dynamic-sessions.ts",
+    "security:audit": "node scripts/audit-production.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts"
   },

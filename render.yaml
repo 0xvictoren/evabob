@@ -34,6 +34,8 @@ services:
         value: evabob
       - key: ALLOW_HEADER_AUTH
         value: "false"
+      - key: TRUST_PROXY
+        value: "true"
       - key: RUN_INTERNAL_REFUND_JOB
         value: "false"
       - key: API_PUBLIC_URL
@@ -61,6 +63,8 @@ services:
         sync: false
       - key: DYNAMIC_API_TOKEN
         sync: false
+      - key: DYNAMIC_JWT_AUDIENCE
+        value: https://evabob.app
       # Reject every Dynamic JWT issued before the HTTP-transport incident
       # cutoff. Testers must sign in again after installing the HTTPS build.
       - key: AUTH_SESSION_INVALID_BEFORE
