@@ -84,6 +84,12 @@ export function acquireLocalWriterLease(path: string): { release(): void } {
   throw new Error("Could not acquire the financial writer lease.");
 }
 
+export function allowsDeploymentLeaseHandoff(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return Boolean(env.VERCEL) || env.RENDER === "true";
+}
+
 export async function acquireFinancialWriterLease(): Promise<{
   release(): Promise<void>;
 }> {
@@ -100,6 +106,8 @@ export async function acquireFinancialWriterLease(): Promise<{
   // generation-checked snapshot saves (mongo.ts), which refuse to overwrite
   // another instance's write instead of relying on being the only writer.
   const serverless = Boolean(process.env.VERCEL);
+  const renderRollingDeploy = process.env.RENDER === "true";
+  const deploymentCanOverlap = allowsDeploymentLeaseHandoff();
   try {
     if (mongoReady()) {
       remote = await mongoAcquireWriterLease(owner, ttlMs);
@@ -107,7 +115,7 @@ export async function acquireFinancialWriterLease(): Promise<{
       // lease still held in Mongo is almost always a server that was just
       // stopped: its lease lapses within ttlMs. Wait it out instead of
       // failing, so a quick restart simply works.
-      if (!remote && !serverless) {
+      if (!remote && !deploymentCanOverlap) {
         console.log("[store] waiting for the previous server's lease to expire (up to a minute)…");
         const until = Date.now() + ttlMs + 15_000;
         while (!remote && Date.now() < until) {
@@ -115,9 +123,11 @@ export async function acquireFinancialWriterLease(): Promise<{
           remote = await mongoAcquireWriterLease(owner, ttlMs);
         }
       }
-      if (!remote && serverless) {
+      if (!remote && deploymentCanOverlap) {
         console.warn(
-          "[store] another instance holds the writer lease; continuing with generation-checked saves",
+          renderRollingDeploy
+            ? "[store] previous Render instance still owns the writer lease; starting safe deployment handoff"
+            : "[store] another instance holds the writer lease; continuing with generation-checked saves",
         );
       } else if (!remote) {
         throw new Error(
@@ -137,25 +147,67 @@ export async function acquireFinancialWriterLease(): Promise<{
   }
 
   let released = false;
-  const heartbeat = remote && !serverless
-    ? setInterval(() => {
-        void mongoRenewWriterLease(owner, ttlMs).then((ok) => {
-          if (!ok) {
-            console.error("[store] financial writer lease lost; exiting");
-            process.exit(1);
-          }
-        }).catch((error) => {
-          console.error("[store] financial writer lease heartbeat failed", error);
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let handoffRetry: ReturnType<typeof setInterval> | undefined;
+
+  const startHeartbeat = () => {
+    if (heartbeat || serverless || !remote) return;
+    heartbeat = setInterval(() => {
+      void mongoRenewWriterLease(owner, ttlMs).then((ok) => {
+        if (!ok) {
+          console.error("[store] financial writer lease lost; exiting");
           process.exit(1);
+        }
+      }).catch((error) => {
+        console.error("[store] financial writer lease heartbeat failed", error);
+        process.exit(1);
+      });
+    }, 15_000);
+    heartbeat.unref();
+  };
+
+  startHeartbeat();
+
+  // During a Render rolling deploy, the old instance is deliberately kept
+  // alive until this replacement becomes healthy. Waiting synchronously for
+  // its renewable lease creates a deadlock: the old instance cannot stop and
+  // the new one cannot become ready. Generation-checked Mongo saves keep the
+  // short overlap safe. Once Render stops the old instance and its 45-second
+  // lease lapses, this process becomes the exclusive writer and starts the
+  // normal heartbeat without requiring any user-provided environment value.
+  if (renderRollingDeploy && !remote) {
+    let acquiring = false;
+    handoffRetry = setInterval(() => {
+      if (released || remote || acquiring) return;
+      acquiring = true;
+      void mongoAcquireWriterLease(owner, ttlMs)
+        .then(async (acquired) => {
+          if (!acquired) return;
+          if (released) {
+            await mongoReleaseWriterLease(owner).catch(() => undefined);
+            return;
+          }
+          remote = true;
+          if (handoffRetry) clearInterval(handoffRetry);
+          handoffRetry = undefined;
+          console.log("[store] Render deployment handoff complete; writer lease acquired");
+          startHeartbeat();
+        })
+        .catch((error) => {
+          console.warn("[store] Render writer lease handoff retry failed", error);
+        })
+        .finally(() => {
+          acquiring = false;
         });
-      }, 15_000)
-    : undefined;
-  heartbeat?.unref();
+    }, 5_000);
+    handoffRetry.unref();
+  }
 
   const release = async () => {
     if (released) return;
     released = true;
     if (heartbeat) clearInterval(heartbeat);
+    if (handoffRetry) clearInterval(handoffRetry);
     if (remote) await mongoReleaseWriterLease(owner).catch(() => undefined);
     local.release();
   };
