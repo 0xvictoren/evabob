@@ -39,7 +39,7 @@ jobs:
           path: .
           format: cyclonedx-json
           output-file: evabob-full.cdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: application-sboms
           path: |
@@ -68,7 +68,7 @@ jobs:
           path: mobile
           format: cyclonedx-json
           output-file: mobile.cdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mobile-sbom
           path: |
@@ -96,7 +96,7 @@ jobs:
           path: contracts
           format: cyclonedx-json
           output-file: contracts.cdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: contract-sbom
           path: |
