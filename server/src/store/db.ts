@@ -189,12 +189,6 @@ export type AgentWallet = {
   spentDay?: string;
   apiKeyHash: string;
   apiKeyPrefix: string;
-  /**
-   * @deprecated Never written for new agents. Older rows may still hold a
-   * readable key from when reveal-key existed; `rotateAgentKey` deletes it.
-   * Keys are shown once at issue time and rotated if lost.
-   */
-  apiKeyFull?: string;
   /** Marketplace services this agent may use (polymarket, reddit, …). */
   services: string[];
   createdAt: string;
@@ -325,6 +319,9 @@ type DbShape = {
   transfers: TransferRecord[];
   agents: AgentWallet[];
   contacts: ContactRecord[];
+  security?: {
+    plaintextAgentKeysPurgedAt?: string;
+  };
 };
 
 const DATA_PATH = dataPath("evabob-db.json");
@@ -578,7 +575,6 @@ export const store = {
     target.authIds = [...(target.authIds ?? []), subject];
     this.noteSignIn(target);
     save(db);
-    console.log(`[auth] new sign-in id for ${email} opens existing account ${target.id}`);
     return target.id;
   },
 
@@ -1241,7 +1237,6 @@ export const store = {
     perCallLimitUsdc?: number;
     apiKeyHash: string;
     apiKeyPrefix: string;
-    apiKeyFull?: string;
     services?: string[];
     custodyAddress?: string;
     custodyMode?: "circle-eoa" | "circle-dc" | "viem-ops";
@@ -1328,8 +1323,6 @@ export const store = {
   ): AgentWallet {
     agent.apiKeyHash = next.apiKeyHash;
     agent.apiKeyPrefix = next.apiKeyPrefix;
-    // The full key is never persisted — it is shown once, at issue time.
-    delete agent.apiKeyFull;
     agent.revokedAt = null;
     save(db);
     return agent;

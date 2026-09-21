@@ -36,7 +36,11 @@ import {
 import { paymentEscrowAbi } from "../abis/escrow.js";
 import { config } from "../config.js";
 import { getPublicClient } from "./arc-wallet.js";
-import { buildEscrowCreateCalldata, claimProtectedTransfer } from "./escrow.js";
+import {
+  buildEscrowCreateCalldata,
+  claimProtectedTransfer,
+  newEscrowReference,
+} from "./escrow.js";
 import { computeIdentityKey, normalizeIdentifier } from "./identity.js";
 import { store } from "../store/db.js";
 import { alertUser } from "./notifyUser.js";
@@ -137,6 +141,11 @@ export function planProtectedEscrow(input: {
 }): EscrowPlan {
   if (!(input.amountUsdc > 0)) throw new EscrowError("Amount must be positive");
   const { kind, normalized, key } = escrowRecipientKey(input.recipientId);
+  if (kind === "email" && !config.features.onchainEmailLinks) {
+    throw new EscrowError(
+      "Email-based on-chain holds are temporarily disabled for privacy. Use an @handle or wallet address.",
+    );
+  }
 
   // A cooling-off hold always uses its fixed expiry: a longer one would leave
   // the money stuck longer if the server never releases it.
@@ -152,7 +161,7 @@ export function planProtectedEscrow(input: {
   const { steps } = buildEscrowCreateCalldata({
     recipientKey: key,
     amountUsdc: input.amountUsdc,
-    memo: input.memo ?? "",
+    reference: newEscrowReference(),
     expirySeconds,
   });
 
@@ -257,7 +266,12 @@ export function planMilestoneHolds(input: {
   if (input.milestones.length < 2 || input.milestones.length > 10) {
     throw new EscrowError("Split the work into 2 to 10 milestones");
   }
-  const { key } = escrowRecipientKey(input.recipientId);
+  const { kind, key } = escrowRecipientKey(input.recipientId);
+  if (kind === "email" && !config.features.onchainEmailLinks) {
+    throw new EscrowError(
+      "Email-based on-chain holds are temporarily disabled for privacy. Use an @handle or wallet address.",
+    );
+  }
   const expirySeconds = Math.min(input.expirySeconds ?? JOB_EXPIRY_SECONDS, MAX_EXPIRY_SECONDS);
   let totalUnits = 0n;
   const creates: Array<{ to: Address; data: Hex }> = [];
@@ -267,7 +281,7 @@ export function planMilestoneHolds(input: {
     const { steps } = buildEscrowCreateCalldata({
       recipientKey: key,
       amountUsdc: m.amountUsdc,
-      memo: m.memo.slice(0, 120),
+      reference: newEscrowReference(),
       expirySeconds,
     });
     approveTo = steps[0]!.to as Address;

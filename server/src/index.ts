@@ -45,6 +45,9 @@ assertProductionSafety({
   opsPrivateKey: config.arc.privateKey,
   identityLinkerPrivateKey: config.arc.identityLinkerPrivateKey,
   escrowAttestorPrivateKey: config.arc.escrowAttestorPrivateKey,
+  onchainEmailLinks: config.features.onchainEmailLinks,
+  onchainMemos: config.features.onchainMemos,
+  externalLlm: config.features.externalLlm,
 });
 
 app.use("*", secureHeaders({

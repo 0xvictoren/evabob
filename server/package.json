@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "build": "tsc -p tsconfig.build.json",
-    "start:prod": "node dist/index.js",
+    "start:prod": "node dist/scripts/remediate-credentials.js && node dist/index.js",
     "cron:escrow-refunds": "node scripts/run-escrow-refunds.mjs",
     "cron:tick": "node scripts/run-escrow-refunds.mjs /internal/cron/tick?refunds=1",
     "smoke:render": "node scripts/render-smoke.mjs",
@@ -16,6 +16,8 @@
     "keys:apply-roles": "tsx src/scripts/apply-role-separation.ts",
     "safe:admin": "tsx src/scripts/safe-admin.ts",
     "migrate:identities": "tsx src/scripts/migrate-identities.ts",
+    "security:remediate-credentials": "tsx src/scripts/remediate-credentials.ts",
+    "security:revoke-dynamic-sessions": "tsx src/scripts/revoke-dynamic-sessions.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts"
   },

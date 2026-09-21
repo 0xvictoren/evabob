@@ -9,6 +9,7 @@ import {
 import { getAuth, requireVerified } from "../middleware/auth.js";
 import { clientError } from "../utils/http-error.js";
 import { store } from "../store/db.js";
+import { config } from "../config.js";
 
 export const identityRoutes = new Hono();
 
@@ -88,6 +89,15 @@ identityRoutes.post("/link", async (c) => {
   const user = store.getUser(userId);
   if (!user) {
     return c.json({ error: "No account yet. Sign in first." }, 409);
+  }
+  if (body.kind === "email" && !config.features.onchainEmailLinks) {
+    return c.json(
+      {
+        error: "Email-to-wallet links are temporarily disabled for privacy.",
+        code: "ONCHAIN_EMAIL_LINKS_DISABLED",
+      },
+      503,
+    );
   }
 
   // The account is always the caller's own wallet. A client-supplied

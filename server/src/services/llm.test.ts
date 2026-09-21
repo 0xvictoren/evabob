@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
 process.env.DEEPSEEK_API_KEY = "sk-test";
+process.env.FEATURE_EXTERNAL_LLM = "true";
 process.env.DEEPSEEK_MODEL = "deepseek-flash";
 process.env.DEEPSEEK_BASE_URL = "https://api.deepseek.test/";
 delete process.env.DEEPSEEK_THINKING;
@@ -40,7 +41,7 @@ const ok = (message: Record<string, unknown>) =>
   new Response(JSON.stringify({ choices: [{ message }] }), { status: 200 });
 
 describe("DeepSeek client", () => {
-  it("is configured from DEEPSEEK_API_KEY", () => {
+  it("requires both the API key and the explicit privacy feature gate", () => {
     assert.equal(llmConfigured(), true);
   });
 

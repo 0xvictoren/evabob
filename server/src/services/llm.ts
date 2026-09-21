@@ -44,7 +44,7 @@ export type LlmReply = {
 };
 
 export function llmConfigured(): boolean {
-  return Boolean(config.llm.apiKey);
+  return config.features.externalLlm && Boolean(config.llm.apiKey);
 }
 
 /** The model name, for health output and logs. Never the key. */
@@ -66,7 +66,7 @@ export async function chatCompletion(input: {
   /** Tag for log lines, e.g. "agent-chat". */
   caller: string;
 }): Promise<LlmReply | null> {
-  if (!config.llm.apiKey) return null;
+  if (!llmConfigured()) return null;
 
   const thinking = config.llm.thinking;
   const body: Record<string, unknown> = {

@@ -477,8 +477,9 @@ class EvabobAuth extends ChangeNotifier {
           session.authToken!.isEmpty) {
         debugPrint(
           'EvabobAuth: hard session failed '
-          'profile=${_sdk!.auth.authenticatedUser} '
-          'token=${_sdk!.auth.token} min=${_sdk!.auth.minAuthToken}',
+          'profilePresent=${_sdk!.auth.authenticatedUser != null} '
+          'tokenPresent=${(_sdk!.auth.token ?? '').isNotEmpty} '
+          'minTokenPresent=${(_sdk!.auth.minAuthToken ?? '').isNotEmpty}',
         );
         _error = 'Sign-in did not complete. Request a new code and try again. '
             'Stay on this screen until the session loads.';
@@ -490,9 +491,7 @@ class EvabobAuth extends ChangeNotifier {
       _demoMode = false;
       await _persist();
       HapticFeedback.lightImpact();
-      debugPrint(
-        'EvabobAuth: hard finish ok id=${session.id} email=${session.email}',
-      );
+      debugPrint('EvabobAuth: hard finish completed');
       return true;
     } catch (e, st) {
       debugPrint('loginWithEmailCode: $e\n$st');

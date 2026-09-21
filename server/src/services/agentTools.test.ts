@@ -134,14 +134,16 @@ describe("read tools never return a credential", () => {
     // a chat transcript is the last place it should appear.
     const SECRET_KEY = "sk_evabob_SUPERSECRETVALUE";
     const SECRET_HASH = "hash-of-the-super-secret-value";
-    store.createAgent({
+    const legacy = store.createAgent({
       userId: OWNER,
       label: "Research bot",
       dailyLimitUsdc: 5,
       apiKeyHash: SECRET_HASH,
       apiKeyPrefix: "sk_evabob_SUPE",
-      apiKeyFull: SECRET_KEY,
     });
+    // Simulate a legacy in-memory record without allowing the current schema
+    // or create path to persist this field again.
+    (legacy as unknown as { apiKeyFull: string }).apiKeyFull = SECRET_KEY;
 
     const res = await runReadTool("get_agent_wallets", {}, { userId: OWNER });
     assert.equal(res.ok, true);

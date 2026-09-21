@@ -115,7 +115,7 @@ function scheduleIdentityLink(user: {
     // Independent: a failing email link must not stop the handle from being
     // linked. Previously the email threw and the handle was never attempted.
     const results = await Promise.all([
-      user.email.includes("@")
+      config.features.onchainEmailLinks && user.email.includes("@")
         ? linkOne(account, "email", user.email)
         : Promise.resolve({ retryable: false }),
       user.handle && user.handle.length >= 3
@@ -1950,9 +1950,6 @@ api.get("/wallet/balances", async (c) => {
     c.req.query("address") ||
     row?.evmAddress ||
     byEmail?.evmAddress;
-  console.log(
-    `[balances] user=${uid} queryAddr=${c.req.query("address") || "-"} stored=${row?.evmAddress || "-"} emailHit=${byEmail?.evmAddress || "-"} resolved=${address || "NONE"}`,
-  );
   if (!address) {
     return c.json({
       usdcWallet: 0,

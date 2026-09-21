@@ -59,3 +59,23 @@ test("rejects partial snapshots instead of erasing omitted financial data", () =
     /appKitJobs must be an array/,
   );
 });
+
+test("refuses plaintext agent keys even when the value is empty", () => {
+  assert.throws(
+    () => validatePrimaryDatasets({
+      ...valid,
+      app: {
+        ...valid.app,
+        agents: [{ id: "agent_1", apiKeyFull: "sk_evabob_compromised" }],
+      },
+    }),
+    /plaintext agent keys/,
+  );
+  assert.throws(
+    () => validatePrimaryDatasets({
+      ...valid,
+      app: { ...valid.app, agents: [{ id: "agent_2", apiKeyFull: "" }] },
+    }),
+    /plaintext agent keys/,
+  );
+});

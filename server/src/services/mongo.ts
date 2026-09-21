@@ -320,6 +320,13 @@ export async function connectMongo(): Promise<{ ok: boolean; detail: string }> {
   }
 }
 
+export async function disconnectMongo(): Promise<void> {
+  ready = false;
+  db = null;
+  await client?.close();
+  client = null;
+}
+
 function users(): Collection<UserRecord & { _id?: unknown }> {
   if (!db) throw new Error("mongo not ready");
   return db.collection("users");
@@ -508,6 +515,28 @@ export async function mongoSavePrimaryStore(
     .deleteMany({ generation: { $lt: next - 1 } })
     .catch(() => undefined);
   return next;
+}
+
+/**
+ * Deletes every snapshot chunk except those referenced by the current head.
+ * Used after secret remediation so the normally retained previous generation
+ * cannot preserve a revoked plaintext credential.
+ */
+export async function mongoPurgePrimaryStoreHistory(): Promise<number> {
+  if (!mongoReady()) return 0;
+  const head = await primaryStore().findOne({ _id: "primary" });
+  const keep = head?.chunkIds ?? [];
+  const result = keep.length
+    ? await primaryChunks().deleteMany({ _id: { $nin: keep } })
+    : await primaryChunks().deleteMany({});
+  return result.deletedCount;
+}
+
+/** Old Circle user-token fingerprints must not survive an HTTP incident. */
+export async function mongoForgetAllUcwSessions(): Promise<number> {
+  if (!mongoReady()) return 0;
+  const result = await ucwSessions().deleteMany({});
+  return result.deletedCount;
 }
 
 export async function mongoRememberUcwSession(

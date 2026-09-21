@@ -13,6 +13,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  decodeFunctionData,
+} from "viem";
+import { paymentEscrowAbi } from "../abis/escrow.js";
+import {
   CLAIM_LINK_EXPIRY_SECONDS,
   EscrowError,
   JOB_EXPIRY_SECONDS,
@@ -61,7 +65,7 @@ describe("planning a hold", () => {
     // The contract pulls funds with transferFrom, so an approve that runs
     // second would leave createTransfer reverting.
     const plan = planProtectedEscrow({
-      recipientId: "maya@example.com",
+      recipientId: "@maya",
       amountUsdc: 5,
       purpose: "claim_link",
     });
@@ -73,7 +77,7 @@ describe("planning a hold", () => {
   it("gives a claim link a week and a job three months", () => {
     assert.equal(
       planProtectedEscrow({
-        recipientId: "maya@example.com",
+        recipientId: "@maya",
         amountUsdc: 5,
         purpose: "claim_link",
       }).expirySeconds,
@@ -106,7 +110,7 @@ describe("planning a hold", () => {
       assert.throws(
         () =>
           planProtectedEscrow({
-            recipientId: "maya@example.com",
+            recipientId: "@maya",
             amountUsdc,
             purpose: "claim_link",
           }),
@@ -117,10 +121,38 @@ describe("planning a hold", () => {
 
   it("carries the recipient key the release path will check against", () => {
     const plan = planProtectedEscrow({
-      recipientId: "maya@example.com",
+      recipientId: "@maya",
       amountUsdc: 5,
       purpose: "claim_link",
     });
-    assert.equal(plan.recipientKey, escrowRecipientKey("maya@example.com").key);
+    assert.equal(plan.recipientKey, escrowRecipientKey("@maya").key);
+  });
+
+  it("blocks new email-based on-chain holds while the privacy gate is off", () => {
+    assert.throws(
+      () => planProtectedEscrow({
+        recipientId: "maya@example.com",
+        amountUsdc: 5,
+        purpose: "claim_link",
+      }),
+      /disabled for privacy/,
+    );
+  });
+
+  it("puts only an opaque random reference in contract calldata", () => {
+    const plan = planProtectedEscrow({
+      recipientId: "@maya",
+      amountUsdc: 5,
+      memo: "Private medical invoice",
+      purpose: "job",
+    });
+    const decoded = decodeFunctionData({
+      abi: paymentEscrowAbi,
+      data: plan.steps[1]!.data,
+    });
+    assert.equal(decoded.functionName, "createTransfer");
+    const reference = String(decoded.args[3]);
+    assert.match(reference, /^evb_[a-f0-9]{32}$/);
+    assert.ok(!reference.includes("Private"));
   });
 });

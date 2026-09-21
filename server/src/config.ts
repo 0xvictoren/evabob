@@ -24,6 +24,11 @@ function req(name: string, fallback = ""): string {
   return v || fallback;
 }
 
+// First safe release after the HTTP transport incident. Keep this fallback in
+// code so an older Render environment that has not yet synced the Blueprint
+// still invalidates every bearer token issued before the remediation.
+const HTTP_INCIDENT_SESSION_CUTOFF = "2026-09-21T10:11:00Z";
+
 /**
  * Evabob's platform fee: 0.05% (5 bps) on every money-moving action, gas
  * excluded, paid to one wallet. PLATFORM_FEE_* is the source of truth; the
@@ -110,6 +115,15 @@ export const config = {
       "5be16cc5-2968-4265-a14b-86caf3963a72",
     ),
     apiToken: req("DYNAMIC_API_TOKEN"),
+    /**
+     * Incident-response cutoff. A signed token issued before this instant is
+     * treated as expired, forcing every device that used the former HTTP API
+     * to authenticate again even if a provider-side revocation is delayed.
+     */
+    sessionInvalidBefore: req(
+      "AUTH_SESSION_INVALID_BEFORE",
+      HTTP_INCIDENT_SESSION_CUTOFF,
+    ),
   },
 
   circle: {
@@ -190,6 +204,10 @@ export const config = {
       .filter(Boolean),
     agentWallets: envFlag("FEATURE_AGENT_WALLETS", false),
     x402Execution: envFlag("FEATURE_X402_EXECUTION", false),
+    /** Privacy kill switches. Hosted environments currently require false. */
+    onchainEmailLinks: envFlag("FEATURE_ONCHAIN_EMAIL_LINKS", false),
+    onchainMemos: envFlag("FEATURE_ONCHAIN_MEMOS", false),
+    externalLlm: envFlag("FEATURE_EXTERNAL_LLM", false),
     /**
      * One payment to several people, approved with one PIN — offered by the
      * Evabob Agent. Runs as the wallet's own atomic `executeBatch`, not Arc's

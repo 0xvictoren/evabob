@@ -11,6 +11,9 @@ export type ProductionSafetyConfig = {
   opsPrivateKey: string;
   identityLinkerPrivateKey: string;
   escrowAttestorPrivateKey: string;
+  onchainEmailLinks: boolean;
+  onchainMemos: boolean;
+  externalLlm: boolean;
 };
 
 function exactHttpsOrigin(value: string): boolean {
@@ -47,6 +50,15 @@ export function assertProductionSafety(input: ProductionSafetyConfig): void {
   }
   if (!exactHttpsOrigin(input.appPublicUrl)) {
     errors.push("APP_PUBLIC_URL must be an exact HTTPS origin");
+  }
+  if (input.onchainEmailLinks) {
+    errors.push("FEATURE_ONCHAIN_EMAIL_LINKS must remain false until the privacy redesign is complete");
+  }
+  if (input.onchainMemos) {
+    errors.push("FEATURE_ONCHAIN_MEMOS must remain false until free-text chain writes are removed");
+  }
+  if (input.externalLlm) {
+    errors.push("FEATURE_EXTERNAL_LLM must remain false until privacy controls are approved");
   }
   if (
     input.corsOrigins.length === 0 ||

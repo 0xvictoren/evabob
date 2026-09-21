@@ -5,6 +5,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
+import { randomBytes } from "node:crypto";
 import { paymentEscrowAbi } from "../abis/escrow.js";
 import { config } from "../config.js";
 import {
@@ -16,6 +17,19 @@ import {
   getEscrowAttestorWalletClient,
 } from "./arc-wallet.js";
 import { computeIdentityKey, type IdentityKind } from "./identity.js";
+
+/** Public correlation value with no user text or deterministic identity data. */
+export function newEscrowReference(): string {
+  return `evb_${randomBytes(16).toString("hex")}`;
+}
+
+function opaqueReference(value: string | undefined): string {
+  const reference = value ?? newEscrowReference();
+  if (!/^evb_[a-f0-9]{32}$/.test(reference)) {
+    throw new Error("Escrow reference must be an opaque random Evabob id");
+  }
+  return reference;
+}
 
 function escrowAddress(): Address {
   const a = config.arc.paymentEscrow;
@@ -31,7 +45,6 @@ export async function createProtectedTransfer(input: {
   recipientKind: IdentityKind;
   recipientId: string;
   amountUsdc: number;
-  memo?: string;
   expirySeconds?: number;
 }) {
   const amount = parseUnits(String(input.amountUsdc), 6);
@@ -63,7 +76,7 @@ export async function createProtectedTransfer(input: {
       recipientKey,
       amount,
       BigInt(input.expirySeconds ?? 0),
-      input.memo ?? "",
+      newEscrowReference(),
     ],
     account,
     chain: arcTestnet,
@@ -160,7 +173,8 @@ export async function extendProtectedTransferExpiry(
 export function buildEscrowCreateCalldata(input: {
   recipientKey: Hex;
   amountUsdc: number;
-  memo?: string;
+  /** Random correlation id only. Free text must remain off chain. */
+  reference?: string;
   /**
    * Seconds until the hold expires. 0 lets the contract apply its own
    * DEFAULT_EXPIRY of 3 days, which is right for a claim link and far too
@@ -169,6 +183,7 @@ export function buildEscrowCreateCalldata(input: {
   expirySeconds?: number;
 }) {
   const amount = parseUnits(String(input.amountUsdc), 6);
+  const reference = opaqueReference(input.reference);
   const escrow = escrowAddress();
   const usdc = config.arc.usdc as Address;
   return {
@@ -190,7 +205,7 @@ export function buildEscrowCreateCalldata(input: {
             input.recipientKey,
             amount,
             BigInt(input.expirySeconds ?? 0),
-            input.memo ?? "",
+            reference,
           ],
         }),
       },

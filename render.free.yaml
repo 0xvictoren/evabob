@@ -60,6 +60,10 @@ services:
         sync: false
       - key: DYNAMIC_API_TOKEN
         sync: false
+      # Reject every Dynamic JWT issued before the HTTP-transport incident
+      # cutoff. Testers must sign in again after installing the HTTPS build.
+      - key: AUTH_SESSION_INVALID_BEFORE
+        value: "2026-09-21T10:11:00Z"
       - key: CIRCLE_WALLETS_APP_ID
         sync: false
       - key: CIRCLE_API_KEY
@@ -122,6 +126,14 @@ services:
         value: "false"
       - key: FEATURE_X402_EXECUTION
         value: "false"
+      - key: FEATURE_ONCHAIN_EMAIL_LINKS
+        value: "false"
+      - key: FEATURE_ONCHAIN_MEMOS
+        value: "false"
+      - key: FEATURE_EXTERNAL_LLM
+        value: "false"
+      - key: MEMO_CONTRACT_ADDRESS
+        value: ""
       - key: FEATURE_AGENT_BATCH_SEND
         value: "false"
       - key: AGENT_MAX_DAILY_LIMIT_USDC

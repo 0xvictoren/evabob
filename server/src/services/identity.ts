@@ -119,6 +119,9 @@ export async function adminLinkIdentity(input: {
   normalized: string;
   status: "linked" | "already-current";
 }> {
+  if (input.kind === "email" && !config.features.onchainEmailLinks) {
+    throw new Error("On-chain email links are disabled for privacy");
+  }
   const primary = await linkIn(registryAddress(), input);
   if (mirrorsToEscrowRegistry(input.kind)) {
     await linkIn(escrowRegistryAddress()!, input);

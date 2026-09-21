@@ -8,6 +8,7 @@ export type DynamicClaims = {
   environment_id?: string;
   scope?: string;
   iss?: string;
+  iat?: number;
 };
 
 const clients = new Map<string, JwksClient>();
@@ -73,6 +74,15 @@ async function verifyInner(
       claims.environment_id !== config.dynamic.environmentId
     ) {
       return null;
+    }
+    if (config.dynamic.sessionInvalidBefore) {
+      const cutoffMs = Date.parse(config.dynamic.sessionInvalidBefore);
+      if (!Number.isFinite(cutoffMs)) {
+        throw new Error("AUTH_SESSION_INVALID_BEFORE must be an ISO-8601 timestamp");
+      }
+      if (!Number.isFinite(claims.iat) || claims.iat! * 1000 < cutoffMs) {
+        return "expired";
+      }
     }
     return claims;
   } catch (e) {

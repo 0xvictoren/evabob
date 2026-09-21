@@ -105,6 +105,17 @@ export function validatePrimaryDatasets(value: unknown): PrimaryStoreDatasets {
       throw new Error(`Mongo primary store app.${key} must be an array`);
     }
   }
+  for (const agent of app.agents as unknown[]) {
+    if (
+      agent &&
+      typeof agent === "object" &&
+      Object.prototype.hasOwnProperty.call(agent, "apiKeyFull")
+    ) {
+      throw new Error(
+        "Refusing to load a primary store containing plaintext agent keys; run the security remediation first",
+      );
+    }
+  }
   if (!Array.isArray(value.paymentRequests)) {
     throw new Error("Mongo primary store paymentRequests must be an array");
   }

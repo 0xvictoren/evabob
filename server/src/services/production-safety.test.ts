@@ -15,6 +15,9 @@ const safe = {
   opsPrivateKey: `0x${"11".repeat(32)}`,
   identityLinkerPrivateKey: `0x${"22".repeat(32)}`,
   escrowAttestorPrivateKey: `0x${"33".repeat(32)}`,
+  onchainEmailLinks: false,
+  onchainMemos: false,
+  externalLlm: false,
 } as const;
 
 test("accepts an explicit HTTPS production configuration", () => {
@@ -53,6 +56,9 @@ test("production fails closed for impersonation, wildcard CORS, HTTP, or no Mong
     { adminSafeAddress: "" },
     { identityLinkerPrivateKey: "" },
     { escrowAttestorPrivateKey: safe.opsPrivateKey },
+    { onchainEmailLinks: true },
+    { onchainMemos: true },
+    { externalLlm: true },
   ]) {
     assert.throws(
       () => assertProductionSafety({ ...safe, ...patch }),

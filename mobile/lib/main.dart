@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -31,6 +32,12 @@ import 'features/onboarding/post_signup_onboarding.dart';
 import 'features/shell/app_shell.dart';
 
 Future<void> main() async {
+  // `debugPrint` is not automatically compiled out of profile/release builds.
+  // Silence every diagnostic call before providers, SDKs, or services start so
+  // authentication and wallet failures cannot reach production device logs.
+  if (!kDebugMode) {
+    debugPrint = (String? message, {int? wrapWidth}) {};
+  }
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
