@@ -34,6 +34,24 @@ describe("Dynamic session claim validation", () => {
     assert.equal(claims?.email, "person@example.com");
   });
 
+  it("accepts both the current and the legacy Dynamic issuer", () => {
+    for (const iss of [
+      `app.dynamicauth.com/${environmentId}`,
+      `app.dynamic.xyz/${environmentId}`,
+    ]) {
+      const claims = validateDynamicClaims(complete({ iss }), { environmentId, audience, nowSeconds: now });
+      assert.equal(claims?.sub, "dynamic-user-1");
+    }
+    assert.equal(
+      validateDynamicClaims(complete({ iss: "app.dynamicauth.com/other-environment" }), {
+        environmentId,
+        audience,
+        nowSeconds: now,
+      }),
+      null,
+    );
+  });
+
   it("rejects incomplete authentication and a missing user:basic scope", () => {
     assert.equal(
       validateDynamicClaims(complete({ scope: "" }), { environmentId, audience, nowSeconds: now }),

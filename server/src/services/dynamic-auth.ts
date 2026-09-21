@@ -18,7 +18,17 @@ export type DynamicClaims = {
 const CLOCK_TOLERANCE_SECONDS = 30;
 
 export function dynamicIssuer(environmentId: string): string {
-  return `app.dynamic.xyz/${environmentId}`;
+  return `app.dynamicauth.com/${environmentId}`;
+}
+
+/**
+ * Every issuer Dynamic signs end-user tokens with. Current tokens say
+ * `app.dynamicauth.com/<env>`; older ones said `app.dynamic.xyz/<env>`.
+ * Accepting both is safe: the signature is still checked against this
+ * environment's own JWKS and `environment_id` must still match.
+ */
+export function dynamicIssuers(environmentId: string): [string, ...string[]] {
+  return [dynamicIssuer(environmentId), `app.dynamic.xyz/${environmentId}`];
 }
 
 function audiences(value: unknown): string[] {
@@ -67,7 +77,7 @@ export function validateDynamicClaims(
   const claims = value as Record<string, unknown>;
   const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
   if (typeof claims.sub !== "string" || !claims.sub.trim()) return null;
-  if (claims.iss !== dynamicIssuer(options.environmentId)) return null;
+  if (!dynamicIssuers(options.environmentId).includes(claims.iss as string)) return null;
   if (claims.environment_id !== options.environmentId) return null;
   if (!audiences(claims.aud).includes(options.audience)) return null;
   if (!Number.isFinite(claims.iat) || !Number.isFinite(claims.exp)) return null;
@@ -143,7 +153,7 @@ async function verifyInner(
       : await jwks(config.dynamic.environmentId).getSigningKey();
     const verified = jwt.verify(raw, key.getPublicKey(), {
       algorithms: ["RS256"],
-      issuer: dynamicIssuer(config.dynamic.environmentId),
+      issuer: dynamicIssuers(config.dynamic.environmentId),
       audience: config.dynamic.audience,
       clockTolerance: CLOCK_TOLERANCE_SECONDS,
     });
@@ -151,7 +161,18 @@ async function verifyInner(
       environmentId: config.dynamic.environmentId,
       audience: config.dynamic.audience,
     });
-    if (!claims) return null;
+    if (!claims) {
+      // Say which claim failed; none of these values are secret.
+      const v = verified as Record<string, unknown>;
+      console.warn("dynamic jwt: claims rejected", {
+        iss: v.iss,
+        aud: v.aud,
+        environment_id: v.environment_id,
+        scope: v.scope ?? v.scopes,
+        hasVerifiedCredentials: Array.isArray(v.verified_credentials),
+      });
+      return null;
+    }
     if (config.dynamic.sessionInvalidBefore) {
       const cutoffMs = Date.parse(config.dynamic.sessionInvalidBefore);
       if (!Number.isFinite(cutoffMs)) {

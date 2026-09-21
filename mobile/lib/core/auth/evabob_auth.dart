@@ -59,7 +59,6 @@ class EvabobAuth extends ChangeNotifier {
   bool _endingSession = false;
   StreamSubscription<UserProfile?>? _userSub;
   StreamSubscription<String?>? _tokenSub;
-  StreamSubscription<String?>? _minTokenSub;
   Completer<UserProfile>? _profileWaiter;
   Completer<String>? _tokenWaiter;
 
@@ -130,8 +129,10 @@ class EvabobAuth extends ChangeNotifier {
           ),
         );
         _userSub = _sdk!.auth.authenticatedUserChanges.listen(_onProfile);
+        // Only the full token: the minified one carries no verified
+        // credentials, so the server cannot confirm the email and says
+        // "unauthorized".
         _tokenSub = _sdk!.auth.tokenChanges.listen(_onToken);
-        _minTokenSub = _sdk!.auth.minAuthTokenChanges.listen(_onToken);
 
         // Warm Dynamic WebView bridge before any OTP.
         await Future<void>.delayed(const Duration(milliseconds: 1500));
@@ -217,10 +218,7 @@ class EvabobAuth extends ChangeNotifier {
 
   String? _readToken() {
     final t = _sdk?.auth.token;
-    if (t != null && t.isNotEmpty) return t;
-    final m = _sdk?.auth.minAuthToken;
-    if (m != null && m.isNotEmpty) return m;
-    return null;
+    return t != null && t.isNotEmpty ? t : null;
   }
 
   void _onProfile(UserProfile? profile) {
@@ -562,6 +560,9 @@ class EvabobAuth extends ChangeNotifier {
       );
       return null;
     }
+    // A minified token (or one saved by an older build) cannot open a
+    // server session: it has no verified credentials to prove the email.
+    if (_jwtPayload(token)?['verified_credentials'] is! List) return null;
     final fromJwt = _userFromJwt(token, fallbackEmail: fallbackEmail);
     if (fromJwt == null) return null;
 
@@ -1001,7 +1002,6 @@ class EvabobAuth extends ChangeNotifier {
   void dispose() {
     _userSub?.cancel();
     _tokenSub?.cancel();
-    _minTokenSub?.cancel();
     super.dispose();
   }
 }
