@@ -51,13 +51,16 @@ export function assertProductionSafety(input: ProductionSafetyConfig): void {
   if (!exactHttpsOrigin(input.appPublicUrl)) {
     errors.push("APP_PUBLIC_URL must be an exact HTTPS origin");
   }
-  if (input.onchainEmailLinks) {
+  // These capabilities are deliberately available on the isolated testnet so
+  // they can be exercised end to end. Mainnet remains fail-closed until the
+  // corresponding privacy reviews are complete.
+  if (environment === "production" && input.onchainEmailLinks) {
     errors.push("FEATURE_ONCHAIN_EMAIL_LINKS must remain false until the privacy redesign is complete");
   }
-  if (input.onchainMemos) {
+  if (environment === "production" && input.onchainMemos) {
     errors.push("FEATURE_ONCHAIN_MEMOS must remain false until free-text chain writes are removed");
   }
-  if (input.externalLlm) {
+  if (environment === "production" && input.externalLlm) {
     errors.push("FEATURE_EXTERNAL_LLM must remain false until privacy controls are approved");
   }
   if (

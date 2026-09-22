@@ -16,6 +16,7 @@ import {
   decodeFunctionData,
 } from "viem";
 import { paymentEscrowAbi } from "../abis/escrow.js";
+import { config } from "../config.js";
 import {
   CLAIM_LINK_EXPIRY_SECONDS,
   EscrowError,
@@ -129,14 +130,21 @@ describe("planning a hold", () => {
   });
 
   it("blocks new email-based on-chain holds while the privacy gate is off", () => {
-    assert.throws(
-      () => planProtectedEscrow({
-        recipientId: "maya@example.com",
-        amountUsdc: 5,
-        purpose: "claim_link",
-      }),
-      /disabled for privacy/,
-    );
+    const features = config.features as unknown as { onchainEmailLinks: boolean };
+    const enabledBefore = features.onchainEmailLinks;
+    features.onchainEmailLinks = false;
+    try {
+      assert.throws(
+        () => planProtectedEscrow({
+          recipientId: "maya@example.com",
+          amountUsdc: 5,
+          purpose: "claim_link",
+        }),
+        /disabled for privacy/,
+      );
+    } finally {
+      features.onchainEmailLinks = enabledBefore;
+    }
   });
 
   it("puts only an opaque random reference in contract calldata", () => {

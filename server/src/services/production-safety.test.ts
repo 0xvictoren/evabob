@@ -29,6 +29,9 @@ test("accepts testnet only when it uses hosted production runtime settings", () 
     ...safe,
     deploymentEnv: "testnet",
     productionLaunchEnabled: false,
+    onchainEmailLinks: true,
+    onchainMemos: true,
+    externalLlm: true,
   }));
   assert.throws(
     () => assertProductionSafety({

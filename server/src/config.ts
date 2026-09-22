@@ -208,7 +208,7 @@ export const config = {
       .filter(Boolean),
     agentWallets: envFlag("FEATURE_AGENT_WALLETS", false),
     x402Execution: envFlag("FEATURE_X402_EXECUTION", false),
-    /** Privacy kill switches. Hosted environments currently require false. */
+    /** Privacy kill switches. Testnet may enable them; production fails closed. */
     onchainEmailLinks: envFlag("FEATURE_ONCHAIN_EMAIL_LINKS", false),
     onchainMemos: envFlag("FEATURE_ONCHAIN_MEMOS", false),
     externalLlm: envFlag("FEATURE_EXTERNAL_LLM", false),

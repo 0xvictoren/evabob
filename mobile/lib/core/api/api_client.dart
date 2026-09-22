@@ -115,11 +115,16 @@ class ApiClient {
     } catch (_) {
       json = {'raw': res.body};
     }
-    if (res.statusCode == 401 && json['code'] == 'SESSION_EXPIRED') {
+    final authenticationRejected = res.statusCode == 401 &&
+        (json['code'] == 'SESSION_EXPIRED' ||
+            json['code'] == 'SESSION_INVALID' ||
+            json['error'] == 'unauthorized');
+    if (authenticationRejected) {
       onSessionExpired?.call();
       throw ApiException(
         401,
-        json['detail']?.toString() ?? 'Your sign-in has ended. Sign in again.',
+        json['detail']?.toString() ??
+            'Your sign-in could not be verified. Sign in again.',
       );
     }
     if (res.statusCode >= 400) {

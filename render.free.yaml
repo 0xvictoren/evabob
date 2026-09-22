@@ -115,37 +115,37 @@ services:
       - key: PLATFORM_FEE_BPS
         value: "5"
       - key: FEATURE_DIRECT_SEND
-        value: "false"
+        value: "true"
       - key: FEATURE_PROTECTED_SEND
-        value: "false"
+        value: "true"
       - key: FEATURE_REQUESTS
-        value: "false"
+        value: "true"
       - key: FEATURE_GATEWAY
-        value: "false"
+        value: "true"
       - key: FEATURE_CONVERSION
-        value: "false"
+        value: "true"
       - key: FEATURE_BRIDGE_ROUTES
-        value: ""
+        value: "Arc_Testnet:Base_Sepolia,Base_Sepolia:Arc_Testnet,Arc_Testnet:Ethereum_Sepolia,Ethereum_Sepolia:Arc_Testnet,Base_Sepolia:Ethereum_Sepolia,Ethereum_Sepolia:Base_Sepolia"
       - key: FEATURE_AGENT_WALLETS
-        value: "false"
+        value: "true"
       - key: FEATURE_X402_EXECUTION
-        value: "false"
+        value: "true"
       - key: FEATURE_ONCHAIN_EMAIL_LINKS
-        value: "false"
+        value: "true"
       - key: FEATURE_ONCHAIN_MEMOS
-        value: "false"
+        value: "true"
       - key: FEATURE_EXTERNAL_LLM
-        value: "false"
+        value: "true"
       - key: MEMO_CONTRACT_ADDRESS
-        value: ""
+        value: "0x4a5F9daB431C9D8f5E678c00D2865CAD1F685500"
       - key: FEATURE_AGENT_BATCH_SEND
-        value: "false"
+        value: "true"
       - key: AGENT_MAX_DAILY_LIMIT_USDC
         value: "100"
       - key: AGENT_MAX_USER_DAILY_SPEND_USDC
         value: "250"
       - key: AGENT_RESOURCE_ORIGINS
-        value: ""
+        value: circle-marketplace
       - key: DEEPSEEK_MODEL
         value: deepseek-flash
       - key: DEEPSEEK_API_KEY
@@ -163,7 +163,7 @@ services:
       - key: PUSHER_CLUSTER
         value: mt1
       - key: SMTP_HOST
-        sync: false
+        value: smtp-relay.brevo.com
       - key: SMTP_PORT
         value: "2525"
       - key: SMTP_USER
@@ -171,7 +171,7 @@ services:
       - key: SMTP_PASS
         sync: false
       - key: SMTP_FROM
-        sync: false
+        value: "Evabob <evabobxyz@gmail.com>"
       - key: SMTP_SECURE
         value: "false"
 

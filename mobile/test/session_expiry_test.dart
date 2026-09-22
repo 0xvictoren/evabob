@@ -33,8 +33,19 @@ void main() {
       expect(told, 1);
     });
 
-    test('any other 401 is not treated as an ended sign-in', () async {
+    test('a rejected Dynamic token ends the unusable local session', () async {
       final api = clientAnswering(401, {'error': 'unauthorized'});
+      var told = 0;
+      api.onSessionExpired = () => told++;
+      await expectLater(api.get('/v1/activity'), throwsA(isA<ApiException>()));
+      expect(told, 1);
+    });
+
+    test('a Circle-only session expiry does not end Dynamic sign-in', () async {
+      final api = clientAnswering(401, {
+        'error': 'Refresh your Circle session before continuing.',
+        'code': 'UCW_SESSION_EXPIRED',
+      });
       var told = 0;
       api.onSessionExpired = () => told++;
       await expectLater(api.get('/v1/activity'), throwsA(isA<ApiException>()));

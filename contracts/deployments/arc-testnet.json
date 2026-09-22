@@ -27,7 +27,7 @@
     "previousIdentityRegistry": "0x279489fA4c1e7fcaE050727F4FC580956B3Ae4aD",
     "previousPaymentEscrowV2": "0xdEd2FDE0f6cb83d749D2BBfdfe34Fdac2A6635e3",
     "paymentEscrowV1Retired": "0xfb89b95e706fb656d8190935337b23c337f71d60",
-    "note": "2-of-3 Safe owns both admin roles. Separate hot wallets handle ops, verified identity linking, and escrow attestation. Six identities migrated without conflicts; the previous escrow held 0 USDC. 2026-09-18: PaymentEscrowV3 adds attestor-only early refund (to the sender only) and bounded expiry extension; deployed with the Safe as admin. V2 had created no transfers (nextTransferId 1) and was retired without migration. 2026-09-18: MoneyCircles (rotating savings) and GroupPots (target collections) deployed by the ops signer; neither has an admin, and the 0.05% platform fee recipient is fixed at deployment. 2026-09-19: IdentityRegistryV3 appends the Agent identity type (ordinal 3) for named agent wallets; Phone, Email and Handle keep their ordinals, so every key is unchanged. Same roles as V2 (Safe admin, hot linker). The 8 identities V2 resolves were copied to V3 with no conflicts. PaymentEscrowV3 still resolves claims against V2 (its registry is immutable), so the server links people in both registries (ESCROW_IDENTITY_REGISTRY) and agents in V3 only.",
+    "note": "2-of-3 Safe owns both admin roles. Separate hot wallets handle ops, verified identity linking, and escrow attestation. Six identities migrated without conflicts; the previous escrow held 0 USDC. 2026-09-18: PaymentEscrowV3 adds attestor-only early refund (to the sender only) and bounded expiry extension; deployed with the Safe as admin. V2 had created no transfers (nextTransferId 1) and was retired without migration. 2026-09-18: MoneyCircles (rotating savings) and GroupPots (target collections) deployed by the ops signer; neither has an admin, and the 0.05% platform fee recipient is fixed at deployment. 2026-09-19: IdentityRegistryV3 appends the Agent identity type (ordinal 3) for named agent wallets; Phone, Email and Handle keep their ordinals, so every key is unchanged. Same roles as V2 (Safe admin, hot linker). The 8 identities V2 resolves were copied to V3 with no conflicts. PaymentEscrowV3 still resolves claims against V2 (its registry is immutable), so the server links people in both registries (ESCROW_IDENTITY_REGISTRY) and agents in V3 only. 2026-09-22: ownerless EvabobMemo deployed for atomic public testnet payment memos.",
     "paymentEscrowV3": "0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39",
     "paymentEscrowV3DeployedAt": "2026-09-18",
     "paymentEscrowV3DeployTx": "0xb45652f04998f964eb354765d97f9dd752c05a334af161c5ea94b49c357a2446",
@@ -44,5 +44,8 @@
     "identityRegistryV3": "0x7a74c86b6fd0b0232d5d1eb0074547dfe1a4ffd0",
     "identityRegistryV3DeployTx": "0x1f2e6abbadd81c9d6795e1f29a44f3bf6c9f72b24a915cf33d54060071da68a1",
     "identityRegistryV3DeployedAt": "2026-09-19",
-    "escrowIdentityRegistry": "0xb14355288fcE19811cccaF1589ea85e3791320a0"
+    "escrowIdentityRegistry": "0xb14355288fcE19811cccaF1589ea85e3791320a0",
+    "evabobMemo": "0x4a5F9daB431C9D8f5E678c00D2865CAD1F685500",
+    "evabobMemoDeployTx": "0xd0e95bdec57a1167735950341df2fc72e76213e2577a4601539d107a0d1453f4",
+    "evabobMemoDeployedAt": "2026-09-22"
 }
