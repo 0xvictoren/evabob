@@ -82,7 +82,7 @@ class EvabobServices {
 
   factory EvabobServices.production() {
     final api = ApiClient(baseUrl: Env.resolveApiBaseUrl());
-    final fx = FxService(apiBaseUrl: Env.resolveApiBaseUrl())..start();
+    final fx = FxService()..start();
     final auth = EvabobAuth(api: api)..init();
     final notify = SectionNotify();
     final pusher = PusherService()..init();

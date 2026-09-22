@@ -269,11 +269,7 @@ class _Hero extends StatelessWidget {
     final auth = context.watch<EvabobAuth>();
     final fx = context.watch<FxService>();
     final dollars = wallet.usdcWallet;
-    final local = formatNgn(fx.usdcToNgn(dollars));
-    final amount = formatMoney(dollars);
-    final dot = amount.lastIndexOf('.');
-    final whole = dot < 0 ? amount : amount.substring(0, dot);
-    final decimals = dot < 0 ? '' : amount.substring(dot);
+    final naira = fx.usdcToNgn(dollars);
     final displayName = auth.user?.displayName ?? 'Your account';
     final handle = auth.user?.handleOrFallback ?? 'you';
     final top = MediaQuery.paddingOf(context).top;
@@ -358,27 +354,37 @@ class _Hero extends StatelessWidget {
                 style: Type.label.copyWith(color: EvabobColors.lightDark),
               ),
               CountUp(
-                dollars,
-                builder: (_, __) => FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text.rich(
-                    TextSpan(
-                      style: Type.hero.copyWith(color: EvabobColors.white),
-                      children: [
-                        TextSpan(text: whole),
-                        TextSpan(
-                          text: decimals,
-                          style:
-                              Type.hero.copyWith(color: EvabobColors.lightDark),
-                        ),
-                      ],
+                naira,
+                builder: (_, value) {
+                  final formatted = formatNgn(value);
+                  final dot = formatted.lastIndexOf('.');
+                  return FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text.rich(
+                      TextSpan(
+                        style: Type.hero.copyWith(color: EvabobColors.white),
+                        children: [
+                          TextSpan(
+                            text: dot < 0
+                                ? formatted
+                                : formatted.substring(0, dot),
+                          ),
+                          if (dot >= 0)
+                            TextSpan(
+                              text: formatted.substring(dot),
+                              style: Type.hero.copyWith(
+                                color: EvabobColors.lightDark,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
               Text(
-                '≈ $local in your pocket',
+                '≈ ${formatMoney(dollars)} USD',
                 style: Type.body.copyWith(color: EvabobColors.lightDark),
               ),
               const Spacer(),

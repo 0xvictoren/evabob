@@ -95,16 +95,10 @@ Without these, WhatsApp notify is stubbed (logged only). Email still uses SMTP.
 |----------|---------|
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Mailtrap or production SMTP |
 
-## ExchangeRate-API (USDC/USD → Naira display)
+## Display exchange rate
 
-| Variable | Purpose |
-|----------|---------|
-| `EXCHANGE_RATE_API_KEY` | Server-only key for [ExchangeRate-API](https://www.exchangerate-api.com/) |
-
-- Endpoint used: `GET https://v6.exchangerate-api.com/v6/{KEY}/latest/USD`
-- App exposes rates at `GET /v1/fx/rates` (mobile never sees the key)
-- USDC display treats **1 USDC = 1 USD**, then multiplies by live `NGN`
-- Without the key, server falls back to a static ~₦1628 rate; mobile may also try the free open endpoint
+- The app uses the fixed product rate **1 USD / 1 USDC = ₦1,390**.
+- `GET /v1/fx/rates` exposes that value to clients; no exchange-rate API key is required.
 
 ## Circle App Kit (primary money movement)
 

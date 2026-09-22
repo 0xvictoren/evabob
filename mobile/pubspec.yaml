@@ -1,7 +1,7 @@
 name: evabob_mobile
 description: Evabob — send money like a message. Local currency feel, USDC settlement on Arc.
 publish_to: "none"
-version: 0.1.1+2
+version: 0.1.2+3
 
 environment:
   sdk: ^3.5.0

@@ -19,7 +19,6 @@ const recommended = [
   "APP_KIT_DC_WALLET",
   "KIT_KEY",
   "DEEPSEEK_API_KEY",
-  "EXCHANGE_RATE_API_KEY",
   "SMTP_HOST",
   "SMTP_USER",
   "SMTP_PASS",

@@ -150,8 +150,6 @@ services:
         value: deepseek-flash
       - key: DEEPSEEK_API_KEY
         sync: false
-      - key: EXCHANGE_RATE_API_KEY
-        sync: false
       - key: SYNTHRA_API_KEY
         sync: false
       - key: PUSHER_APP_ID

@@ -299,13 +299,6 @@ export const config = {
     baseUrl: req("SYNTHRA_API_BASE", "https://trading-api.synthra.org"),
   },
 
-  /**
-   * ExchangeRate-API key for display FX (USD/USDC → NGN).
-   * Server-only — mobile fetches via GET /v1/fx/rates.
-   * https://www.exchangerate-api.com/docs/standard-requests
-   */
-  exchangeRateApiKey: req("EXCHANGE_RATE_API_KEY"),
-
   /** MongoDB for users, avatars, protected escrows (optional — JSON fallback). */
   mongo: {
     uri: req("MONGODB_URI"),

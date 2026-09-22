@@ -255,7 +255,8 @@ api.get("/health", async (c) => {
       .catch(() => null),
     gatewayApi: config.gatewayApiBase,
     synthraConfigured: Boolean(config.synthra.apiKey),
-    fxConfigured: Boolean(config.exchangeRateApiKey),
+    fxConfigured: true,
+    fixedUsdToNgn: 1390,
     mongoConfigured: Boolean(config.mongo.uri),
     primaryStore: primaryStoreHealth(),
     operatorsConfigured: config.auth.operatorUserIds.length > 0,
@@ -327,10 +328,7 @@ api.post("/notify/test-email", async (c) => {
   });
 });
 
-/**
- * Live display rates: 1 USDC ≈ 1 USD → NGN / EUR.
- * Key stays on server (EXCHANGE_RATE_API_KEY).
- */
+/** Fixed display rates: 1 USDC ≈ 1 USD = ₦1,390. */
 api.get("/fx/rates", async (c) => {
   const { fetchUsdRates, fxConfigured } = await import("../services/fx.js");
   const rates = await fetchUsdRates();

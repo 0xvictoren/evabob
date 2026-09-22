@@ -44,7 +44,7 @@ const kActivity = <ActivityItem>[
   ActivityItem(
     name: 'Euros changed to dollars',
     description: 'Converted €50',
-    amountNgn: 88200, // ~$54.20 * 1628
+    amountNgn: 75338, // ~$54.20 * 1390
     date: 'Yesterday',
     kind: TxKind.exchange,
   ),

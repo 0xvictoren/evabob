@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/money_format.dart';
+import '../../core/fx/fx_service.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/asset_thumbnail.dart';
@@ -218,7 +219,8 @@ class _TotalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final amount = formatMoney(total);
+    final fx = context.watch<FxService>();
+    final amount = formatNgn(fx.usdcToNgn(total));
     final dot = amount.lastIndexOf('.');
     return Container(
       height: 140,
@@ -231,7 +233,7 @@ class _TotalCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Your dollars',
+            'Your money',
             style: Type.label.copyWith(color: EvabobColors.lightDark),
           ),
           Text.rich(
@@ -249,7 +251,7 @@ class _TotalCard extends StatelessWidget {
             maxLines: 1,
           ),
           Text(
-            'Spendable, Gateway Account and on hold',
+            '≈ ${formatMoney(total)} USD · Spendable, Gateway Account and on hold',
             style: Type.label.copyWith(color: EvabobColors.lightDark),
           ),
         ],
