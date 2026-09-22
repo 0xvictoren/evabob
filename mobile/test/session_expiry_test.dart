@@ -23,7 +23,7 @@ void main() {
         'detail': 'Your sign-in has ended. Sign in again to carry on.',
       });
       var told = 0;
-      api.onSessionExpired = () => told++;
+      api.onSessionExpired = (_) => told++;
       await expectLater(
         api.get('/v1/activity'),
         throwsA(isA<ApiException>()
@@ -36,9 +36,33 @@ void main() {
     test('a rejected Dynamic token ends the unusable local session', () async {
       final api = clientAnswering(401, {'error': 'unauthorized'});
       var told = 0;
-      api.onSessionExpired = () => told++;
+      api.onSessionExpired = (_) => told++;
       await expectLater(api.get('/v1/activity'), throwsA(isA<ApiException>()));
       expect(told, 1);
+    });
+
+    test('says which token was refused, so a new sign-in is not ended',
+        () async {
+      late ApiClient api;
+      api = ApiClient(
+        baseUrl: 'http://api.test',
+        client: MockClient((_) async {
+          // A new sign-in lands while this request is on its way.
+          api.setAuthToken('token-after');
+          return http.Response(jsonEncode({'error': 'unauthorized'}), 401);
+        }),
+      );
+      final refused = <String?>[];
+      api.onSessionExpired = refused.add;
+
+      await expectLater(api.get('/v1/activity'), throwsA(isA<ApiException>()));
+      api.setAuthToken('token-before');
+      await expectLater(
+          api.post('/v1/users/session'), throwsA(isA<ApiException>()));
+
+      // The first request went out before any token; the second with the
+      // one it was sent with, not the one set while it was answered.
+      expect(refused, [null, 'token-before']);
     });
 
     test('a Circle-only session expiry does not end Dynamic sign-in', () async {
@@ -47,7 +71,7 @@ void main() {
         'code': 'UCW_SESSION_EXPIRED',
       });
       var told = 0;
-      api.onSessionExpired = () => told++;
+      api.onSessionExpired = (_) => told++;
       await expectLater(api.get('/v1/activity'), throwsA(isA<ApiException>()));
       expect(told, 0);
     });
@@ -58,7 +82,8 @@ void main() {
       final auth = EvabobAuth(api: api);
       expect(api.onSessionExpired, isNotNull);
       // Nobody is signed in: nothing to end, and nothing breaks.
-      api.onSessionExpired!();
+      api.onSessionExpired!('a-token');
+      api.onSessionExpired!(null);
       await Future<void>.delayed(Duration.zero);
       expect(auth.sessionEndedEmail, isNull);
       expect(auth.sessionExpired, isFalse);

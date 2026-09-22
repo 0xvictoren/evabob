@@ -228,6 +228,15 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
   Timer? _authDebounce;
 
   void _onAuth() {
+    // Hand a new sign-in to the API client now, not after the debounce: the
+    // screen that opens on sign-in calls the server on its first frame, and
+    // without the token that call is refused as signed out.
+    final u = _auth.user;
+    if (u != null) {
+      _api.setUserId(_auth.circleUserId);
+      _api.setAuthToken(u.authToken);
+      _pusher.setAuthToken(u.authToken);
+    }
     _authDebounce?.cancel();
     _authDebounce = Timer(const Duration(milliseconds: 350), _applyAuth);
   }

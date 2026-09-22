@@ -27,7 +27,14 @@ class EvabobAuth extends ChangeNotifier {
   EvabobAuth({ApiClient? api}) : _api = api {
     // The server says a sign-in has ended (401 SESSION_EXPIRED): stop, and
     // ask the person to sign in again, instead of retrying a dead token.
-    api?.onSessionExpired = () => unawaited(endExpiredSession());
+    // Only when it refused the token this session holds: a request sent
+    // before a new sign-in reached the API client, or with the previous
+    // token, says nothing about this one -- ending on it signed people out
+    // straight after they entered their code.
+    api?.onSessionExpired = (rejected) {
+      if (rejected == null || rejected != _user?.authToken) return;
+      unawaited(endExpiredSession());
+    };
   }
 
   final ApiClient? _api;
@@ -475,6 +482,7 @@ class EvabobAuth extends ChangeNotifier {
 
       _user = session;
       _demoMode = false;
+      _sessionEndedEmail = null;
       await _persist();
       HapticFeedback.lightImpact();
       debugPrint('EvabobAuth: hard finish completed');

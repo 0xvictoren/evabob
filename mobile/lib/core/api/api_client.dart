@@ -30,19 +30,20 @@ class ApiClient {
         : <String, String>{'Authorization': 'Bearer $token'};
   }
 
-  /// Called when the server says the sign-in has ended (401 with code
-  /// SESSION_EXPIRED). EvabobAuth signs out once and asks to sign in again.
-  void Function()? onSessionExpired;
+  /// Called when the server refuses the sign-in a request carried (401 with
+  /// code SESSION_EXPIRED, or a token it cannot verify). Gets the token that
+  /// request sent -- null when it sent none -- so EvabobAuth ends the session
+  /// only when it is the one still in use.
+  void Function(String? rejectedToken)? onSessionExpired;
 
-  Map<String, String> get _headers {
+  Map<String, String> _headers(String? token) {
     final h = <String, String>{
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       'x-user-id': _userId,
     };
-    final t = _authToken;
-    if (t != null && t.isNotEmpty) {
-      h['Authorization'] = 'Bearer $t';
+    if (token != null && token.isNotEmpty) {
+      h['Authorization'] = 'Bearer $token';
     }
     return h;
   }
@@ -56,10 +57,11 @@ class ApiClient {
 
   Future<Map<String, dynamic>> get(String path,
       {Map<String, String>? query}) async {
+    final token = _authToken;
     final res = await _client
-        .get(_u(path, query), headers: _headers)
+        .get(_u(path, query), headers: _headers(token))
         .timeout(const Duration(seconds: 30));
-    return _decode(res);
+    return _decode(res, token);
   }
 
   Future<Map<String, dynamic>> post(
@@ -69,45 +71,48 @@ class ApiClient {
     /// Override default 60s (use longer for CCTP finish / Iris mint).
     Duration? timeout,
   }) async {
+    final token = _authToken;
     final res = await _client
         .post(
           _u(path),
-          headers: _headers,
+          headers: _headers(token),
           body: jsonEncode(body ?? {}),
         )
         .timeout(timeout ?? const Duration(seconds: 60));
-    return _decode(res);
+    return _decode(res, token);
   }
 
   Future<Map<String, dynamic>> patch(
     String path, {
     Map<String, dynamic>? body,
   }) async {
+    final token = _authToken;
     final res = await _client
         .patch(
           _u(path),
-          headers: _headers,
+          headers: _headers(token),
           body: jsonEncode(body ?? {}),
         )
         .timeout(const Duration(seconds: 30));
-    return _decode(res);
+    return _decode(res, token);
   }
 
   Future<Map<String, dynamic>> delete(
     String path, {
     Map<String, dynamic>? body,
   }) async {
+    final token = _authToken;
     final res = await _client
         .delete(
           _u(path),
-          headers: _headers,
+          headers: _headers(token),
           body: jsonEncode(body ?? {}),
         )
         .timeout(const Duration(seconds: 30));
-    return _decode(res);
+    return _decode(res, token);
   }
 
-  Map<String, dynamic> _decode(http.Response res) {
+  Map<String, dynamic> _decode(http.Response res, String? sentToken) {
     Map<String, dynamic> json = {};
     try {
       final d = jsonDecode(res.body);
@@ -120,7 +125,7 @@ class ApiClient {
             json['code'] == 'SESSION_INVALID' ||
             json['error'] == 'unauthorized');
     if (authenticationRejected) {
-      onSessionExpired?.call();
+      onSessionExpired?.call(sentToken);
       throw ApiException(
         401,
         json['detail']?.toString() ??
