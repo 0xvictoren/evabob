@@ -38,7 +38,7 @@
     "jsonwebtoken": "^9.0.2",
     "jwks-rsa": "^3.2.0",
     "mongodb": "^7.5.0",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "^10.0.10",
     "utf-8-validate": "^5.0.10",
     "viem": "^2.30.0",
     "zod": "^3.25.28"
