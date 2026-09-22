@@ -245,12 +245,15 @@ class AllowanceMeter extends StatelessWidget {
     final at = meter.resetsAt?.toLocal();
     if (at == null) return '';
     final now = DateTime.now();
-    if (at.difference(now).inHours < 24 && at.day != now.day)
+    if (at.difference(now).inHours < 24 && at.day != now.day) {
       return 'refills tomorrow';
-    if (at.difference(now).inHours < 24)
+    }
+    if (at.difference(now).inHours < 24) {
       return 'refills at ${at.hour.toString().padLeft(2, '0')}:00';
-    if (at.difference(now).inDays < 7)
+    }
+    if (at.difference(now).inDays < 7) {
       return 'refills ${_days[at.weekday - 1]}';
+    }
     return 'refills ${at.day}/${at.month}';
   }
 

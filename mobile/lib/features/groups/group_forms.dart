@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -156,7 +155,8 @@ class _CreateCircleScreenState extends State<_CreateCircleScreen> {
             const SizedBox(height: Space.sm),
             TextField(
               controller: _amount,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
                 const AmountInputFormatter(),
               ],
@@ -191,7 +191,8 @@ class _CreateCircleScreenState extends State<_CreateCircleScreen> {
                   child: Text('${i + 1}', style: const TextStyle(fontSize: 12)),
                 ),
                 title: Text(
-                  _members[i].toLowerCase() == '@${_myHandle ?? ''}'.toLowerCase()
+                  _members[i].toLowerCase() ==
+                          '@${_myHandle ?? ''}'.toLowerCase()
                       ? '${_members[i]} (you)'
                       : _members[i],
                 ),
@@ -321,8 +322,8 @@ class _CreatePotScreenState extends State<_CreatePotScreen> {
       helpText: 'Deadline',
     );
     if (picked != null && mounted) {
-      setState(() => _deadline =
-          DateTime(picked.year, picked.month, picked.day, 23, 59));
+      setState(() =>
+          _deadline = DateTime(picked.year, picked.month, picked.day, 23, 59));
     }
   }
 
@@ -348,9 +349,8 @@ class _CreatePotScreenState extends State<_CreatePotScreen> {
             description: _details.text.trim(),
             targetUsdc: target,
             deadline: _deadline,
-            beneficiary: who.isEmpty
-                ? null
-                : (who.contains('@') ? who : '@$who'),
+            beneficiary:
+                who.isEmpty ? null : (who.contains('@') ? who : '@$who'),
           );
       if (!mounted) return;
       if (res['ok'] == true) {
@@ -396,7 +396,8 @@ class _CreatePotScreenState extends State<_CreatePotScreen> {
             const SizedBox(height: Space.sm),
             TextField(
               controller: _target,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
                 const AmountInputFormatter(),
               ],

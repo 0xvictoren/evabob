@@ -122,8 +122,9 @@ class CircleWalletService extends ChangeNotifier {
     if (_sessionStale || encryptionKey == null) await refreshSessionOnly();
     final token = userToken;
     final key = encryptionKey;
-    if (token == null || key == null)
+    if (token == null || key == null) {
       return 'Your session ended. Open the app again.';
+    }
     FocusManager.instance.primaryFocus?.unfocus();
     final out = await CircleNativeSdk.enableBiometrics(
       appId: appId,
@@ -1507,7 +1508,7 @@ class CircleWalletService extends ChangeNotifier {
         };
       }
       final op = latest['op']?.toString() ?? 'transfer';
-      return _pollAppKitJob(
+      return await _pollAppKitJob(
         context: context,
         jobId: jobId,
         title: 'Continue $op',
@@ -1779,7 +1780,7 @@ class CircleWalletService extends ChangeNotifier {
           'stage': 'paused',
         };
       }
-      return _pollAppKitJob(
+      return await _pollAppKitJob(
         context: context,
         jobId: jobId,
         title: title,

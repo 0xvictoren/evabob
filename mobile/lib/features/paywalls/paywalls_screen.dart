@@ -296,9 +296,10 @@ class _PaywallsScreenState extends State<PaywallsScreen> {
                                     onPressed: () async {
                                       await Clipboard.setData(
                                           ClipboardData(text: p.url));
-                                      if (mounted)
+                                      if (mounted) {
                                         _toast(
                                             'Link copied. Give it to any software that pays with x402.');
+                                      }
                                     },
                                     icon: const Icon(Icons.link_rounded),
                                   ),
@@ -414,14 +415,18 @@ class _NewPaywallSheetState extends State<_NewPaywallSheet> {
 
   Future<void> _save() async {
     final price = double.tryParse(_price.text.trim());
-    if (_title.text.trim().isEmpty)
+    if (_title.text.trim().isEmpty) {
       return setState(() => _error = 'Say what you are selling.');
-    if (price == null || price <= 0)
+    }
+    if (price == null || price <= 0) {
       return setState(() => _error = 'Enter a price.');
-    if (_kind == 'file' && _files.isEmpty)
+    }
+    if (_kind == 'file' && _files.isEmpty) {
       return setState(() => _error = 'Add at least one file.');
-    if (_kind == 'text' && _text.text.trim().isEmpty)
+    }
+    if (_kind == 'text' && _text.text.trim().isEmpty) {
       return setState(() => _error = 'Write what the buyer gets.');
+    }
     if (_kind == 'api' && !_apiUrl.text.trim().startsWith('https://')) {
       return setState(
           () => _error = 'Your API address must start with https://');
@@ -514,9 +519,7 @@ class _NewPaywallSheetState extends State<_NewPaywallSheet> {
                   controller: _price,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    const AmountInputFormatter()
-                  ],
+                  inputFormatters: [const AmountInputFormatter()],
                   decoration: InputDecoration(
                     labelText: _kind == 'api' ? 'Price per call' : 'Price',
                     prefixText: r'$ ',
