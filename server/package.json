@@ -29,7 +29,7 @@
     "@circle-fin/developer-controlled-wallets": "^10.8.0",
     "@circle-fin/user-controlled-wallets": "^10.8.0",
     "@circle-fin/x402-batching": "^3.4.0",
-    "@hono/node-server": "^1.19.17",
+    "@hono/node-server": "^2.1.1",
     "@solana/codecs-strings": "^2.3.0",
     "@x402/core": "^2.26.0",
     "dotenv": "^16.5.0",
