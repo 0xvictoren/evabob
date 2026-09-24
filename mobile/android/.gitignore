@@ -1,8 +1,7 @@
-gradle-wrapper.jar
+# The Gradle wrapper (gradlew, gradlew.bat, gradle-wrapper.jar) is committed:
+# CI runs ./gradlew from a fresh checkout.
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/
