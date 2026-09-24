@@ -4,7 +4,7 @@
 this file, this file is right. Supersedes the former `new.md` and the progress
 tables that used to live in the README.
 
-Last verified: 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
+Last verified: 2026-09-24 (testing version stable 1); 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
 
 ---
 
@@ -30,6 +30,61 @@ and other public testnets. Do not read "live" below as "in production" — it me
 | **Not built** | Referenced somewhere but absent from the code |
 
 ---
+
+## Testing version stable 1 — 2026-09-24
+
+Fixes from the second round of hands-on testing, then the 14 screens of the
+Figma redesign. Server 424 tests, Flutter 66 tests, typecheck, web build and
+Flutter analyze clean; the whole suite also passes on a fresh clone with no
+`.env` (CI). Commits `15f8efd` and `1bc59fe`. Not yet run end to end on a
+phone — the APK `evabob-testing-stable-1.apk` at the repo root is for that.
+
+### Fixes
+
+| Area | What changed |
+|------|--------------|
+| Balances | Arc and Gateway balances are read in parallel; Gateway gets a 1.5 s grace and its last reading is cached, so a slow Gateway no longer holds up Home. The last balances are kept on the phone and shown at once on launch. |
+| Evabob Agent | Balance answers give two figures: spendable (Arc) and the Gateway unified balance. |
+| Main currency | Naira or dollar, chosen in Profile (saved on the server too). Amounts are typed and shown in it everywhere, with the other currency underneath; token screens (bridge, Gateway, convert, assets, agent wallets) still show the token itself. A request carries the currency it was asked in and is converted for the person paying. |
+| Holds | Swaps are never held. A bridge is held only once its first PIN is entered (`firstPinAt`, `POST /v1/app-kit/jobs/:id/pin`); the 40-minute server completion counts from that PIN. Leaving before any PIN forgets the job: "No PIN was entered, so nothing moved." |
+| Home | "View all" opens the full list in place (and "Show less"). Amounts are rounded to 2 decimals. |
+| Addresses | Wallet-address fields (Move money, Gateway, every form except Send) sit behind "Change address". |
+| Chat | Pusher reconnects and resubscribes on resume and on a new session token, so threads update live. Paying or declining a request updates the card for both people. |
+| Scan to pay | Scanning an Evabob QR opens Send with the @handle filled in and no network choice; a request QR opens that request. |
+| Handles | Case-insensitive, `@` optional everywhere (`core/utils/handles.dart`). |
+| Profile pictures | Shown everywhere (default picture chosen from the user id when none is set); a change reaches everyone who has a chat or activity with that person. |
+| Invoices | Show the @handle of the other person. |
+| Android back | Steps back through screens; on Home a second back within two seconds exits. |
+| Money from outside | Recorded with the sender's @handle when the address is an Evabob user, otherwise "Unknown". |
+| "Something went wrong" | Uncaught errors are now classified: an expired Circle session asks to sign in again, a Circle funds error says so, other Circle refusals and network trouble get plain messages, and anything else returns a short reference code that matches the Render log line. Amounts in stored messages read "$1.44", not "1.438849 USDC". |
+| App lock | Locks after 10 s in the background; the PIN checks itself when the last digit is typed; too many wrong PINs shows "Locked for now" with a countdown and a way back in by email. |
+| Notifications | The "Allow notifications" card is shown only while the phone's permission is really off. |
+| Chat images | Captions wrap properly beside the button. |
+
+### Figma redesign — all 14 screens
+
+Splash, Chat list, Activity (with the filter sheet), Notifications, Send ·
+Sent and Send · On the way, Request history, Request · Detail (Pay, or
+"Decline this request"), Request · Pay receipt, Convert · Done receipt,
+Locked out, Claim held money (in the app) and the evabob.me claim page
+(`src/app/claim/page.tsx`). The two receipts share
+`core/widgets/done_receipt.dart`. `GET /v1/payment-requests/:id` now returns
+the asker's name, handle and picture; `GET /v1/public/claims/:id` returns the
+sender's name and picture (never their wallet) and when it was sent.
+
+### Email (SMTP) — fixed 2026-09-24
+
+Every email had been failing on Render: Brevo refused the login with
+`525 5.7.1 Unauthorized IP address`, so claim-link emails, family-check codes
+and recovery codes never went out (the payments themselves still went
+through). Brevo's IP restriction was lifted; `/v1/health` now reports
+`SMTP ready (smtp-relay.brevo.com)`. See `docs/ENV.md`.
+
+### CI
+
+Five `protectedEscrow` tests needed `PAYMENT_ESCROW`, which only existed in
+the local `server/.env`, so the GitHub "Security release gate" failed. The
+tests now use a stand-in address when none is configured.
 
 ## "For agents" batch — 2026-09-19 (research report §8.2)
 
@@ -107,7 +162,7 @@ research report (`evabob-payments-research-2026-09.pdf`, §7.2).
 |---|------|-------|------------------------------|
 | 1 | Notifications that reach a closed app | **Built; needs a Firebase project** | Every alert now goes out through FCM as well as Pusher, with a shared tag so a phone shows one notification (`services/push.ts`, `core/notifications/push_registration.dart`). Devices register on sign-in and unregister on sign-out; a token moves when someone else signs in on that phone. Off until `FIREBASE_SERVICE_ACCOUNT_JSON` (server) and the `FIREBASE_*` dart-defines (app) are set; iPhones also need an APNs key in Firebase and the Push Notifications capability in Xcode. New alerts: work delivered, releases tomorrow, hold expiring, cancelled after delivery, money returned, bridge finished for you, review needed (operators). |
 | 2 | Two-sided job escrow | **Built; contract deployed; operator screen built** | Worker marks delivered → payer has 7 days → silence releases to the worker. Cancel before delivery refunds at once; cancel after delivery requires a reconciliation form and goes to manual review by an operator. Rules, including the reviewer criteria, in `docs/HELD_PAYMENTS.md` — confirmed 2026-09-18. Operators (`OPERATOR_USER_IDS`) decide reviews in the app: Profile → Held-payment reviews, or by tapping a "review needed" notification; the screen shows both sides, the delivered work, and the written criteria, and requires a note both people see. Needs **PaymentEscrowV3** (below). |
-| 3 | No stranded money | **Built** | Bridges burned and left for 40 minutes are finished by the server from the ops wallet, one attempt per pass, timed from the burn's block time. The 2× gas charge is recorded on the job and **not collected** (waived on testnet; collection method undecided). Bridge jobs are now in the Mongo snapshot — on Vercel they previously lived on one instance's temp disk. Gateway (the GA) is finished rather than hidden — see the money-movement table. Every configured bridge route stays offered — routes are never hidden over ops-wallet gas (product owner's decision). If the ops wallet cannot pay a destination mint, bridges still start, operators get an alert, and `/v1/health` shows it under `bridgeRelay`. The ops wallet (`0x164d01fD…A971`) was funded with 0.1 ETH on Base Sepolia and on Ethereum Sepolia on 2026-09-18. Gateway stays behind `FEATURE_GATEWAY`. |
+| 3 | No stranded money | **Built** | Bridges left for 40 minutes after their first PIN are finished by the server from the ops wallet, one attempt per pass (timed from the burn's block time until 2026-09-24; now from the first PIN, and a bridge with no PIN is never held). The 2× gas charge is recorded on the job and **not collected** (waived on testnet; collection method undecided). Bridge jobs are now in the Mongo snapshot — on Vercel they previously lived on one instance's temp disk. Gateway (the GA) is finished rather than hidden — see the money-movement table. Every configured bridge route stays offered — routes are never hidden over ops-wallet gas (product owner's decision). If the ops wallet cannot pay a destination mint, bridges still start, operators get an alert, and `/v1/health` shows it under `bridgeRelay`. The ops wallet (`0x164d01fD…A971`) was funded with 0.1 ETH on Base Sepolia and on Ethereum Sepolia on 2026-09-18. Gateway stays behind `FEATURE_GATEWAY`. |
 | 4 | Safe-send guardrails | **Built** | `GET /v1/payees/check` resolves who a payee really is, whether this sender has paid them, and flags raw addresses that are not Evabob accounts and addresses that only resemble one already paid (address poisoning). The review sheet shows those cautions and, for USDC to an Evabob user, a "wait 10 minutes before it goes" switch, on by default for a first payment. That sends through a cooling-off hold the sender can cancel from a countdown screen; it releases after 10 minutes, or refunds after 24 hours if the server never acts. |
 | 5 | Agent path | **Wired; honestly off on testnet** | `GET /v1/agents/services` lists what an agent wallet can pay: Circle catalog sellers that are GET, Gateway-batched and on this network. `AGENT_RESOURCE_ORIGINS` accepts `circle-marketplace` to allow them. The catalog (1,143 endpoints on 2026-09-18) has 323 payable endpoints, all on Arc mainnet, none on Arc Testnet, so the app now says nothing is payable here yet. `runParallelSources()` and the curated Polymarket/Reddit/X/YouTube list were deleted — unwired, and they invented costs. |
 | 6 | Assistant capacity | **Done** | The Evabob Agent now uses DeepSeek (`DEEPSEEK_API_KEY`, default model `deepseek-flash`, thinking off) through one client, `services/llm.ts`. Groq and `GROQ_*` are removed. DeepSeek caches the repeated system prompts automatically. |

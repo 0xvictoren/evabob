@@ -13,6 +13,21 @@ held-payment screen. Change them here first.
 | **Cooling-off** | A first payment to someone new, when the sender leaves "wait 10 minutes" on | 10 minutes after it was made | The sender cancels inside the 10 minutes; or the server never released it and it expires (24 hours) |
 | **Claim link** | Paying an email address that has no Evabob account yet | The recipient signs up and proves that email | The sender cancels before it is claimed; or it expires unclaimed (7 days) |
 
+## What is never held
+
+Only the three kinds above are held payments. Two things that move money in
+steps are not:
+
+- **Conversions (swaps)** are never shown as held or pending. If one does not
+  finish, nothing moved.
+- **Bridges** count as in flight only once their first PIN has been entered.
+  The server finishes a bridge left for 40 minutes after that PIN. A bridge
+  left before any PIN is dropped with "No PIN was entered, so nothing moved."
+
+The recipient of a claim link sees it in the app ("Claim held money") and on
+the web at `/claim`. The email is sent when the hold is created; if email is
+down the money is still held and can still be claimed.
+
 ## Jobs, step by step
 
 1. **The payer holds the money.** It leaves their balance and sits in the

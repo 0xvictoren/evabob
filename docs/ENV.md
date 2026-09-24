@@ -95,6 +95,17 @@ Without these, WhatsApp notify is stubbed (logged only). Email still uses SMTP.
 |----------|---------|
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Mailtrap or production SMTP |
 
+Testnet uses Brevo (`smtp-relay.brevo.com`, port 2525). Brevo's **Authorized
+IPs** restriction must stay off (or include the host's outgoing addresses):
+with it on, Render's changing IPs are refused with `525 5.7.1 Unauthorized IP
+address` and no email goes out — claim links, family-check codes and account
+recovery all depend on it. Check with `GET /v1/health` → `smtp.ok`. Many home
+and office networks block outgoing SMTP ports, so a local login test can hang
+even when the credentials are fine.
+
+`PAYMENT_ESCROW` is needed at runtime, but the server tests no longer need it:
+CI runs without a `.env`.
+
 ## Display exchange rate
 
 - The app uses the fixed product rate **1 USD / 1 USDC = ₦1,390**.
