@@ -27,6 +27,13 @@ import {
   planProtectedEscrow,
 } from "./protectedEscrow.js";
 
+// Planning only encodes calldata, so any contract address will do. CI has no
+// .env, and without this every plan throws "PAYMENT_ESCROW not configured".
+if (!config.arc.paymentEscrow?.startsWith("0x")) {
+  (config.arc as { paymentEscrow: string }).paymentEscrow =
+    "0x00000000000000000000000000000000000e5c20";
+}
+
 describe("identity typing", () => {
   it("types an email address as an email", () => {
     // The bug: this was hashed as a handle, and the key resolved to nothing.
