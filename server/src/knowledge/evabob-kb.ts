@@ -241,7 +241,7 @@ This is not the same as the Evabob assistant you are chatting with.`,
     ],
     body: `Your @handle is how other people pay you without typing an address. Your display name is just what shows in the app.
 
-Both are under Profile. A handle can only be changed once, so pick carefully.
+Both show under Profile. Your @handle is chosen once, when you sign up, and is permanent: it cannot be changed later, so people who have paid you before always reach you. Your display name can be changed in Profile.
 
 Contacts save people you pay often so you can pick them by name instead of pasting an address.`,
   },

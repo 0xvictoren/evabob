@@ -31,7 +31,7 @@ import {
 import { store, type AgentWallet } from "../store/db.js";
 import { USER_CHANNEL_PREFIX } from "../services/notifyUser.js";
 import { allowanceView } from "../services/agentControls.js";
-import { getUserId, getAuth, requireRecentAuth } from "../middleware/auth.js";
+import { acceptsAgentKey, getUserId, getAuth, requireRecentAuth } from "../middleware/auth.js";
 import { requireUser, operatorOnly } from "../middleware/authorization.js";
 import { ucwSessionBoundary } from "../middleware/ucw-session.js";
 import { syncInboundInBackground } from "../services/inbound.js";
@@ -41,12 +41,17 @@ import { flushPrimaryStore, primaryStoreHealth } from "../services/primary-store
 import { avatarBundleFor, avatarFilename, decodeAvatar } from "../services/avatar.js";
 import { dataPath } from "../utils/data-path.js";
 import { llmConfigured } from "../services/llm.js";
-import { safeError } from "../utils/safe-log.js";
+import { memoOnchainEnabled } from "../services/memo.js";
+import { logPseudonym, safeError } from "../utils/safe-log.js";
 import { consumeNamedRateLimit } from "../middleware/rate-limit.js";
 
 export const api = new Hono();
+// Writes need a signed-in person. Hono mounts this sub-app's middleware at
+// /v1/*, so it also runs for every other /v1 group — including the agent's own
+// API (/v1/agent-api/*), which authenticates with an agent key instead. Those
+// paths are exempt here; their handlers accept only an agent principal.
 api.use("*", async (c, next) => {
-  if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method) && c.req.path !== "/v1/x402/pay") {
+  if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method) && !acceptsAgentKey(c.req.path)) {
     const denied = requireUser(c);
     if (denied) return denied;
   }
@@ -64,6 +69,31 @@ api.use("/exchange", async c => c.json({ error: "Use the Circle UCW swap flow.",
 
 /** The authenticated caller (see middleware/auth.ts). Never trusts headers. */
 const userId = getUserId;
+
+/** Active agent wallets one person may hold (each is its own Circle wallet). */
+const MAX_AGENTS_PER_PERSON = 25;
+
+/**
+ * Lookups that turn an email, handle or wallet address into a person. Each is
+ * needed once per payment, so this ceiling is far above normal use but stops
+ * one account walking a list of emails or addresses.
+ */
+const DIRECTORY_LOOKUPS = { limit: 120, windowMs: 10 * 60_000 };
+
+async function directoryLookupDenied(c: Context): Promise<Response | null> {
+  const verdict = await consumeNamedRateLimit(
+    "directory-lookup",
+    userId(c),
+    DIRECTORY_LOOKUPS.limit,
+    DIRECTORY_LOOKUPS.windowMs,
+  );
+  if (verdict.allowed) return null;
+  c.header("Retry-After", String(verdict.retryAfterSeconds));
+  return c.json(
+    { error: "Too many lookups. Try again in a few minutes.", code: "LOOKUP_RATE_LIMITED" },
+    429,
+  );
+}
 
 const identityLinked = new Set<string>();
 
@@ -383,6 +413,9 @@ api.get("/config/public", async (c) => {
     },
     features: {
       ...config.features,
+      // True only when a memo is really written on chain (flag and contract
+      // both set), so the app can warn that the note is public and permanent.
+      onchainMemos: memoOnchainEnabled(),
       // Routes cannot become available from a flag alone. The minimum
       // provider/contract configuration must also exist in this process.
       directSend: config.features.directSend && Boolean(config.circle.apiKey),
@@ -445,7 +478,13 @@ api.get("/public/claims/:transferId", async (c) => {
     const row = await readTransfer(transferId);
     if (row.status === "None") return c.json({ error: "not_found" }, 404);
     // Who sent it, by name and picture only; their wallet stays private.
-    const from = store.findUserByRecipient(row.sender);
+    // Only for claim links — the one kind of hold this page is for. Transfer
+    // ids are sequential, so naming the sender of every hold would let anyone
+    // walk the ids and tie each on-chain sender wallet to a person.
+    const { findTrackedByTransferId } = await import("../services/escrow-jobs.js");
+    const tracked = findTrackedByTransferId(transferId);
+    const isClaimLink = Boolean(tracked) && (tracked!.purpose ?? "claim_link") === "claim_link";
+    const from = isClaimLink ? store.findUserByRecipient(row.sender) : undefined;
     return c.json({
       transferId,
       status: row.status.toLowerCase(),
@@ -704,20 +743,49 @@ api.delete("/users/me", async (c) => {
   const filenames = store.mediaForUser(uid).map((row) => row.filename);
   const avatarFile = user.avatarUrl?.match(/\/uploads\/([^?/#]+)/)?.[1];
   if (avatarFile) filenames.push(avatarFile);
+  // Captured before anonymisation clears them: the on-chain links to retire.
+  const wallet = /^0x[a-fA-F0-9]{40}$/.test(user.evmAddress || "")
+    ? (user.evmAddress as `0x${string}`)
+    : null;
+  const identities = [
+    ...(user.handle ? [{ kind: "handle" as const, identifier: user.handle }] : []),
+    ...(user.email.includes("@") ? [{ kind: "email" as const, identifier: user.email }] : []),
+  ];
   const { deleteStoredMedia } = await import("../services/evidence.js");
   const { unregisterAllPushDevices } = await import("../services/push.js");
   const pushDevicesRemoved = unregisterAllPushDevices(uid);
   const result = store.anonymizeUser(uid);
   await deleteStoredMedia([...new Set(filenames)]);
+  // In the background: chain writes are slow, and a failure must not undo the
+  // deletion. Until it lands, held payments to this identity can still release
+  // to the deleted account's wallet; afterwards they return to their payers.
+  if (wallet && identities.length > 0) {
+    void import("../services/identity.js")
+      .then(({ retireAccountIdentities }) =>
+        retireAccountIdentities({ account: wallet, identities }))
+      .then((outcomes) => {
+        const failed = outcomes.filter((o) => !o.ok);
+        if (failed.length) {
+          console.warn(
+            `[delete] ${logPseudonym(uid)}: on-chain identity retirement pending for ` +
+              failed.map((f) => f.kind).join(", "),
+          );
+        }
+      })
+      .catch((error) => console.warn("[delete] identity retirement failed", safeError(error)));
+  }
   return c.json({
     ok: true,
     ...result,
     pushDevicesRemoved,
     publicLinksRevoked: true,
+    identityLinksRetiring: Boolean(wallet && identities.length > 0),
     processorPropagation: {
       dynamic: "session invalidation must be completed through Dynamic",
       circle: "wallet and legally retained transaction records remain",
-      deepseek: "external AI processing is disabled",
+      deepseek: llmConfigured()
+        ? "no conversation history is retained by Evabob; requests already sent to the provider follow its retention policy"
+        : "external AI processing is disabled",
       firebase: "device tokens removed from Evabob",
       pusher: "no retained user content",
     },
@@ -910,6 +978,8 @@ api.get("/escrow/protected", async (c) => {
 });
 
 api.get("/escrow/recipient-status", async (c) => {
+  const limited = await directoryLookupDenied(c);
+  if (limited) return limited;
   const identifier = c.req.query("identifier") || "";
   const { escrowRecipientKey, isRegistered, EscrowError } = await import(
     "../services/protectedEscrow.js"
@@ -1069,7 +1139,8 @@ api.post("/escrow/protected/record", async (c) => {
         const res = await notifySend({
           toEmail: normalized,
           toHandle: normalized,
-          fromName: payer?.displayName || payer?.email || "someone",
+          // The verified @handle, never a free-text name or the payer's email.
+          fromName: payer?.handle ? `@${payer.handle}` : "An Evabob user",
           amountUsdc: onChain.amountUsdc,
           memo: body.memo,
           mode: "escrow",
@@ -1447,6 +1518,8 @@ api.post("/operator/reviews/:transferId/decide", operatorOnly, async (c) => {
  * before, and whether to offer the ten-minute cooling-off hold.
  */
 api.get("/payees/check", async (c) => {
+  const limited = await directoryLookupDenied(c);
+  if (limited) return limited;
   const to = (c.req.query("to") || "").trim();
   if (!to) return c.json({ error: "Who is this payment for?" }, 400);
   const { checkPayee } = await import("../services/safeSend.js");
@@ -2734,7 +2807,9 @@ api.post("/users/me", async (c) => {
  * code lands in Send as a @handle rather than a hex string. Returns only the
  * public handle and name — what anyone paying them sees anyway.
  */
-api.get("/users/lookup", (c) => {
+api.get("/users/lookup", async (c) => {
+  const limited = await directoryLookupDenied(c);
+  if (limited) return limited;
   const to = (c.req.query("to") || "").trim();
   if (!to) return c.json({ error: "to required" }, 400);
   const u = store.findUserByRecipient(to);
@@ -2773,9 +2848,9 @@ api.post("/users/handle", async (c) => {
     return c.json(
       {
         error: result.error,
-        nextChangeAt: result.nextChangeAt ?? null,
+        ...(result.code ? { code: result.code } : {}),
       },
-      400,
+      result.code === "HANDLE_PERMANENT" ? 409 : 400,
     );
   }
   const user = result.user;
@@ -3082,7 +3157,7 @@ api.get("/chat/threads/:id/messages", async (c) => {
 api.post("/chat/threads/:id/messages", async (c) => {
   const body = z
     .object({
-      text: z.string().min(1),
+      text: z.string().min(1).max(4_000),
       senderId: z.string().optional(),
       // Receipt/system messages are server-authored after on-chain evidence;
       // accepting them from the client lets anyone mint a fake payment UI.
@@ -3902,6 +3977,16 @@ api.post("/agents", async (c) => {
     const { validateAllowance } = await import("../services/agentAllowance.js");
     const problem = validateAllowance(body.allowance, config.agents.maxDailyLimitUsdc * 31);
     if (problem) return c.json({ error: problem }, 400);
+  }
+  // Each agent provisions its own Circle wallet; bound how many one person holds.
+  if (store.listAgents(uid).filter((a) => !a.revokedAt).length >= MAX_AGENTS_PER_PERSON) {
+    return c.json(
+      {
+        error: `You have ${MAX_AGENTS_PER_PERSON} agent wallets. Revoke one you no longer use first.`,
+        code: "AGENT_LIMIT",
+      },
+      409,
+    );
   }
 
   const rawKey = `sk_evabob_${randomUUID().replace(/-/g, "")}`;

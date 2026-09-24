@@ -33,6 +33,10 @@ services:
         value: "false"
       - key: TRUST_PROXY
         value: "true"
+      # Client address for rate limits, set by Render's edge. If a request
+      # arrives without it, X-Forwarded-For is used exactly as before.
+      - key: CLIENT_IP_HEADER
+        value: true-client-ip
       # Free Render cron jobs do not exist. Run the idempotent tick loop in
       # the API process; due work can be delayed while the service is asleep.
       - key: RUN_INTERNAL_REFUND_JOB
@@ -140,6 +144,11 @@ services:
         value: "0x4a5F9daB431C9D8f5E678c00D2865CAD1F685500"
       - key: FEATURE_AGENT_BATCH_SEND
         value: "true"
+      # PIN on every GA payment. Turn on after confirming on a phone that the
+      # PIN screen shows "Evabob: pay … from your GA" and the payment arrives
+      # (see SECURITY_UPDATES.md).
+      - key: GATEWAY_PAY_REQUIRE_PIN
+        value: "false"
       - key: AGENT_MAX_DAILY_LIMIT_USDC
         value: "100"
       - key: AGENT_MAX_USER_DAILY_SPEND_USDC

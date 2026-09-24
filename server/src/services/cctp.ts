@@ -439,6 +439,47 @@ export async function readTxTimestampMs(
 }
 
 /**
+ * Whether a burn transaction came from one of these wallets.
+ *
+ * The server pays destination gas to finish a bridge, so it must only finish
+ * bridges its own users started — otherwise any caller could have the ops
+ * wallet relay anyone's burn. A CCTP burn names its depositor as an indexed
+ * topic (DepositForBurn, and the USDC Transfer out of the wallet), so a
+ * matching topic in the receipt ties the burn to the wallet without depending
+ * on the exact event version.
+ *
+ * Returns null when the receipt cannot be read, so the caller never refuses a
+ * burn that may really be theirs just because the RPC was busy.
+ */
+export async function burnBelongsTo(
+  domain: number,
+  txHash: string,
+  wallets: string[],
+): Promise<boolean | null> {
+  const chain = DEST_CHAINS[domain];
+  if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) return false;
+  const wanted = new Set(
+    wallets
+      .filter((w) => /^0x[a-fA-F0-9]{40}$/.test(w))
+      .map((w) => `0x${"0".repeat(24)}${w.slice(2).toLowerCase()}`),
+  );
+  // Nothing to compare against is "cannot tell", not "someone else's".
+  if (!chain || wanted.size === 0) return null;
+  try {
+    const client = createPublicClient({
+      chain: chain.chain,
+      transport: destTransport(chain.rpcUrls),
+    });
+    const receipt = await client.getTransactionReceipt({ hash: txHash as Hex });
+    return receipt.logs.some((log) =>
+      log.topics.slice(1).some((topic) => topic && wanted.has(topic.toLowerCase())),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The ops wallet's gas balance on a CCTP domain. A bridge the server may have
  * to finish needs the ops wallet able to pay for the mint on the destination;
  * a route where it cannot is a route where money can strand.

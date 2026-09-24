@@ -848,8 +848,13 @@ class _SendScreenState extends State<SendScreen> {
                                   maxLength: 120,
                                   maxLines: 1,
                                   textInputAction: TextInputAction.done,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Add a memo (optional)',
+                                  decoration: InputDecoration(
+                                    // On chain, a note is public and permanent.
+                                    hintText: context
+                                            .watch<AppFeatures>()
+                                            .onchainMemos
+                                        ? 'Add a note · anyone can see it, forever'
+                                        : 'Add a memo (optional)',
                                     counterText: '',
                                     border: InputBorder.none,
                                     enabledBorder: InputBorder.none,

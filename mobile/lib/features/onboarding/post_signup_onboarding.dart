@@ -156,7 +156,7 @@ class _PostSignupOnboardingState extends State<PostSignupOnboarding> {
                   const SizedBox(height: 8),
                   Text(
                     _walletReady
-                        ? 'This is how people can find and pay you. You can use the suggestion or enter your own.'
+                        ? 'This is how people can find and pay you. You can use the suggestion or enter your own. Choose carefully: your @handle is permanent and cannot be changed later.'
                         : 'Create your secure account and choose a PIN before you start using Evabob.',
                     style: Type.body.copyWith(color: EvabobColors.inkMuted),
                   ),
@@ -177,7 +177,8 @@ class _PostSignupOnboardingState extends State<PostSignupOnboarding> {
                       decoration: const InputDecoration(
                         prefixText: '@',
                         hintText: 'yourname',
-                        helperText: 'Letters, numbers and underscores only',
+                        helperText:
+                            'Letters, numbers and underscores only. This is permanent.',
                       ),
                       onSubmitted: (_) => _saveHandle(),
                     ),

@@ -31,8 +31,26 @@ function claimUrl(input: NotifySendInput): string {
   return `${base}/claim?email=${email}`;
 }
 
+/**
+ * A note typed by the sender, as it may appear in an email to a stranger.
+ * Links are removed: an Evabob email must never carry a link Evabob did not
+ * write, or a tiny payment becomes a way to send phishing from Evabob.
+ */
+export function emailSafeNote(note: string | undefined): string | undefined {
+  const cleaned = (note ?? "")
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, "[link removed]")
+    .trim();
+  return cleaned || undefined;
+}
+
+/** Tiny amounts in full, so a 0.000001 payment never reads as "0.00". */
+function emailAmount(amount: number): string {
+  return amount >= 0.01 ? amount.toFixed(2) : String(Number(amount.toFixed(6)));
+}
+
 function buildMessage(input: NotifySendInput): { subject: string; text: string; html: string } {
-  const amt = input.amountUsdc.toFixed(2);
+  const amt = emailAmount(input.amountUsdc);
+  input = { ...input, memo: emailSafeNote(input.memo) };
   const memo = input.memo ? `\nNote: “${input.memo}”` : "";
   const link = claimUrl(input);
 
@@ -50,8 +68,9 @@ ${input.memo ? `<p>Note: ${escapeHtml(input.memo)}</p>` : ""}
     return { subject, text, html };
   }
 
-  // escrow / pending — include claim link
-  const subject = `${input.fromName} sent you ${amt} USDC — claim on Evabob`;
+  // escrow / pending — include claim link. A fixed subject: the sender's
+  // own words never reach the subject line of an email from Evabob.
+  const subject = `You have ${amt} USDC waiting on Evabob`;
   const text = `${input.fromName} sent you ${amt} USDC.${memo}
 
 You don't have an Evabob wallet linked yet, so the funds are held safely until you claim them.

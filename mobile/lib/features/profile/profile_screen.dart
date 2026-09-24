@@ -95,71 +95,20 @@ class ProfileScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _editHandle(BuildContext context, EvabobAuth auth) async {
-    final current = auth.user?.handleOrFallback ?? '';
-    final ctrl = TextEditingController(text: current);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('@handle'),
-        content: TextField(
-          controller: ctrl,
-          decoration: const InputDecoration(
-            labelText: 'Handle for sends (not your display name)',
-            prefixText: '@',
-            helperText:
-                'For sends. Not your display name. You can change it once every three months.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+  /// The @handle is chosen once at signup and is permanent: people who have
+  /// paid it before must always reach the same person. Profile shows it; it
+  /// never edits it.
+  Future<void> _showHandle(BuildContext context, EvabobAuth auth) {
+    final handle = auth.user?.handleOrFallback ?? '';
+    return _showProfileSheet(
+      context,
+      icon: Icons.alternate_email_rounded,
+      title: '@$handle',
+      body:
+          'This is how people find and pay you. It was chosen when you signed up and is permanent, so anyone who has paid you before always reaches you.',
+      footnote: 'Your display name and photo can still be changed.',
+      primaryLabel: 'Done',
     );
-    if (ok != true || !context.mounted) return;
-    final handle = ctrl.text.trim().replaceAll('@', '').toLowerCase();
-    if (handle.length < 3) {
-      showTopSnack(
-        context,
-        const SnackBar(
-          content: Text('Handle must be at least 3 characters'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-    try {
-      final api = context.read<ApiClient>();
-      await api.post('/v1/users/handle', body: {'handle': handle});
-      // Only update handle — display name stays independent.
-      await auth.setHandle(handle);
-      if (context.mounted) {
-        showTopSnack(
-          context,
-          SnackBar(
-            content: Text('Handle set to @$handle'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        showTopSnack(
-          context,
-          SnackBar(
-            content: Text(friendlyError(e)),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _showTerms(BuildContext context) {
@@ -290,7 +239,7 @@ class ProfileScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Your profile, chats, and Evabob history will be removed. Money already in your wallet is not deleted.',
+                'Your profile, chats and Evabob history will be removed, and you will not be able to sign in again. Send out any money in your wallet first: once the account is deleted you cannot reach it from Evabob.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: 'Inter',
@@ -656,7 +605,7 @@ class ProfileScreen extends StatelessWidget {
                   Icons.alternate_email_rounded,
                   '@handle',
                   '@${user?.handleOrFallback ?? '…'}',
-                  () => _editHandle(context, auth),
+                  () => _showHandle(context, auth),
                 ),
               ],
             ),

@@ -204,11 +204,17 @@ export async function adminUnlinkIdentity(input: {
 
 async function unlinkIn(
   registry: Address,
-  input: { kind: IdentityKind; identifier: string },
+  input: { kind: IdentityKind; identifier: string; onlyAccount?: Address },
 ): Promise<{ txHash: Hex; key: Hex; normalized: string } | { skipped: true }> {
   const normalized = normalizeIdentifier(input.kind, input.identifier);
   const existing = await resolveIdentity(input.kind, normalized, registry);
   if (!existing.active) return { skipped: true };
+  if (
+    input.onlyAccount &&
+    existing.account.toLowerCase() !== input.onlyAccount.toLowerCase()
+  ) {
+    return { skipped: true };
+  }
   const wallet = getIdentityLinkerWalletClient();
   const publicClient = getPublicClient();
   const hash = await wallet.writeContract({
@@ -221,4 +227,36 @@ async function unlinkIn(
   });
   await publicClient.waitForTransactionReceipt({ hash });
   return { txHash: hash, key: existing.key, normalized };
+}
+
+/**
+ * Retires a deleted account's identities on chain, so nothing new can be held
+ * for them: a held payment to a deleted account's @handle or email then
+ * returns to its payer instead of releasing to a wallet nobody can open.
+ *
+ * Only links that still point at this account's own wallet are touched. The
+ * registry never re-assigns a retired key, and the handle stays reserved in
+ * the store, so the identity is never given to anyone else.
+ */
+export async function retireAccountIdentities(input: {
+  account: Address;
+  identities: Array<{ kind: IdentityKind; identifier: string }>;
+}): Promise<Array<{ kind: IdentityKind; ok: boolean; error?: string }>> {
+  const results: Array<{ kind: IdentityKind; ok: boolean; error?: string }> = [];
+  for (const identity of input.identities) {
+    try {
+      await unlinkIn(registryAddress(), { ...identity, onlyAccount: input.account });
+      if (mirrorsToEscrowRegistry(identity.kind)) {
+        await unlinkIn(escrowRegistryAddress()!, { ...identity, onlyAccount: input.account });
+      }
+      results.push({ kind: identity.kind, ok: true });
+    } catch (error) {
+      results.push({
+        kind: identity.kind,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
 }

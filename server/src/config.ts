@@ -79,6 +79,13 @@ export const config = {
   appName: req("APP_NAME", "evabob"),
   /** Honor X-Forwarded-For only behind the configured hosting proxy. */
   trustProxy: envFlag("TRUST_PROXY", false),
+  /**
+   * A header the hosting edge sets to the real client address and overwrites
+   * when a client sends its own (e.g. `true-client-ip`, `cf-connecting-ip`).
+   * Used ahead of X-Forwarded-For, whose left-most entry a client can forge.
+   * Only read when TRUST_PROXY is on; absent header → the old behaviour.
+   */
+  clientIpHeader: (process.env.CLIENT_IP_HEADER || "").trim().toLowerCase(),
 
   /** 0.05% platform fee (gas excluded). recipient "" = disabled. */
   platformFee,
@@ -219,6 +226,12 @@ export const config = {
      * verified against the receipt before any row reads completed.
      */
     agentBatchSend: envFlag("FEATURE_AGENT_BATCH_SEND", false),
+    /**
+     * Ask for the person's PIN on every GA payment (services/gatewayPinGate.ts).
+     * Off until tested on a device: GA payments are otherwise signed by the
+     * server as the person's Gateway delegate with no PIN per payment.
+     */
+    gatewayPayPin: envFlag("GATEWAY_PAY_REQUIRE_PIN", false),
     bankTopUp: false,
     cardTopUp: false,
     cashOut: false,

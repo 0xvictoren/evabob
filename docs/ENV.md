@@ -34,6 +34,9 @@ testnet checklist. Production is deliberately locked by
 | `API_PUBLIC_URL` | Exact external HTTPS API origin; required when `NODE_ENV=production` |
 | `CRON_SECRET` | Render-generated bearer secret shared only with the hourly refund cron |
 | `RUN_INTERNAL_REFUND_JOB` | Set `false` on Render so only the external cron runs refunds; local Node defaults to its timer |
+| `TRUST_PROXY` | `true` behind Render's proxy, so rate limits key on the client address rather than the proxy's |
+| `CLIENT_IP_HEADER` | Header the hosting edge sets to the real client address and overwrites if a client sends it (`true-client-ip` on Render). Read ahead of `X-Forwarded-For`, whose left-most entry a client can forge. When a request lacks it, `X-Forwarded-For` is used as before |
+| `GATEWAY_PAY_REQUIRE_PIN` | `true` asks for the person's PIN on every GA payment (see `SECURITY_UPDATES.md`). Default `false` until checked on a phone |
 
 Feature variables are server-authoritative: `FEATURE_DIRECT_SEND`,
 `FEATURE_PROTECTED_SEND`, `FEATURE_REQUESTS`, `FEATURE_GATEWAY`,

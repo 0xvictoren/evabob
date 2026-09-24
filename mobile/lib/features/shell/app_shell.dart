@@ -25,6 +25,7 @@ import '../held/operator_reviews_screen.dart';
 import '../groups/groups_screen.dart';
 import '../hold_links/hold_link_pay_screen.dart';
 import '../home/home_screen.dart';
+import '../profile/account_recovery_alert.dart';
 import '../profile/profile_screen.dart';
 import '../request/request_screen.dart';
 import '../request/payment_link_screen.dart';
@@ -127,6 +128,12 @@ class _AppShellState extends State<AppShell> {
     }
     if (parts.length >= 2 && parts.first.toLowerCase() == 'pay') {
       setState(() => _overlay = 'pay:${parts[1]}');
+      return;
+    }
+    // Someone asked to recover this account from another sign-in: the owner
+    // can stop it during the safety delay.
+    if (parts.length >= 2 && parts.first.toLowerCase() == 'account-recovery') {
+      showAccountRecoveryAlert(context, parts[1]);
       return;
     }
     // A tapped notification about a held payment opens that payment.

@@ -7,6 +7,8 @@
 
 > **How to read the severities.** Evabob runs on testnet and says so clearly. Each finding is still rated as if this code handled real money, because that is the decision it has to support. Where a problem only applies to the current testnet config, the finding says so.
 
+> **Update, 24 September 2026:** fixes for most of these findings, the agent API bug (F-01) and permanent @handles are described in [`SECURITY_UPDATES.md`](./SECURITY_UPDATES.md). This report is kept as written, as the record of what was found.
+
 ---
 
 ## Contents

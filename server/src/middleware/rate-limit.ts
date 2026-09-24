@@ -74,6 +74,12 @@ function callerKey(c: Context): string {
   const auth = c.get("auth") as { userId: string; verified: boolean } | undefined;
   if (auth?.verified) return `u:${auth.userId}`;
   if (config.trustProxy) {
+    // Prefer the edge's own client-address header: the left-most
+    // X-Forwarded-For entry is whatever the client chose to send.
+    if (config.clientIpHeader) {
+      const edge = c.req.header(config.clientIpHeader)?.split(",")[0]?.trim();
+      if (edge && isIP(edge)) return `ip:${edge}`;
+    }
     const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
     if (forwarded && isIP(forwarded)) return `ip:${forwarded}`;
   }
@@ -156,6 +162,17 @@ export const GENERAL: RateLimitRule = {
 export const SENSITIVE: RateLimitRule = {
   name: "sensitive",
   limit: 10,
+  windowMs: 60_000,
+};
+
+/**
+ * Moves that can spend the ops wallet's gas or a server signature: starting
+ * and finishing bridges, and Gateway payments. Its own bucket so a normal
+ * bridge plus a payment never trips SENSITIVE, while scripted loops stop.
+ */
+export const MONEY_MOVES: RateLimitRule = {
+  name: "money-moves",
+  limit: 30,
   windowMs: 60_000,
 };
 

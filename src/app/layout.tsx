@@ -12,7 +12,7 @@ const numans = localFont({
 
 export const metadata: Metadata = {
   title: "Evabob",
-  description: "Send money to anyone — phone, email, or handle.",
+  description: "Send money to anyone by @handle or email.",
 };
 
 export default function RootLayout({

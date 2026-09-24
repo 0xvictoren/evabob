@@ -23,6 +23,7 @@ import {
   waitForChallengesComplete,
 } from "../services/circle-ucw.js";
 import {
+  burnBelongsTo,
   cctpCompleteBridge,
   cctpMintDomainName,
   isCctpMintSupported,
@@ -306,6 +307,23 @@ circleWallets.post("/transfer", async (c) => {
       userId: z.string().optional(),
     })
     .parse(await c.req.json());
+  // Same family check as /send: this route reaches the same people.
+  {
+    const { requireFamilyPass, FamilyCheckError } = await import("../services/familyCheck.js");
+    try {
+      requireFamilyPass({
+        userId: appUserId(c),
+        dest: body.destinationAddress,
+        amount: Number(body.amount),
+        token: "USDC",
+      });
+    } catch (error) {
+      if (error instanceof FamilyCheckError) {
+        return c.json({ error: error.message, code: error.code }, error.status);
+      }
+      throw error;
+    }
+  }
   try {
     const result = await createTransferChallenge({
       userToken: body.userToken,
@@ -744,6 +762,51 @@ circleWallets.post("/gateway/pay", async (c) => {
       );
     }
 
+    // GATEWAY_PAY_REQUIRE_PIN: the server signs GA payments as the person's
+    // delegate, so with the switch on nothing is sent or scheduled until the
+    // person confirms this payment with their PIN. The app runs the returned
+    // challenge and reports it through /verify-challenges, which releases it.
+    const { gatewayPayNeedsPin, parkForPin, pinMessageFor } = await import(
+      "../services/gatewayPinGate.js"
+    );
+    if (gatewayPayNeedsPin()) {
+      const { createVerifyPinChallenge } = await import("../services/circle-ucw.js");
+      const message = pinMessageFor({
+        amountUsdc: body.amountUsdc,
+        destinationAddress: body.destinationAddress,
+      });
+      const pin = await createVerifyPinChallenge({
+        userToken: body.userToken,
+        walletId: body.walletId,
+        purpose: message,
+      });
+      if (!pin.challengeId) {
+        return c.json(
+          {
+            error: "Confirming GA payments with your PIN is not available right now. Nothing was sent.",
+            code: "GA_PIN_UNAVAILABLE",
+          },
+          503,
+        );
+      }
+      parkForPin(pin.challengeId, {
+        userId: uid,
+        depositor,
+        amountUsdc: body.amountUsdc,
+        destinationDomain: body.destinationDomain,
+        destinationAddress: body.destinationAddress,
+        sourceDomain: body.sourceDomain,
+        enableForwarder: body.enableForwarder,
+      });
+      return c.json({
+        mode: "user_gateway_pay",
+        status: "awaiting_pin",
+        appId: circleAppId(),
+        message,
+        challenges: [{ step: "confirm_payment", challengeId: pin.challengeId }],
+      });
+    }
+
     // Approved, but Circle will not accept the approval until it is final on
     // that network (or it was signed seconds ago and is not even mined). The
     // payment is scheduled and goes through by itself — it used to be sent
@@ -1041,6 +1104,33 @@ circleWallets.post("/cctp/finish", async (c) => {
       stage: "resolve_burn",
       error: "Could not resolve burn tx hash",
     });
+  }
+
+  // A hash the caller typed in (rather than one read from their own PIN
+  // challenge) must be a burn from their own wallet: finishing it spends the
+  // ops wallet's gas, and must not be available for anyone else's transfers.
+  if (body.burnTxHash) {
+    const wallets = await listUserWallets(body.userToken).catch(() => []);
+    const mine = await burnBelongsTo(
+      body.sourceDomain ?? config.arc.cctpDomain,
+      burnTxHash,
+      [...wallets.map((w) => w.address || ""), store.getUser(uid)?.evmAddress || ""],
+    );
+    if (mine === null) {
+      // The public RPC refuses reads when busy. A person retrying their own
+      // bridge must not be stuck on that, so an unreadable receipt carries on
+      // as before; only a readable burn from someone else's wallet is refused.
+      console.warn("[cctp/finish] burn ownership unreadable; continuing", burnTxHash.slice(0, 12));
+    } else if (!mine) {
+      return c.json(
+        {
+          ok: false,
+          stage: "resolve_burn",
+          error: "This transfer was not sent from your wallet, so Evabob cannot finish it.",
+        },
+        403,
+      );
+    }
   }
 
   // 2) Confirm burn activity
@@ -1408,7 +1498,7 @@ circleWallets.post("/groups/circles", async (c) => {
 circleWallets.post("/groups/circles/:id/join", async (c) => {
   const { joinCircleCalls } = await import("../services/groupMoney.js");
   return groupBatch(c, async () => ({
-    calls: joinCircleCalls(appUserId(c), c.req.param("id")),
+    calls: await joinCircleCalls(appUserId(c), c.req.param("id")),
     groupId: c.req.param("id"),
   }));
 });
@@ -1604,6 +1694,65 @@ function tokenDecimals(sym: string) {
 }
 
 /**
+ * Sends the GA payments whose PIN the person just confirmed. Runs after the
+ * response: a payment is planned again (balances may have moved), then sent,
+ * or scheduled when an approval is still becoming final. Each parked payment
+ * is released once, so a repeated report cannot send it twice.
+ */
+async function releaseGatewayPayments(userId: string, challengeIds: string[]) {
+  const { releaseConfirmed } = await import("../services/gatewayPinGate.js");
+  const { planGatewayPayment, sendGatewayPayment } = await import(
+    "../services/gatewayPayFlow.js"
+  );
+  const { alertUser } = await import("../services/notifyUser.js");
+  const { flushPrimaryStore } = await import("../services/primary-store.js");
+  for (const p of releaseConfirmed(userId, challengeIds)) {
+    try {
+      const { plan } = await planGatewayPayment({
+        depositor: p.depositor,
+        amountUsdc: p.amountUsdc,
+        destinationDomain: p.destinationDomain,
+        sourceDomain: p.sourceDomain,
+      });
+      if (plan.missingDomains.length > 0 || plan.confirmingDomains.length > 0) {
+        const { scheduleGatewayPay } = await import("../services/gatewayTracker.js");
+        scheduleGatewayPay({
+          userId,
+          depositor: p.depositor,
+          amountUsdc: p.amountUsdc,
+          destinationDomain: p.destinationDomain,
+          destinationAddress: p.destinationAddress,
+          sourceDomain: p.sourceDomain,
+          waitingFor: [...new Set([...plan.missingDomains, ...plan.confirmingDomains])],
+          justApproved: true,
+        });
+      } else {
+        await sendGatewayPayment({
+          userId,
+          depositor: p.depositor,
+          amountUsdc: p.amountUsdc,
+          destinationDomain: p.destinationDomain,
+          destinationAddress: p.destinationAddress,
+          sourceDomain: p.sourceDomain,
+          slices: plan.slices,
+          enableForwarder: p.enableForwarder,
+        });
+      }
+    } catch (error) {
+      alertUser(userId, {
+        kind: "ga_payment_failed",
+        title: "GA payment not sent",
+        body: `${p.amountUsdc} USDC could not be sent (${clientError(error, "it did not go through")}). Check your GA before trying again.`,
+        amountUsdc: p.amountUsdc,
+        token: "USDC",
+      });
+    } finally {
+      await flushPrimaryStore().catch(() => undefined);
+    }
+  }
+}
+
+/**
  * Verify Circle challenges reached COMPLETE (after WebView PIN UI).
  * Call before confirming activity so fake receipts are not created.
  */
@@ -1626,8 +1775,19 @@ circleWallets.post("/verify-challenges", async (c) => {
     timeoutMs: body.timeoutMs ?? 300_000,
   });
 
+  // A PIN that confirms a parked GA payment has no transaction of its own:
+  // do not wait for a hash, and release the payment it confirmed.
+  const { isParkedChallenge } = await import("../services/gatewayPinGate.js");
+  const confirmsGaPayment = body.challengeIds.every(isParkedChallenge);
+  if (confirmsGaPayment) {
+    const completed = verified.statuses
+      .filter((s) => /^COMPLETE/i.test(String(s.status ?? "")))
+      .map((s) => String(s.challengeId));
+    if (completed.length > 0) void releaseGatewayPayments(appUserId(c), completed);
+  }
+
   let txHash: string | undefined = verified.txHash;
-  if (!txHash && body.resolveTxHash) {
+  if (!txHash && body.resolveTxHash && !confirmsGaPayment) {
     const last = body.challengeIds[body.challengeIds.length - 1]!;
     const resolved = await waitForChallengeTxHash({
       userToken: body.userToken,

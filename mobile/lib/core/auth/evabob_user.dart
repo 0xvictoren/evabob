@@ -68,7 +68,7 @@ class EvabobUser {
   /// Shown in UI (Hello, …) — free to change anytime.
   final String displayName;
 
-  /// @handle for sends — unique, first change free then every 2 months.
+  /// @handle for sends — unique, chosen at signup and permanent after that.
   final String? handle;
   final String smartAccount;
 

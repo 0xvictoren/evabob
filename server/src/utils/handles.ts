@@ -17,5 +17,10 @@ export function validateHandle(
   if (RESERVED_HANDLES.has(handle)) {
     return { ok: false, error: "That @handle is reserved" };
   }
+  // Handles are permanent, so a name that reads as Evabob itself
+  // ("evabob_support", "evabobteam") would be a permanent impersonation tool.
+  if (handle.includes("evabob")) {
+    return { ok: false, error: "Handles cannot contain \"evabob\"" };
+  }
   return { ok: true, handle };
 }

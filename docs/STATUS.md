@@ -31,6 +31,28 @@ and other public testnets. Do not read "live" below as "in production" — it me
 
 ---
 
+## Security updates — 2026-09-24
+
+Follow-up to `PRODUCT_AUDIT.md`; full detail in `SECURITY_UPDATES.md`. Server
+448 tests (446 pass; the 2 failures predate these changes, see F-05), Flutter
+69 tests, typecheck, analyze and web build clean. Not yet run on a phone.
+
+| Area | State |
+|------|-------|
+| Agent API (`/v1/agent-api/*` POSTs) | **Fixed** — were all refused with `verified_user_required` |
+| @handles | **Permanent** after signup; a deleted account's handle stays reserved; new handles cannot contain "evabob" |
+| GA payments | Alert on every send; per-user rate limit. PIN per payment built behind `GATEWAY_PAY_REQUIRE_PIN` (**off** until tested on a phone) |
+| Held payments | Receipt goes to the owner of the wallet actually paid; deletion retires on-chain identities |
+| Bridges | `/cctp/finish` only relays burns from the caller's own wallet; per-user rate limit |
+| Rate limits | `CLIENT_IP_HEADER` read ahead of a forgeable `X-Forwarded-For` |
+| Lookups / claims | Per-person lookup allowance; public claims name the sender only for claim links |
+| Account recovery | "Was this you? Stop it" from the alert |
+| Circles | Joining adds to the existing approval instead of replacing it |
+| Privacy | Notice corrected; memo field warns when notes go on-chain |
+| Web | Landing page at `/`; mock-up is 404 in production |
+
+---
+
 ## Testing version stable 1 — 2026-09-24
 
 Fixes from the second round of hands-on testing, then the 14 screens of the

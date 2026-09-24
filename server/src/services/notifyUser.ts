@@ -48,6 +48,12 @@ export type UserAlert = {
     | "review_needed"
     /** A bridge the person left unfinished was completed by the server. */
     | "bridge_arrived"
+    /**
+     * A GA payment was just signed and sent. The server signs these as the
+     * person's Gateway delegate, so this alert is how an unexpected one is
+     * noticed at once.
+     */
+    | "ga_payment_sent"
     /** A GA payment that was still on its way has arrived. */
     | "ga_payment_done"
     /** A GA payment did not go through, or cannot be confirmed yet. */

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy notice" updated="21 September 2026">
+    <LegalPage title="Privacy notice" updated="24 September 2026">
       <p>
         This notice explains how Evabob processes personal data when you use
         the mobile app, website and testnet payment services. It is a product
@@ -37,10 +37,17 @@ export default function PrivacyPage() {
           Circle provides wallet and transaction infrastructure. Public
           blockchains record wallet addresses, transaction amounts and hashes.
           Blockchain records are public and generally cannot be changed or
-          erased by Evabob. Evabob does not put chat text, photo evidence or
-          free-text payment descriptions on-chain. Older identity mappings or
-          transactions created before a deletion request may remain permanently
-          visible on the relevant network.
+          erased by Evabob. Evabob does not put chat text or photo evidence
+          on-chain, and held payments carry a random reference rather than
+          your words. Two things can be written on-chain where the test
+          network has them switched on: a note you add to a payment, which the
+          send screen marks as public, and a one-way hash of your email linked
+          to your wallet so money can be held for you before you join. Anyone
+          who already knows your email can match that hash to your wallet, and
+          neither can be erased. Your @handle is also linked to your wallet
+          on-chain so people can pay it. Older identity mappings or
+          transactions created before a deletion request may remain
+          permanently visible on the relevant network.
         </p>
       </LegalSection>
 
@@ -50,8 +57,7 @@ export default function PrivacyPage() {
           blockchain services), Dynamic (authentication), MongoDB (application
           data), Firebase (push notifications), Pusher (real-time events), our
           hosting and email providers, and DeepSeek for the optional AI
-          assistant. Sensitive external AI processing is disabled unless
-          privacy controls are enabled. These providers may process data in
+          assistant, which is used only if you turn it on. These providers may process data in
           countries outside yours. Before production launch, Evabob must use
           appropriate processor agreements and transfer safeguards, such as
           contractual clauses, where required.
@@ -60,12 +66,14 @@ export default function PrivacyPage() {
 
       <LegalSection title="AI controls">
         <p>
-          Exact contacts, emails, wallet addresses, transaction hashes and full
-          chat history are not intended to be sent to an external model. When
-          AI processing is enabled, Evabob uses short-lived aliases and the
-          minimum context needed for the current request. You may opt out of
-          external AI processing without losing core wallet and payment
-          functions.
+          The Evabob assistant uses an external model (DeepSeek) only after you
+          turn it on. When it is on, your message is sent, together with the
+          information needed to answer it, which can include your balance,
+          recent payments, saved contacts, your email address and your wallet
+          address. Earlier messages in the conversation are not sent. You can
+          turn it off at any time without losing any wallet or payment
+          function; with it off, the assistant still understands simple money
+          commands on Evabob&apos;s own servers.
         </p>
       </LegalSection>
 

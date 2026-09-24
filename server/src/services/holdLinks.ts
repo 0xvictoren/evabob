@@ -50,6 +50,9 @@ export type HoldLink = {
   closedAt?: string;
 };
 
+/** Open links one seller may have. Far above real use; bounds storage. */
+export const MAX_HOLD_LINKS_PER_SELLER = 200;
+
 export class HoldLinkError extends Error {
   constructor(message: string, readonly status: 400 | 403 | 404 | 409 = 400) {
     super(message);
@@ -102,6 +105,12 @@ export function createHoldLink(
   }
   const title = clean(input.title, 80);
   if (!title) throw new HoldLinkError("Say what you are selling.");
+  if (links.filter((l) => l.sellerId === sellerId && l.active).length >= MAX_HOLD_LINKS_PER_SELLER) {
+    throw new HoldLinkError(
+      `You have ${MAX_HOLD_LINKS_PER_SELLER} open links. Close one you no longer use first.`,
+      409,
+    );
+  }
   const amount = Math.round(input.amount * 1e6) / 1e6;
   if (!(amount >= 0.01) || amount > MAX_HOLD_LINK_AMOUNT) {
     throw new HoldLinkError(`The price must be between $0.01 and $${MAX_HOLD_LINK_AMOUNT}.`);

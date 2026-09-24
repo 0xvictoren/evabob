@@ -21,6 +21,10 @@ class AppFeatures extends ChangeNotifier {
   bool agentWallets = false;
   bool x402Execution = false;
   bool agentBatchSend = false;
+
+  /// A payment note is written on the public network with the payment, where
+  /// anyone can read it and it can never be removed. The send screen says so.
+  bool onchainMemos = false;
   List<String> bridgeRoutes = const [];
 
   /// Evabob platform fee in basis points (5 = 0.05%); 0 when off. Added on
@@ -61,6 +65,7 @@ class AppFeatures extends ChangeNotifier {
       agentWallets = flags['agentWallets'] == true;
       x402Execution = flags['x402Execution'] == true;
       agentBatchSend = flags['agentBatchSend'] == true;
+      onchainMemos = flags['onchainMemos'] == true;
       bridgeRoutes = (flags['bridgeRoutes'] is List)
           ? (flags['bridgeRoutes'] as List)
               .map((value) => value.toString())
@@ -79,6 +84,8 @@ class AppFeatures extends ChangeNotifier {
       agentWallets = false;
       x402Execution = false;
       agentBatchSend = false;
+      // Unknown: assume a note may be public, so the warning shows.
+      onchainMemos = true;
       bridgeRoutes = const [];
       platformFeeBps = 0;
       loaded = false;

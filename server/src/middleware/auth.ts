@@ -78,7 +78,7 @@ const AGENT_KEY_PATHS = new Set(["/v1/x402/pay"]);
 /** The agent's own API: its tasks, approvals and allowance (routes/agentCommerce.ts). */
 const AGENT_KEY_PREFIXES = ["/v1/agent-api/"] as const;
 
-function acceptsAgentKey(path: string): boolean {
+export function acceptsAgentKey(path: string): boolean {
   return AGENT_KEY_PATHS.has(path) || AGENT_KEY_PREFIXES.some((p) => path.startsWith(p));
 }
 

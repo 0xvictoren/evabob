@@ -80,10 +80,22 @@ export type UserRecord = {
   lastSignedInAt?: string;
   /** Tombstone retained only to preserve financial and blockchain records. */
   deletedAt?: string;
+  /**
+   * The @handle a deleted account held. Kept only to reserve it: handles are
+   * permanent and bound on chain to this account's wallet, so giving it to
+   * someone else would route their held payments to this wallet.
+   */
+  retiredHandle?: string;
   createdAt: string;
 };
 
-export const HANDLE_COOLDOWN_MS = 60 * 24 * 60 * 60 * 1000; // 2 months
+/**
+ * Whether this account may still choose its @handle: only while signup is
+ * unfinished. After that the handle is permanent.
+ */
+export function handleIsOpen(user: Pick<UserRecord, "onboardingCompletedAt" | "deletedAt">): boolean {
+  return user.onboardingCompletedAt === null && !user.deletedAt;
+}
 export const DISPLAY_NAME_COOLDOWN_MS = 49 * 24 * 60 * 60 * 1000; // 7 weeks
 
 export type ActivityItem = {
@@ -469,7 +481,7 @@ export const store = {
       if (evmAddress && /^0x[a-fA-F0-9]{40}$/i.test(evmAddress)) {
         existing.evmAddress = evmAddress;
       }
-      if (!existing.handle) {
+      if (!existing.handle && !existing.deletedAt) {
         const seed = (existing.email.split("@")[0] || existing.id)
           .toLowerCase()
           .replace(/[^a-z0-9_]/g, "");
@@ -595,6 +607,7 @@ export const store = {
     user.email = `deleted+${pseudonym}@invalid.evabob`;
     user.displayName = "Deleted user";
     user.deletedAt = now;
+    if (user.handle) user.retiredHandle = user.handle.toLowerCase();
     delete user.handle;
     delete user.phone;
     delete user.phoneLinkedAt;
@@ -714,7 +727,8 @@ export const store = {
       (u) =>
         u.id !== exceptUserId &&
         ((u.handle && u.handle.toLowerCase() === h) ||
-          (!u.handle && u.email.split("@")[0].toLowerCase() === h)),
+          (u.retiredHandle && u.retiredHandle.toLowerCase() === h) ||
+          (!u.handle && !u.deletedAt && u.email.split("@")[0].toLowerCase() === h)),
     ) || db.agents.some(
       (a) => a.id !== exceptAgentId && a.handle?.toLowerCase() === h,
     );
@@ -773,36 +787,39 @@ export const store = {
    * First handle change is free (does not start cooldown).
    * Subsequent changes: 30-day lock from handleChangedAt.
    */
+  /**
+   * Sets the @handle chosen during signup. A handle is permanent: it can be
+   * set (and re-set, if a first choice fails) only until onboarding finishes,
+   * and never after. Records from before the onboarding gate have
+   * `onboardingCompletedAt` undefined and count as finished.
+   */
   updateHandle(
     userId: string,
     newHandle: string,
   ):
     | { ok: true; user: UserRecord; previousHandle?: string }
-    | { ok: false; error: string; nextChangeAt?: string } {
+    | { ok: false; error: string; code?: "HANDLE_PERMANENT" } {
     const user = this.getUser(userId);
     if (!user) return { ok: false, error: "user not found" };
     const valid = validateHandle(newHandle);
     if (!valid.ok) return { ok: false, error: valid.error };
     const h = valid.handle;
+    if (!handleIsOpen(user)) {
+      if (user.handle && user.handle.toLowerCase() === h) {
+        return { ok: true, user, previousHandle: user.handle };
+      }
+      return {
+        ok: false,
+        code: "HANDLE_PERMANENT",
+        error: "Your @handle is permanent. It was set when you signed up and cannot be changed.",
+      };
+    }
     if (this.isHandleTaken(h, userId)) {
       return { ok: false, error: "That @handle is already taken" };
     }
-    const changes = user.handleChangeCount ?? 0;
-    if (changes >= 1 && user.handleChangedAt) {
-      const last = new Date(user.handleChangedAt).getTime();
-      const unlock = last + HANDLE_COOLDOWN_MS;
-      if (Date.now() < unlock) {
-        return {
-          ok: false,
-          error:
-            "Handle can only be changed every 2 months after the first change",
-          nextChangeAt: new Date(unlock).toISOString(),
-        };
-      }
-    }
     const previousHandle = user.handle;
     user.handle = h;
-    user.handleChangeCount = changes + 1;
+    user.handleChangeCount = (user.handleChangeCount ?? 0) + 1;
     user.handleChangedAt = new Date().toISOString();
     save(db);
     void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));

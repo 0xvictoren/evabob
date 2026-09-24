@@ -668,8 +668,26 @@ export async function mongoReleaseWriterLease(owner: string): Promise<void> {
 export async function mongoUpsertUser(user: UserRecord): Promise<UserRecord> {
   if (!mongoReady()) return user;
   const { _id, ...doc } = user as UserRecord & { _id?: unknown };
+  // $set alone never removes a field, so a deleted account would keep its
+  // handle, phone and photo in this mirror. Clear what anonymisation removed.
+  const cleared = user.deletedAt
+    ? Object.fromEntries(
+        ["handle", "phone", "phoneLinkedAt", "avatarUrl", "avatarBundleIndex", "authIds"]
+          .filter((field) => (doc as Record<string, unknown>)[field] === undefined)
+          .map((field) => [field, "" as const]),
+      )
+    : {};
+  const setDoc = Object.fromEntries(
+    Object.entries(doc).filter(([field]) => !(field in cleared)),
+  );
   try {
-    await users().updateOne({ id: user.id }, { $set: doc }, { upsert: true });
+    await users().updateOne(
+      { id: user.id },
+      (Object.keys(cleared).length
+        ? { $set: setDoc, $unset: cleared }
+        : { $set: setDoc }) as Parameters<ReturnType<typeof users>["updateOne"]>[1],
+      { upsert: true },
+    );
   } catch (e) {
     // Unique handle (or email) collision must never take down the API —
     // session sync runs on every balance refresh.

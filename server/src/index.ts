@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Hono } from "hono";
@@ -12,6 +12,7 @@ import { dataDir, dataPath } from "./utils/data-path.js";
 import { authMiddleware } from "./middleware/auth.js";
 import {
   GENERAL,
+  MONEY_MOVES,
   ONBOARDING,
   SENSITIVE,
   rateLimit,
@@ -113,7 +114,10 @@ app.use("*", async (c, next) => {
     return c.json(
       {
         error: "persistence_unavailable",
-        detail: "The operation could not be durably recorded. Retry later.",
+        // The handler already ran: money may have moved on chain. Telling
+        // the app to simply retry could send it twice.
+        detail:
+          "This may already have gone through. Check Activity before trying again.",
       },
       503,
     );
@@ -187,6 +191,10 @@ app.on("POST", "/v1/agent-tasks/*/take", rateLimit(SENSITIVE));
 app.use("/x/*", rateLimit(GENERAL));
 app.use("/v1/users/me/avatar", rateLimit(SENSITIVE));
 app.use("/v1/users/recovery/*", rateLimit(SENSITIVE));
+// Bridges and Gateway payments: the server may pay destination gas or sign.
+app.on("POST", "/v1/app-kit/ucw/bridge", rateLimit(MONEY_MOVES));
+app.on("POST", "/v1/circle/cctp/*", rateLimit(MONEY_MOVES));
+app.on("POST", "/v1/circle/gateway/*", rateLimit(MONEY_MOVES));
 app.use("/v1/circle/create-user", rateLimit(ONBOARDING));
 app.use("/v1/circle/session", rateLimit(ONBOARDING));
 app.use("/v1/circle/prepare-pin", rateLimit(ONBOARDING));
@@ -393,7 +401,10 @@ app.get("/challenge", (c) => {
 function cronAuthorized(c: { req: { header: (n: string) => string | undefined } }) {
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return "cron_not_configured" as const;
-  return c.req.header("authorization") === `Bearer ${secret}` ? null : ("unauthorized" as const);
+  // Compared as hashes in constant time, so response timing reveals nothing.
+  const sent = createHash("sha256").update(c.req.header("authorization") ?? "").digest();
+  const wanted = createHash("sha256").update(`Bearer ${secret}`).digest();
+  return timingSafeEqual(sent, wanted) ? null : ("unauthorized" as const);
 }
 
 app.get("/internal/cron/escrow-refunds", async (c) => {

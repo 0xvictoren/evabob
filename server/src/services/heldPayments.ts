@@ -392,9 +392,21 @@ async function releaseToRecipient(
     status: "completed",
   });
 
-  const worker =
-    store.findUserByEmail(record.recipientId) ??
-    store.findUserByHandle(record.recipientId);
+  // The contract paid whichever wallet the registry resolves, so the receipt
+  // belongs to that wallet's owner. Looking the person up by handle or email
+  // could credit someone else if the identity and the wallet ever disagree —
+  // they would be told they were paid while the money went elsewhere.
+  const paidTo = target.account.toLowerCase();
+  const worker = store
+    .listUsers()
+    .find((u) => u.evmAddress?.toLowerCase() === paidTo && !u.deletedAt);
+  const named = workerUserId(record);
+  if (named && named !== worker?.id) {
+    console.warn(
+      `[held] transfer ${transferId}: ${record.recipientId} resolves on chain to a wallet ` +
+        `its current Evabob holder does not own; receipt recorded for the wallet owner only`,
+    );
+  }
   if (worker) {
     store.addActivity({
       userId: worker.id,

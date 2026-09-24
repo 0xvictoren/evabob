@@ -26,6 +26,7 @@ class AppLinkService extends ChangeNotifier {
     'review',
     'chat',
     'claim',
+    'account-recovery',
   };
 
   /// Converts verified web links into the same route shape as internal links

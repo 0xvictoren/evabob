@@ -40,6 +40,10 @@ export const MAX_PRICE_USDC = 1_000;
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_FILES = 5;
 export const MAX_TOTAL_FILE_BYTES = 10 * 1024 * 1024;
+/** Open paywalls one person may have. Far above real use; bounds storage. */
+export const MAX_PAYWALLS_PER_PERSON = 100;
+/** Stored files across all of one person's paywalls. */
+export const MAX_FILE_BYTES_PER_PERSON = 200 * 1024 * 1024;
 export const BOOKING_ANSWER_MS = 48 * 60 * 60 * 1000;
 export const PAYOUT_MIN_USDC = 1;
 export const PAYOUT_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -270,6 +274,26 @@ export async function createPaywall(ownerId: string, input: NewPaywall): Promise
   }
   const title = clean(input.title, 80);
   if (!title) throw new PaywallError("Say what you are selling.");
+  const theirs = paywalls().filter((p) => p.ownerId === ownerId);
+  if (theirs.filter((p) => p.active).length >= MAX_PAYWALLS_PER_PERSON) {
+    throw new PaywallError(
+      `You have ${MAX_PAYWALLS_PER_PERSON} open paywalls. Close one you no longer use first.`,
+      409,
+    );
+  }
+  if (input.kind === "file") {
+    const stored = theirs.reduce(
+      (n, p) => n + (p.files ?? []).reduce((m, f) => m + f.bytes, 0),
+      0,
+    );
+    const adding = (input.files ?? []).reduce(
+      (n, f) => n + Math.floor((f.base64.length * 3) / 4),
+      0,
+    );
+    if (stored + adding > MAX_FILE_BYTES_PER_PERSON) {
+      throw new PaywallError("You have reached the storage limit for paywall files.", 409);
+    }
+  }
   const price = Math.round(input.priceUsdc * 1e6) / 1e6;
   if (!(price >= MIN_PRICE_USDC) || price > MAX_PRICE_USDC) {
     throw new PaywallError(`The price must be between $${MIN_PRICE_USDC} and $${MAX_PRICE_USDC}.`);

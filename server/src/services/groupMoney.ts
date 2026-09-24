@@ -279,7 +279,8 @@ export async function prepareCircle(
       abi: moneyCirclesAbi,
       functionName: "nextCircleId",
     })) as bigint;
-    calls.push(...joinCallsFor(record, nextId));
+    const organizer = people.find((p) => p.id === organizerId);
+    calls.push(...(await joinCallsFor(record, nextId, organizer?.evmAddress ?? "")));
   }
   groups.push(record);
   save();
@@ -290,14 +291,39 @@ function commitmentUnits(record: CircleRecord): bigint {
   return units(record.contributionUsdc) * BigInt(record.memberIds.length);
 }
 
-function joinCallsFor(record: CircleRecord, onChainId: bigint): Call[] {
+/**
+ * Every circle shares one MoneyCircles contract, and an ERC-20 approval is per
+ * spender, so approving just this circle's commitment would replace whatever
+ * the member still owes their other circles — they would then come up short
+ * there and be marked behind for a round they never missed. The approval adds
+ * this commitment to what is already approved. If the current allowance
+ * cannot be read, it approves this commitment alone, as before.
+ */
+async function joinCallsFor(
+  record: CircleRecord,
+  onChainId: bigint,
+  member: string,
+): Promise<Call[]> {
+  let already = 0n;
+  if (/^0x[a-fA-F0-9]{40}$/.test(member)) {
+    try {
+      already = (await getPublicClient().readContract({
+        address: config.arc.usdc as Address,
+        abi: erc20Abi,
+        functionName: "allowance",
+        args: [member as Address, record.contract as Address],
+      })) as bigint;
+    } catch {
+      already = 0n;
+    }
+  }
   return [
     {
       to: config.arc.usdc as Address,
       data: encodeFunctionData({
         abi: erc20Abi,
         functionName: "approve",
-        args: [record.contract as Address, commitmentUnits(record)],
+        args: [record.contract as Address, already + commitmentUnits(record)],
       }),
     },
     {
@@ -308,7 +334,7 @@ function joinCallsFor(record: CircleRecord, onChainId: bigint): Call[] {
 }
 
 /** The calls a member signs to join: approve the whole commitment, then join. */
-export function joinCircleCalls(userId: string, id: string): Call[] {
+export async function joinCircleCalls(userId: string, id: string): Promise<Call[]> {
   const record = requireCircle(id);
   if (!record.memberIds.includes(userId)) throw new GroupMoneyError("You are not in this circle", 403);
   if (record.state !== "forming") throw new GroupMoneyError("This circle is not taking members", 409);
@@ -316,7 +342,7 @@ export function joinCircleCalls(userId: string, id: string): Call[] {
   if (record.joined.includes(me.evmAddress.toLowerCase())) {
     throw new GroupMoneyError("You have already joined", 409);
   }
-  return joinCallsFor(record, BigInt(record.onChainId!));
+  return joinCallsFor(record, BigInt(record.onChainId!), me.evmAddress);
 }
 
 function requireCircle(id: string): CircleRecord {

@@ -11,7 +11,7 @@
  * Legacy CCTP / Gateway / Synthra remain mounted when APP_KIT_KEEP_LEGACY=true.
  */
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { config } from "../config.js";
 import {
@@ -529,6 +529,12 @@ appKitRoutes.post("/ucw/send", async (c) => {
       chain: z.string().optional().default("Arc_Testnet"),
     })
     .parse(await c.req.json());
+  const familyDenied = await familyCheckDenied(c, {
+    to: body.to,
+    amount: body.amount,
+    token: body.token,
+  });
+  if (familyDenied) return familyDenied;
   try {
     const job = startUcwSendJob({
       userId: userId(c),
@@ -680,6 +686,12 @@ appKitRoutes.post("/ucw/spend", async (c) => {
       sourceChains: z.array(z.string()).optional(),
     })
     .parse(await c.req.json());
+  const familyDenied = await familyCheckDenied(c, {
+    to: body.recipientAddress,
+    amount: body.amountIn,
+    token: "USDC",
+  });
+  if (familyDenied) return familyDenied;
   try {
     const job = startUcwSpendJob({
       userId: userId(c),
@@ -748,6 +760,39 @@ appKitRoutes.post("/ucw/compose", async (c) => {
     );
   }
 });
+
+/**
+ * The family check the send screen's route applies (/v1/circle/send), for the
+ * App Kit routes that reach the same people. Returns a response when the
+ * payment needs the emailed code first.
+ */
+async function familyCheckDenied(
+  c: Context,
+  input: { to: string; amount: number | string; token: string },
+): Promise<Response | null> {
+  const { requireFamilyPass, FamilyCheckError } = await import("../services/familyCheck.js");
+  let dest = input.to.trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(dest)) {
+    const { resolvePayee } = await import("../services/resolvePayee.js");
+    const payee = resolvePayee(userId(c), dest);
+    if (!payee.ok) return null; // the job refuses an unknown payee on its own
+    dest = payee.address;
+  }
+  try {
+    requireFamilyPass({
+      userId: userId(c),
+      dest,
+      amount: Number(input.amount),
+      token: input.token.toUpperCase(),
+    });
+    return null;
+  } catch (error) {
+    if (error instanceof FamilyCheckError) {
+      return c.json({ error: error.message, code: error.code }, error.status);
+    }
+    throw error;
+  }
+}
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));

@@ -1,5 +1,4 @@
 import Image from "next/image";
-import { headers } from "next/headers";
 
 import { money } from "@/components/public-payment-shell";
 import logo from "../../../mobile/assets/logo.png";
@@ -65,7 +64,9 @@ export default async function ClaimPage({
   searchParams: Promise<{ token?: string; transferId?: string }>;
 }) {
   const query = await searchParams;
-  const host = (await headers()).get("host") || "evabob.me";
+  // Shown as the page's "address bar". Taken from configuration, not the
+  // request's Host header, which the caller controls.
+  const host = process.env.NEXT_PUBLIC_APP_HOST || "evabob.me";
   const id = (query.transferId || query.token || "").trim();
   let claim: PublicClaim | null = null;
   let unavailable = false;
@@ -128,7 +129,7 @@ export default async function ClaimPage({
             </div>
 
             <p className="mt-[38px] text-center text-[10px] leading-[14px] tracking-[0.8px] text-[#64727e]">
-              THIS LINK ONLY WORKS ONCE
+              ONLY THE PERSON IT WAS SENT TO CAN CLAIM IT
             </p>
           </>
         ) : (

@@ -15,6 +15,7 @@ import { formatUnits } from "viem";
 import { store } from "../store/db.js";
 import { jsonSafe } from "../utils/json-safe.js";
 import { feeActivityFields, quotePlatformFee } from "./platformFee.js";
+import { alertUser } from "./notifyUser.js";
 
 export async function planGatewayPayment(input: {
   depositor: Address;
@@ -70,6 +71,16 @@ export async function sendGatewayPayment(input: {
   });
   const feeFields = feeActivityFields(feeQuote, "USDC");
   const to = `${input.destinationAddress.slice(0, 6)}…${input.destinationAddress.slice(-4)}`;
+  // The server signed this as the person's Gateway delegate, without a PIN
+  // for this payment. Tell them straight away, so one they did not make is
+  // noticed while it can still be acted on.
+  alertUser(input.userId, {
+    kind: "ga_payment_sent",
+    title: "Paid from your GA",
+    body: `${input.amountUsdc} USDC to ${to}. Not you? Sign out of Evabob on other devices and tell us now.`,
+    amountUsdc: input.amountUsdc,
+    token: "USDC",
+  });
 
   if (!(result.status === "complete" && result.mintTx)) {
     // Not landed inside this request. Record it — with the attestation, so
