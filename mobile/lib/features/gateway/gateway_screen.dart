@@ -48,6 +48,18 @@ class _GatewayScreenState extends State<GatewayScreen> {
   late GatewayMode _mode;
   final _amount = TextEditingController(text: '5');
   final _dest = TextEditingController();
+
+  /// The payee address stays closed until they choose to change it.
+  bool _editDest = false;
+
+  bool get _destIsOwn {
+    final d = _dest.text.trim().toLowerCase();
+    final own = context.read<CircleWalletService>().address?.toLowerCase();
+    return d.isEmpty || d == own;
+  }
+
+  static String _shortAddr(String a) =>
+      a.length > 14 ? '${a.substring(0, 6)}…${a.substring(a.length - 4)}' : a;
   int _domain = 26; // Arc default for pay
   bool _busy = false;
 
@@ -101,8 +113,12 @@ class _GatewayScreenState extends State<GatewayScreen> {
   }
 
   Future<void> _scanPayee() async {
-    final hit = await AddressScanSheet.open(context, title: 'Scan payee');
-    if (!mounted || hit == null) return;
+    final hit = await AddressScanSheet.open(
+      context,
+      title: 'Scan payee',
+      pickNetwork: true,
+    );
+    if (!mounted || hit == null || hit.address.isEmpty) return;
     setState(() {
       _dest.text = hit.address;
       if (hit.domain != null) {
@@ -182,10 +198,10 @@ class _GatewayScreenState extends State<GatewayScreen> {
         SnackBar(
           content: Text(
             platformFee > 0
-                ? 'Not enough on Arc for ${formatUsdc(amt)} plus the '
-                    '${formatUsdc(platformFee)} Evabob fee — you have '
-                    '${formatUsdc(wallet.usdcWallet)}'
-                : 'Not enough on Arc — you have ${formatUsdc(wallet.usdcWallet)}',
+                ? 'Not enough on Arc for ${formatTokenAmount(amt)} plus the '
+                    '${formatTokenAmount(platformFee)} Evabob fee — you have '
+                    '${formatTokenAmount(wallet.usdcWallet)}'
+                : 'Not enough on Arc — you have ${formatTokenAmount(wallet.usdcWallet)}',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -235,11 +251,11 @@ class _GatewayScreenState extends State<GatewayScreen> {
         // Saying "topped up" while the balance has not moved is what made a
         // working deposit look broken, so each outcome gets its own message.
         final message = switch (watch) {
-          DepositWatch.credited => 'Added ${formatUsdc(amt)} to your GA',
+          DepositWatch.credited => 'Added ${formatTokenAmount(amt)} to your GA',
           DepositWatch.pending =>
-            'On its way · ${formatUsdc(wallet.gatewayPendingUsdc)} arriving',
+            'On its way · ${formatTokenAmount(wallet.gatewayPendingUsdc)} arriving',
           DepositWatch.stillSettling =>
-            '${formatUsdc(amt)} on its way. ${_settlementHint(_sourceDomain)}',
+            '${formatTokenAmount(amt)} on its way. ${_settlementHint(_sourceDomain)}',
         };
         showTopSnack(
           context,
@@ -305,8 +321,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
         context,
         SnackBar(
           content: Text(
-            'Your GA has ${formatUsdc(spendable)} ready — you need '
-            '${formatUsdc(need)} including the Evabob fee. Money still '
+            'Your GA has ${formatTokenAmount(spendable)} ready — you need '
+            '${formatTokenAmount(need)} including the Evabob fee. Money still '
             'arriving cannot be spent yet.',
           ),
           behavior: SnackBarBehavior.floating,
@@ -367,7 +383,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
         SnackBar(
           content: Text(
             ok
-                ? 'Paid ${formatUsdc(amt)} from your GA'
+                ? 'Paid ${formatTokenAmount(amt)} from your GA'
                 : inTransit
                     ? (err ??
                         'Sent — it is on its way. No need to send it again.')
@@ -455,7 +471,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    formatUsdc(wallet.gatewayUsdc),
+                    formatTokenAmount(wallet.gatewayUsdc),
                     style: const TextStyle(
                       fontSize: 48,
                       fontWeight: FontWeight.w400,
@@ -464,7 +480,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Ready to spend  ${formatUsdc(wallet.gatewayConfirmedUsdc)}',
+                    'Ready to spend  ${formatTokenAmount(wallet.gatewayConfirmedUsdc)}',
                     style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w400,
@@ -472,7 +488,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     ),
                   ),
                   Text(
-                    'Still arriving  ${formatUsdc(wallet.gatewayPendingUsdc)}',
+                    'Still arriving  ${formatTokenAmount(wallet.gatewayPendingUsdc)}',
                     style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w400,
@@ -482,8 +498,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   Text(
                     // Dollars only: the GA holds USDC, and euros are never
                     // shown beside a dollar total.
-                    'Wallet ${formatUsdc(wallet.usdcWallet)} · '
-                    'Total ${formatUsdc(wallet.totalUsdc)}',
+                    'Wallet ${formatTokenAmount(wallet.usdcWallet)} · '
+                    'Total ${formatTokenAmount(wallet.totalUsdc)}',
                     style: const TextStyle(
                         fontSize: 10, color: EvabobColors.lightDark),
                   ),
@@ -512,7 +528,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                             ),
                           ),
                           Text(
-                            formatUsdc(wallet.usdcOnDomain(c.domain)),
+                            formatTokenAmount(wallet.usdcOnDomain(c.domain)),
                             style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w400,
@@ -541,7 +557,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                                 ),
                               ),
                               Text(
-                                formatUsdc(b.balanceUsdc),
+                                formatTokenAmount(b.balanceUsdc),
                                 style: const TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w400,
@@ -605,7 +621,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     _sourceChainPicker(label: 'Move it from'),
                     const SizedBox(height: 8),
                     Text(
-                      'You have ${formatUsdc(sourceBal)} there'
+                      'You have ${formatTokenAmount(sourceBal)} there'
                       '${_sourceDomain == 26 ? ' (Arc wallet)' : ''}',
                       style: const TextStyle(
                         fontSize: 10,
@@ -648,7 +664,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'You have ${formatUsdc(wallet.gatewayConfirmedUsdc > 0 ? wallet.gatewayConfirmedUsdc : wallet.gatewayUsdc)} '
+                      'You have ${formatTokenAmount(wallet.gatewayConfirmedUsdc > 0 ? wallet.gatewayConfirmedUsdc : wallet.gatewayUsdc)} '
                       'ready to spend, anywhere Evabob reaches. It works out '
                       'where to take it from, so you do not have to pick. The '
                       'first payment to a new network asks you to confirm once '
@@ -704,18 +720,36 @@ class _GatewayScreenState extends State<GatewayScreen> {
                       },
                     ),
                     const SizedBox(height: 10),
-                    TextField(
-                      controller: _dest,
-                      decoration: InputDecoration(
-                        labelText: 'Payee 0x address',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          tooltip: 'Scan QR',
-                          onPressed: _busy ? null : _scanPayee,
-                          icon: const Icon(Icons.qr_code_scanner_rounded),
+                    // Filled in with their own wallet and kept closed, so a
+                    // stray tap cannot change a character of it. It opens
+                    // only when they ask to change it.
+                    if (!_editDest)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : () => setState(() => _editDest = true),
+                          icon: const Icon(Icons.edit_outlined, size: 16),
+                          label: Text(_destIsOwn
+                              ? 'Goes to your wallet · Change address'
+                              : 'Goes to ${_shortAddr(_dest.text.trim())} · Change address'),
+                        ),
+                      )
+                    else
+                      TextField(
+                        controller: _dest,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          labelText: 'Send it to this address instead',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            tooltip: 'Scan QR',
+                            onPressed: _busy ? null : _scanPayee,
+                            icon: const Icon(Icons.qr_code_scanner_rounded),
+                          ),
                         ),
                       ),
-                    ),
                     const SizedBox(height: 12),
                     FilledButton(
                       onPressed: _busy ? null : _pay,

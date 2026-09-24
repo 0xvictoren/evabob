@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/fx/fx_service.dart';
 import '../../core/api/api_client.dart';
 import '../../core/held/operator_reviews_api.dart';
 import '../../core/utils/text_safe.dart';
@@ -736,6 +737,21 @@ class ProfileScreen extends StatelessWidget {
                     height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
                 Builder(
                   builder: (context) {
+                    final fx = context.watch<FxService>();
+                    return _tile(
+                      Icons.currency_exchange_rounded,
+                      'Main currency',
+                      fx.isNaira
+                          ? 'Naira (₦) · amounts shown and typed in naira'
+                          : r'Dollar ($) · amounts shown and typed in dollars',
+                      () => _pickCurrency(context),
+                    );
+                  },
+                ),
+                Divider(
+                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                Builder(
+                  builder: (context) {
                     final lock = context.watch<AppLockService>();
                     return _tile(
                       Icons.lock_outline_rounded,
@@ -918,6 +934,48 @@ class ProfileScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Naira or dollars: every amount in the app is shown and typed in the
+  /// one chosen, with the other underneath. Saved to the account, so it
+  /// follows the person to another phone.
+  Future<void> _pickCurrency(BuildContext context) async {
+    final fx = context.read<FxService>();
+    final api = context.read<ApiClient>();
+    final picked = await showModalBottomSheet<DominantCurrency>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final c in DominantCurrency.values)
+              ListTile(
+                leading: Text(
+                  c.symbol,
+                  style: const TextStyle(fontSize: 20, color: EvabobColors.navy),
+                ),
+                title: Text(c == DominantCurrency.ngn ? 'Naira' : 'Dollar'),
+                subtitle: Text(
+                  c == DominantCurrency.ngn
+                      ? r'Type ₦2,000 and the dollar amount is sent'
+                      : r'Amounts in dollars, naira underneath',
+                ),
+                trailing: fx.dominant == c
+                    ? const Icon(Icons.check_rounded, color: EvabobColors.blue)
+                    : null,
+                onTap: () => Navigator.pop(ctx, c),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked == fx.dominant) return;
+    await fx.setDominant(picked);
+    try {
+      await api.post('/v1/users/me/currency', body: {'currency': picked.code});
+    } catch (_) {
+      // Kept on this phone; it is saved to the account next time.
+    }
   }
 
   Widget _tile(

@@ -17,6 +17,7 @@ import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
 import 'package:evabob_mobile/core/utils/amount_input.dart';
+import '../../core/widgets/done_receipt.dart';
 
 /// Buy / swap on Arc: USDC · EURC · cirBTC · custom CA via Synthra + UCW PIN.
 /// Simple amount field + % chips (no calculator — calculator is send-only).
@@ -85,6 +86,14 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
     if (_toPreset == 'CIRBTC') return 8;
     return 6;
   }
+
+  /// An amount of one side's token: its symbol when it has one, otherwise
+  /// the number and the token's name.
+  String _amountIn(double v, String preset, TextEditingController ca) =>
+      switch (preset) {
+        'USDC' || 'EURC' || 'CIRBTC' => formatTokenAmount(v, preset),
+        _ => '${v.toStringAsFixed(_dp(preset))} ${_label(preset, ca)}',
+      };
 
   String _label(String preset, TextEditingController ca) {
     if (preset == 'CUSTOM') {
@@ -305,13 +314,29 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         if (!mounted) return;
         await wallet.refreshBalances(addressOverride: circle.address);
         if (!mounted) return;
-        final outHint = _quotedOut != null
-            ? ' ≈ ${_quotedOut!.toStringAsFixed(_dp(_toPreset))} ${_label(_toPreset, _toCa)}'
-            : '';
-        await _showDone(
+        // Figma "Convert · Done": what arrived, from what, at what rate.
+        final out = _quotedOut;
+        final fee = context.read<AppFeatures>().platformFeeFor(amountIn);
+        await DoneReceiptScreen.open(
           context,
-          '$amountIn ${_label(_fromPreset, _fromCa)} was converted to '
-          '${_label(_toPreset, _toCa)}$outHint.',
+          title: 'Converted',
+          amount: out != null
+              ? _amountIn(out, _toPreset, _toCa)
+              : _label(_toPreset, _toCa),
+          sub: 'from ${_amountIn(amountIn, _fromPreset, _fromCa)}',
+          rows: [
+            if (out != null && amountIn > 0)
+              ('Rate', '${_amountIn(out / amountIn, _toPreset, _toCa)} to '
+                  '${_amountIn(1, _fromPreset, _fromCa)}'),
+            (
+              'Fee',
+              fee > 0
+                  ? formatTokenAmount(
+                      fee, _fromPreset == 'EURC' ? 'EURC' : 'USDC')
+                  : 'Free'
+            ),
+            ('Done at', DoneReceiptScreen.when(DateTime.now())),
+          ],
         );
         if (!mounted) return;
         widget.onBack?.call();
@@ -442,7 +467,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
   /// The fee, and nothing about where the rate comes from.
   String _feeLine(double amount) {
     final fee = context.read<AppFeatures>().platformFeeFor(amount);
-    return 'Evabob fee ${formatMoney(fee, _fromPreset == 'EURC' ? 'EURC' : 'USDC')}';
+    return 'Evabob fee ${formatTokenAmount(fee, _fromPreset == 'EURC' ? 'EURC' : 'USDC')}';
   }
 
   /// Provider names are not for people.
@@ -481,9 +506,9 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                 children: [
                   Glass(
                     child: Text(
-                      'You have ${formatMoney(wallet.usdcWallet)} · '
-                      '${formatMoney(wallet.eurcWallet, 'EURC')} · '
-                      '${formatMoney(wallet.cirbtcWallet, 'CIRBTC')}',
+                      'You have ${formatTokenAmount(wallet.usdcWallet)} · '
+                      '${formatTokenAmount(wallet.eurcWallet, 'EURC')} · '
+                      '${formatTokenAmount(wallet.cirbtcWallet, 'CIRBTC')}',
                       style: const TextStyle(
                         color: EvabobColors.navyMuted,
                         fontSize: 10,
@@ -686,65 +711,4 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
       ),
     );
   }
-}
-
-Future<void> _showDone(BuildContext context, String detail) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (sheetContext) => Container(
-      padding: EdgeInsets.fromLTRB(
-        Space.page,
-        Space.sm,
-        Space.page,
-        Space.page + MediaQuery.paddingOf(sheetContext).bottom,
-      ),
-      decoration: const BoxDecoration(
-        color: EvabobColors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.xl)),
-        boxShadow: Shadows.sheet,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: EvabobColors.hairline,
-              borderRadius: BorderRadius.circular(Radii.pill),
-            ),
-          ),
-          const SizedBox(height: 40),
-          const CircleAvatar(
-            radius: 44,
-            backgroundColor: EvabobColors.blueSoft,
-            child: Icon(
-              Icons.swap_horiz_rounded,
-              size: 38,
-              color: EvabobColors.ink,
-            ),
-          ),
-          const SizedBox(height: Space.xl),
-          Text('Done', style: Type.title),
-          const SizedBox(height: Space.sm),
-          Text(
-            detail,
-            textAlign: TextAlign.center,
-            style: Type.body.copyWith(color: EvabobColors.inkMuted),
-          ),
-          const SizedBox(height: Space.xxl),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: FilledButton(
-              onPressed: () => Navigator.pop(sheetContext),
-              child: const Text('Done'),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }

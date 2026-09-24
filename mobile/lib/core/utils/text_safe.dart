@@ -94,6 +94,12 @@ String friendlyError(
   };
   final hit = known[stripped.toLowerCase()];
   if (hit != null) return hit;
+  final fault =
+      RegExp(r'^internal_error:([A-Za-z0-9]+)$').firstMatch(stripped);
+  if (fault != null) {
+    return 'Something went wrong on our side. Please try again. '
+        '(Ref ${fault.group(1)})';
+  }
 
   // Anything still carrying a stack frame, a JSON body or a bare snake_case
   // token is machine output. Showing it is worse than saying nothing useful.

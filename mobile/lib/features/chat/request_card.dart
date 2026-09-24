@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
+import '../../core/fx/fx_service.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/money_format.dart';
@@ -53,6 +55,19 @@ class RequestCard extends StatelessWidget {
     final note = meta['note']?.toString() ?? '';
     final due = DateTime.tryParse(meta['dueAt']?.toString() ?? '');
     final df = DateFormat('d MMM, HH:mm');
+    // In the reader's own currency: a ₦2,500 request reads ₦2,500 to someone
+    // who uses naira, and its dollar amount to someone who uses dollars.
+    final fx = context.watch<FxService>();
+    final display = meta['display'] is Map
+        ? Map<String, dynamic>.from(meta['display'] as Map)
+        : const <String, dynamic>{};
+    final headline = fx.requestPrimary(
+      usd: total,
+      token: token,
+      displayCurrency: display['currency']?.toString(),
+      displayAmount: (display['amount'] as num?)?.toDouble(),
+    );
+    final underneath = fx.secondaryToken(total, token);
 
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -85,14 +100,23 @@ class RequestCard extends StatelessWidget {
                 mine ? 'You asked for' : 'Asking you for',
                 style: Type.caption.copyWith(color: EvabobColors.navyMuted),
               ),
-              Text(
-                formatMoney(total, token),
-                style: const TextStyle(
-                  fontSize: 40,
-                  color: EvabobColors.navy,
-                  fontFeatures: [FontFeature.tabularFigures()],
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  headline,
+                  style: const TextStyle(
+                    fontSize: 40,
+                    color: EvabobColors.navy,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
                 ),
               ),
+              if (underneath.isNotEmpty)
+                Text(
+                  '≈ $underneath',
+                  style: Type.caption.copyWith(color: EvabobColors.navyMuted),
+                ),
               const SizedBox(height: 8),
               for (final it in items)
                 Padding(
@@ -128,11 +152,12 @@ class RequestCard extends StatelessWidget {
                     const Expanded(
                       child: Text(
                         'Total',
-                        style: TextStyle(fontSize: 13, color: EvabobColors.navy),
+                        style:
+                            TextStyle(fontSize: 13, color: EvabobColors.navy),
                       ),
                     ),
                     Text(
-                      formatMoney(total, token),
+                      headline,
                       style: const TextStyle(
                           fontSize: 13, color: EvabobColors.navy),
                     ),
@@ -157,19 +182,33 @@ class RequestCard extends StatelessWidget {
               ),
               if (open && !mine) ...[
                 const SizedBox(height: 12),
+                // Equal halves with tight padding: at a third of the card,
+                // the theme's padding left "Cancel" too little room and it
+                // broke into "Canc / el".
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
                         onPressed: busy ? null : onDecline,
-                        child: const Text('Cancel'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 48),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          maxLines: 1,
+                          softWrap: false,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      flex: 2,
                       child: FilledButton(
                         onPressed: busy ? null : onPay,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 48),
+                        ),
                         child: busy
                             ? const SizedBox(
                                 width: 16,

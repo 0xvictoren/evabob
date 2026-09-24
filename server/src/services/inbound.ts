@@ -148,6 +148,20 @@ async function inboundMemo(
  * address. The full address stays on the activity record for the details
  * view — it is only kept out of the sentence a person reads.
  */
+/**
+ * Who sent a transfer, as the receipt names them.
+ *
+ * A wallet that belongs to an Evabob account is shown by its @handle. Money
+ * from anywhere else — MetaMask, an exchange, another app — is "Unknown":
+ * the name is the only thing missing, and the sending address, network,
+ * amount and hash all stay on the record.
+ */
+export function inboundSender(from: string): { label: string; userId?: string } {
+  const u = store.findUserByRecipient(from);
+  if (u?.handle) return { label: `@${u.handle.toLowerCase()}`, userId: u.id };
+  return { label: "Unknown" };
+}
+
 function short(address: string): string {
   const known =
     store.findUserByRecipient?.(address) ?? undefined;
@@ -306,17 +320,21 @@ async function recordInboundTransfers(input: {
     // Written in the words a person uses, because this row is the receipt they
     // read. The raw address and hash are still on the record for the details
     // view; they just do not belong in the headline.
-    const shown = Math.round(t.amount * 100) / 100;
+    const shown = (Math.round(t.amount * 100) / 100).toFixed(2);
+    const who = inboundSender(t.from);
     store.addActivity({
       ...(memo ? { memo, memoOnchain: true } : {}),
       userId: input.userId,
       kind: "receive",
       title: "Money received",
-      description: `${shown} from ${short(t.from)}`,
+      description:
+        who.label === "Unknown"
+          ? `${shown} from Unknown (${short(t.from)})`
+          : `${shown} from ${who.label}`,
       amountUsdc: t.token === "USDC" ? t.amount : 0,
       token: t.token,
       amountToken: t.amount,
-      counterparty: t.from,
+      counterparty: who.label,
       sender: t.from,
       receiver: address,
       txHash: t.txHash,
@@ -333,10 +351,13 @@ async function recordInboundTransfers(input: {
         kind: "money_in",
         moneyIn: true,
         title: "Money received",
-        body: `${t.amount} ${t.token} arrived`,
+        body:
+          who.label === "Unknown"
+            ? `${shown} ${t.token} arrived`
+            : `${who.label} sent you ${shown} ${t.token}`,
         amountUsdc: t.token === "USDC" ? t.amount : undefined,
         token: t.token,
-        counterparty: t.from,
+        counterparty: who.label,
         txHash: t.txHash,
       });
     }

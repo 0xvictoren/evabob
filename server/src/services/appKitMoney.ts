@@ -41,8 +41,12 @@ import {
   bridgeRelayRecord,
   decideExpiredJobAbandon,
   decideRunnerFailure,
+  fundsIntactFromSnapshot,
   fundsIntactMessage,
+  heldJobDecision,
   isTokenMessengerAddress,
+  NO_PIN_MESSAGE,
+  pinWasEntered,
   landedAfterFastFee,
   parseBalance,
   sourceFundsMoved,
@@ -111,6 +115,12 @@ export type AppKitJobMeta = {
   reviveCheckedAt?: string;
   /** Block time of the burn on the source chain. */
   burnAt?: string;
+  /**
+   * When the server learned the person had entered their first PIN. Stored
+   * with the job (which survives restarts), so a server that slept through
+   * the wait still knows when the 40-minute clock started.
+   */
+  firstPinAt?: string;
   /** The person left and the server finished the bridge for them. */
   serverCompletedAt?: string;
   /** What finishing it cost, and the charge that was waived. */
@@ -216,7 +226,15 @@ export function listAppKitJobsForUser(userId: string): AppKitJob[] {
 function patchJobMeta(id: string, patch: AppKitJobMeta) {
   const j = jobs.get(id);
   if (!j) return;
-  j.meta = { ...(j.meta || {}), ...patch };
+  // A transaction hash only exists once a PIN was entered, so the first one
+  // is as good a record of that moment as the app's own report.
+  const firstPinAt =
+    !j.meta?.firstPinAt &&
+    !patch.firstPinAt &&
+    (patch.txHash || patch.lastTxHash || (patch.txHashes && patch.txHashes.length))
+      ? { firstPinAt: new Date().toISOString() }
+      : {};
+  j.meta = { ...(j.meta || {}), ...patch, ...firstPinAt };
   j.updatedAt = new Date().toISOString();
   persistJobs();
 }
@@ -334,6 +352,23 @@ function awaitTypedDataSignature(input: {
  * Fulfil a pending typed-data challenge with the signature the mobile client
  * read out of `sdk.execute(challengeId, (err, result) => result.data.signature)`.
  */
+/**
+ * The app reports that a PIN for this job went through. Only the first
+ * report is kept: it is the moment the hold, and its 40-minute clock, begin.
+ */
+export function noteJobPinEntered(input: {
+  jobId: string;
+  userId: string;
+  at?: Date;
+}): { ok: boolean; firstPinAt?: string } {
+  const job = jobs.get(input.jobId);
+  if (!job || job.userId !== input.userId) return { ok: false };
+  if (!job.meta?.firstPinAt) {
+    patchJobMeta(job.id, { firstPinAt: (input.at ?? new Date()).toISOString() });
+  }
+  return { ok: true, firstPinAt: jobs.get(job.id)?.meta?.firstPinAt };
+}
+
 export function submitChallengeSignature(input: {
   jobId: string;
   challengeId: string;
@@ -1832,6 +1867,7 @@ export async function completeAbandonedBridges(opts?: {
       if (
         !abandonedBridgeDue({
           burnAtMs,
+          firstPinAtMs: job.meta?.firstPinAt ? Date.parse(job.meta.firstPinAt) : null,
           jobCreatedAtMs: Date.parse(job.createdAt),
           nowMs,
           windowMs,
@@ -2026,10 +2062,69 @@ export async function reconcileStaleAppKitJobs(input: {
     });
     if (dropped) dismissed.push(dropped);
   }
-  const jobs = listAppKitJobsForUser(input.userId).filter(
-    (j) => j.status === "running",
-  );
-  return { jobs, dismissed };
+  // Only money that could be in motion is held. Anything whose PIN was
+  // never entered moved nothing: kept out of sight while its PIN screen may
+  // still be open, then dropped.
+  const held: AppKitJob[] = [];
+  for (const j of listAppKitJobsForUser(input.userId)) {
+    if (j.status !== "running") continue;
+    const created = Date.parse(j.createdAt);
+    const decision = heldJobDecision({
+      pinEntered: pinWasEntered(j.meta),
+      live: liveRunners.has(j.id),
+      jobAgeMs: Number.isFinite(created) ? Date.now() - created : 0,
+    });
+    if (decision === "show") {
+      held.push(j);
+      continue;
+    }
+    if (decision === "discard") {
+      const dropped = await discardUnpinnedJob(j);
+      if (dropped) dismissed.push(dropped);
+      else held.push(j);
+    }
+  }
+  return { jobs: held, dismissed };
+}
+
+/**
+ * Drops a job no PIN was ever entered for. Before letting go it checks the
+ * chain once — a PIN entered just before the app closed may not have been
+ * reported — and keeps the job if a burn or a balance change says money did
+ * move.
+ */
+async function discardUnpinnedJob(job: AppKitJob): Promise<DismissedAppKitJob | null> {
+  if (job.op === "bridge") {
+    const burn = await findBurnMessage(job).catch(() => null);
+    if (burn) {
+      patchJobMeta(job.id, { burnTxHash: burn.hash, firstPinAt: new Date().toISOString() });
+      return null;
+    }
+  }
+  const before = parseBalance(job.meta?.balanceBefore);
+  const now = before != null ? await currentSourceBalance(job) : null;
+  if (before != null && now != null && !fundsIntactFromSnapshot(before, now)) {
+    return null;
+  }
+  cancelJobWaiters(job.id, NO_PIN_MESSAGE);
+  touchJob(job.id, { status: "failed", error: NO_PIN_MESSAGE });
+  patchJobMeta(job.id, {
+    abandoned: true,
+    fundsIntact: true,
+    recoverHint: NO_PIN_MESSAGE,
+  });
+  const live = getAppKitJob(job.id);
+  // A cancelled row is left out of the activity feed, so the attempt is
+  // simply gone rather than listed as a failure.
+  if (live) finishJobActivity(live, "cancelled", undefined, NO_PIN_MESSAGE);
+  return {
+    jobId: job.id,
+    op: job.op,
+    // Not a rescue — nothing was ever at risk, so the app shows no notice.
+    fundsIntact: false,
+    reason: "no_pin",
+    message: NO_PIN_MESSAGE,
+  };
 }
 
 export async function recoverAppKitJob(

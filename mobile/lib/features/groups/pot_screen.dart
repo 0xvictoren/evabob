@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/fx/fx_service.dart';
 import '../../core/activity/activity_service.dart';
 import '../../core/api/api_client.dart';
 import '../../core/groups/groups_api.dart';
@@ -63,8 +64,10 @@ class _PotScreenState extends State<PotScreen> {
   }
 
   Future<void> _chipIn(GroupPot p) async {
-    final amount = double.tryParse(_amount.text.trim());
-    if (amount == null || amount <= 0) return;
+    final typed = double.tryParse(_amount.text.trim());
+    if (typed == null || typed <= 0) return;
+    // Typed in the person's own currency; chipped in as dollars.
+    final amount = context.read<FxService>().toUsd(typed);
     final ok = await confirmPayment(
       context,
       PaymentReview(
@@ -256,8 +259,9 @@ class _PotScreenState extends State<PotScreen> {
                   inputFormatters: [
                     const AmountInputFormatter(),
                   ],
-                  decoration: const InputDecoration(
-                    prefixText: r'$ ',
+                  decoration: InputDecoration(
+                    prefixText:
+                        '${context.watch<FxService>().dominant.symbol} ',
                     hintText: 'Amount',
                     border: InputBorder.none,
                   ),

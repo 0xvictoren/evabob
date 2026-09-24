@@ -13,6 +13,7 @@
  * gets both shows one notification.
  */
 
+import { humanizeAmounts } from "../utils/money-text.js";
 import { randomUUID } from "node:crypto";
 import { pusherTrigger } from "./pusher.js";
 import { sendPush } from "./push.js";
@@ -104,8 +105,14 @@ export type UserAlert = {
  * fail because Pusher is unreachable. A missed alert costs someone a pull to
  * refresh; a thrown error here would cost the operation itself.
  */
-export function alertUser(userId: string, alert: UserAlert): void {
+export function alertUser(userId: string, input: UserAlert): void {
   if (!userId) return;
+  // Rounded dollars and euros, never "1.438849 USDC".
+  const alert: UserAlert = {
+    ...input,
+    title: humanizeAmounts(input.title),
+    body: humanizeAmounts(input.body),
+  };
   const tag = `${alert.kind}:${alert.transferId ?? alert.jobId ?? alert.txHash ?? alert.link ?? randomUUID()}`;
   void sendPush(userId, {
     title: alert.title,

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/auth/evabob_auth.dart';
+
 import '../../core/security/app_lock_service.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
@@ -212,6 +214,14 @@ class _AppLockScreenState extends State<AppLockScreen> {
   Widget build(BuildContext context) {
     final lock = context.watch<AppLockService>();
     final setup = widget.setupMode;
+    // Figma "Locked out" (43:1953) while PIN entry is blocked.
+    if (!setup && lock.pinBlocked) {
+      return _LockedOutView(
+        onUnblocked: () {
+          if (mounted) setState(() => _localError = null);
+        },
+      );
+    }
     final title = setup
         ? (_confirming ? 'Confirm your PIN' : 'Create an app lock')
         : (_isLocked ? 'Too many tries' : 'App lock');
@@ -282,7 +292,9 @@ class _AppLockScreenState extends State<AppLockScreen> {
                 style: Type.title.copyWith(letterSpacing: 12),
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(12),
+                  LengthLimitingTextInputFormatter(
+                    setup ? 12 : (lock.pinLength ?? 12),
+                  ),
                 ],
                 decoration: InputDecoration(
                   hintText: '••••••',
@@ -297,8 +309,19 @@ class _AppLockScreenState extends State<AppLockScreen> {
                     borderSide: BorderSide.none,
                   ),
                 ),
-                onChanged: (_) {
+                onChanged: (value) {
                   if (_localError != null) setState(() => _localError = null);
+                  // Unlocking checks the PIN the moment its last digit is in:
+                  // no Unlock tap. Only once the PIN's length is known — a
+                  // guess at it would spend an attempt on a half-typed PIN.
+                  final len = lock.pinLength;
+                  if (!setup &&
+                      len != null &&
+                      value.length == len &&
+                      !_busy &&
+                      !_isLocked) {
+                    _submitUnlock();
+                  }
                 },
                 onSubmitted: (_) => setup ? _submitSetup() : _submitUnlock(),
               ),
@@ -377,6 +400,271 @@ class _AppLockScreenState extends State<AppLockScreen> {
                   label: const Text('Use biometrics'),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Figma "Locked out" (43:1953): how long until they can try again, that
+/// their money is safe, and a way back in with their email now.
+class _LockedOutView extends StatefulWidget {
+  const _LockedOutView({required this.onUnblocked});
+
+  final VoidCallback onUnblocked;
+
+  @override
+  State<_LockedOutView> createState() => _LockedOutViewState();
+}
+
+class _LockedOutViewState extends State<_LockedOutView> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (!context.read<AppLockService>().pinBlocked) {
+        _tick?.cancel();
+        widget.onUnblocked();
+      }
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  static String _clock(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
+
+  /// Signing in with email proves who they are, so the app lock is cleared
+  /// and set up again afterwards. Nothing about the money changes.
+  Future<void> _signInWithEmail() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign in with email?'),
+        content: const Text(
+          'You will sign in again with your email code. Your app lock is '
+          'turned off so you can set a new PIN. Your money stays where it is.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final lock = context.read<AppLockService>();
+    final auth = context.read<EvabobAuth>();
+    await lock.disableLock();
+    await auth.signOut();
+  }
+
+  void _help() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: EvabobColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Get help', style: Type.title),
+              const SizedBox(height: 8),
+              Text(
+                'The quickest way back is to sign in with your email. If you '
+                'no longer have that email, contact Evabob support from a '
+                'device you still control.',
+                textAlign: TextAlign.center,
+                style: Type.body.copyWith(color: EvabobColors.slate),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static const _words = [
+    'Zero',
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Five',
+    'Six',
+    'Seven',
+    'Eight',
+    'Nine',
+    'Ten',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final lock = context.watch<AppLockService>();
+    final n = lock.failedAttempts;
+    final count = n >= 0 && n < _words.length ? _words[n] : '$n';
+    return Scaffold(
+      backgroundColor: EvabobColors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 86),
+              Center(
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: EvabobColors.pageBg,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Image.asset('assets/logo.png', width: 28, height: 28),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Locked for now',
+                textAlign: TextAlign.center,
+                style: Type.title.copyWith(
+                  fontSize: 24,
+                  height: 32 / 24,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                n == 1 ? 'One wrong PIN' : '$count wrong PINs in a row',
+                textAlign: TextAlign.center,
+                style: Type.body.copyWith(color: EvabobColors.slate),
+              ),
+              const SizedBox(height: 38),
+              Text(
+                _clock(lock.retryAfter),
+                textAlign: TextAlign.center,
+                style: Type.hero,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'UNTIL YOU CAN TRY AGAIN',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10,
+                  height: 14 / 10,
+                  letterSpacing: .8,
+                  color: EvabobColors.inkTertiary,
+                ),
+              ),
+              const SizedBox(height: 40),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: const BoxDecoration(
+                  color: EvabobColors.white,
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x0F0B1620),
+                      blurRadius: 24,
+                      spreadRadius: -6,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: 72,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Your money is safe. Nothing has moved.',
+                          style: Type.body,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, color: EvabobColors.hairline),
+                    SizedBox(
+                      height: 71,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Sign in with your email to get back in now',
+                          style: Type.body,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 76),
+              DecoratedBox(
+                decoration: const BoxDecoration(
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x4700B5FF),
+                      blurRadius: 24,
+                      spreadRadius: -6,
+                    ),
+                  ],
+                ),
+                child: SizedBox(
+                  height: 56,
+                  child: FilledButton(
+                    onPressed: _signInWithEmail,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: EvabobColors.blue,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      'Sign in with email',
+                      style: Type.body.copyWith(color: EvabobColors.white),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Center(
+                child: GestureDetector(
+                  onTap: _help,
+                  child: Text(
+                    'Get help',
+                    style: Type.body.copyWith(color: EvabobColors.blue),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
             ],
           ),
         ),

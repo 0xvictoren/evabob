@@ -133,7 +133,13 @@ class ApiClient {
       );
     }
     if (res.statusCode >= 400) {
-      final err = json['error']?.toString() ?? res.body;
+      var err = json['error']?.toString() ?? res.body;
+      // A server fault carries a short reference to its log line; keep it so
+      // the person can quote it.
+      final ref = json['ref']?.toString();
+      if (err == 'internal_error' && ref != null && ref.isNotEmpty) {
+        err = 'internal_error:$ref';
+      }
       debugPrint('ApiClient ${res.statusCode}: $err');
       throw ApiException(res.statusCode, err);
     }

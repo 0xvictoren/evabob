@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -19,9 +20,20 @@ String bundleAvatarAsset(int index) =>
 /// picture, across sessions and devices. Used for the account holder before
 /// they pick, never for contacts (initials disambiguate those; 22 pictures
 /// cannot).
+/// The picture someone gets before they choose one.
+///
+/// FNV-1a over the account id, so the server works out the very same picture
+/// (`services/avatar.ts` `defaultAvatarBundle`) and shows it to everyone else.
+/// It used to be Dart's `hashCode`, which the server cannot reproduce — so a
+/// person saw a picture of themselves while everyone else saw their initial.
 int deterministicAvatarIndex(String seed) {
   if (seed.isEmpty) return 0;
-  return seed.hashCode.abs() % kBundleAvatarCount;
+  var hash = 0x811c9dc5;
+  for (final byte in utf8.encode(seed)) {
+    hash ^= byte;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return hash % kBundleAvatarCount;
 }
 
 /// The account holder's picture, resolved in order:
@@ -227,7 +239,10 @@ class PeerAvatar extends StatelessWidget {
         : bundleIndex != null
             ? AssetImage(bundleAvatarAsset(bundleIndex!))
             : null;
-    final letter = name.replaceFirst('@', '').trim();
+    // The server sends everyone's picture — their own, or the one the app
+    // gives them until they choose. Only someone with no Evabob account
+    // (money from an outside wallet) lands here without one: a plain figure,
+    // never an initial.
     return Container(
       width: size,
       height: size,
@@ -242,9 +257,10 @@ class PeerAvatar extends StatelessWidget {
       ),
       child: provider != null
           ? null
-          : Text(
-              letter.isEmpty ? '?' : letter.characters.first.toUpperCase(),
-              style: Type.label.copyWith(color: EvabobColors.forest),
+          : Icon(
+              Icons.person_rounded,
+              size: size * 0.55,
+              color: EvabobColors.forest,
             ),
     );
   }

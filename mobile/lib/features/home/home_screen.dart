@@ -46,7 +46,15 @@ class HomeScreen extends StatefulWidget {
     required this.onChatList,
     this.onGateway,
     this.onRequest,
+    this.onSendTo,
+    this.onOpenRequest,
   });
+
+  /// Send with the payee already filled in (a scanned code).
+  final ValueChanged<String>? onSendTo;
+
+  /// A scanned payment request.
+  final ValueChanged<String>? onOpenRequest;
 
   final VoidCallback onSend;
   final VoidCallback onFund;
@@ -65,6 +73,28 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// "Your money" opened out to list everything.
+  bool _moneyExpanded = false;
+
+  /// Scan from Home goes straight to Send with the person filled in — every
+  /// payment here runs on Arc, so there is no network to choose.
+  Future<void> _scanToPay() async {
+    final hit = await AddressScanSheet.open(context, title: 'Scan to pay');
+    if (!mounted || hit == null) return;
+    final request = hit.requestId;
+    if (request != null && request.isNotEmpty) {
+      widget.onOpenRequest?.call(request);
+      return;
+    }
+    if (hit.payee.isEmpty) return;
+    final to = widget.onSendTo;
+    if (to != null) {
+      to(hit.payee);
+    } else {
+      widget.onSend();
+    }
+  }
+
   /// Held money still in motion: a payment waiting out its 10 minutes, money
   /// set aside for work or an order, a claim link waiting for someone to join.
   List<HeldPayment> _held = const [];
@@ -182,7 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onNotifications: widget.onNotifications ?? widget.onActivity,
             onProfile: widget.onProfile,
             onSend: widget.onSend,
-            onScan: () => AddressScanSheet.open(context),
+            onScan: _scanToPay,
             onRequest: widget.onRequest ?? widget.onSend,
             showSend: features.directSend,
             showRequest: features.requests,
@@ -201,11 +231,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Text('Your money', style: Type.title),
                       const Spacer(),
-                      _TextLink(label: 'View all ›', onTap: widget.onBridge),
+                      // Opens the full list right here — everything held and
+                      // everything in motion — rather than jumping to Move
+                      // money.
+                      _TextLink(
+                        label: _moneyExpanded ? 'Show less ˄' : 'View all ˅',
+                        onTap: () =>
+                            setState(() => _moneyExpanded = !_moneyExpanded),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   _MoneyCard(
+                    expanded: _moneyExpanded,
                     wallet: wallet,
                     jobs: circle.openJobs,
                     held: _held,
@@ -269,7 +307,8 @@ class _Hero extends StatelessWidget {
     final auth = context.watch<EvabobAuth>();
     final fx = context.watch<FxService>();
     final dollars = wallet.usdcWallet;
-    final naira = fx.usdcToNgn(dollars);
+    // Shown in the person's main currency, the other one underneath.
+    final shown = fx.fromUsd(dollars);
     final displayName = auth.user?.displayName ?? 'Your account';
     final handle = auth.user?.handleOrFallback ?? 'you';
     final top = MediaQuery.paddingOf(context).top;
@@ -354,9 +393,10 @@ class _Hero extends StatelessWidget {
                 style: Type.label.copyWith(color: EvabobColors.lightDark),
               ),
               CountUp(
-                naira,
+                shown,
                 builder: (_, value) {
-                  final formatted = formatNgn(value);
+                  final formatted =
+                      fx.isNaira ? formatNgn(value) : formatUsd(value);
                   final dot = formatted.lastIndexOf('.');
                   return FittedBox(
                     fit: BoxFit.scaleDown,
@@ -384,7 +424,7 @@ class _Hero extends StatelessWidget {
                 },
               ),
               Text(
-                '≈ ${formatMoney(dollars)} USD',
+                '≈ ${fx.secondary(dollars)}',
                 style: Type.body.copyWith(color: EvabobColors.lightDark),
               ),
               const Spacer(),
@@ -491,6 +531,7 @@ class _HeroIcon extends StatelessWidget {
 /// where it stands and a tap to continue. "All clear" only when none are.
 class _MoneyCard extends StatelessWidget {
   const _MoneyCard({
+    required this.expanded,
     required this.wallet,
     required this.jobs,
     required this.held,
@@ -499,6 +540,9 @@ class _MoneyCard extends StatelessWidget {
     required this.onOpenActivity,
   });
 
+  /// Everything, not the first few: each balance held and every payment
+  /// still in motion.
+  final bool expanded;
   final WalletService wallet;
   final List<Map<String, dynamic>> jobs;
 
@@ -654,7 +698,48 @@ class _MoneyCard extends StatelessWidget {
       );
     }
 
+    final fx = context.watch<FxService>();
+    final limit = expanded ? 1 << 30 : 4;
+    String networkName(Map<String, dynamic> r) {
+      final n = r['name']?.toString() ?? '';
+      return n.replaceAll(RegExp(r'\s*(Sepolia|Testnet)\s*', caseSensitive: false), '').trim();
+    }
+
+    // What the person holds, each pot on its own line. The GA stays off Home.
+    final holdings = <Widget>[
+      row(
+        title: 'Dollars',
+        subtitle: 'Spendable · ≈ ${fx.secondary(wallet.usdcWallet)}',
+        icon: Icons.attach_money_rounded,
+        trailing: fx.primary(wallet.usdcWallet),
+      ),
+      if (wallet.eurcWallet > 0)
+        row(
+          title: 'Euros',
+          subtitle: 'Spendable · ≈ ${fx.secondaryToken(wallet.eurcWallet, 'EURC')}',
+          icon: Icons.euro_rounded,
+          trailing: formatEur(wallet.eurcWallet),
+        ),
+      if (wallet.cirbtcWallet > 0)
+        row(
+          title: 'Bitcoin',
+          subtitle: 'Spendable',
+          icon: Icons.currency_bitcoin_rounded,
+          trailing: formatMoney(wallet.cirbtcWallet, 'CIRBTC'),
+        ),
+      for (final r in wallet.chainBalances)
+        if (r['id']?.toString() != 'arc' &&
+            ((r['usdc'] as num?)?.toDouble() ?? 0) > 0)
+          row(
+            title: 'Dollars on ${networkName(r)}',
+            subtitle: 'Move it to Arc to spend it',
+            icon: Icons.alt_route_rounded,
+            trailing: fx.primary((r['usdc'] as num).toDouble()),
+          ),
+    ];
+
     final rows = <Widget>[
+      if (expanded) ...holdings,
       if (clear)
         row(
           title: 'All clear',
@@ -662,7 +747,7 @@ class _MoneyCard extends StatelessWidget {
           icon: Icons.check_rounded,
           trailing: formatMoney(0),
         ),
-      for (final job in jobs.take(4))
+      for (final job in jobs.take(limit))
         row(
           title: _title(job),
           subtitle: _stage(job),
@@ -683,7 +768,7 @@ class _MoneyCard extends StatelessWidget {
           subtitle: 'Confirming on the network',
           icon: Icons.account_balance_wallet_outlined,
         ),
-      for (final h in held.take(4))
+      for (final h in held.take(limit))
         row(
           title: _heldTitle(h),
           subtitle: _heldStage(h),
@@ -692,7 +777,7 @@ class _MoneyCard extends StatelessWidget {
               : Icons.lock_clock_outlined,
           onTap: () => onOpenHeld(h),
         ),
-      for (final e in gaInFlight.take(4))
+      for (final e in gaInFlight.take(limit))
         row(
           title: 'Paying ${formatMoney(e.displayAmount)} from your GA',
           subtitle: e.mode == 'gateway_pay_scheduled'

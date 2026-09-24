@@ -55,6 +55,16 @@ class _BridgeScreenState extends State<BridgeScreen> {
   /// The receiving address stays hidden until asked for: shown by default it
   /// invited a stray tap to change a character of it.
   bool _editDest = false;
+
+  /// Still the person's own wallet, as filled in for them.
+  bool get _destIsOwn {
+    final d = _dest.text.trim().toLowerCase();
+    final own = context.read<CircleWalletService>().address?.toLowerCase();
+    return d.isEmpty || d == own;
+  }
+
+  static String _shortAddr(String a) =>
+      a.length > 14 ? '${a.substring(0, 6)}…${a.substring(a.length - 4)}' : a;
   String? _expectedToken;
   double? _expectedAmount;
   String? _routeNote;
@@ -248,8 +258,12 @@ class _BridgeScreenState extends State<BridgeScreen> {
 
   Future<void> _scanRecipient() async {
     final hit =
-        await AddressScanSheet.open(context, title: 'Scan who receives it');
-    if (!mounted || hit == null) return;
+        await AddressScanSheet.open(
+      context,
+      title: 'Scan who receives it',
+      pickNetwork: true,
+    );
+    if (!mounted || hit == null || hit.address.isEmpty) return;
     setState(() {
       _dest.text = hit.address;
       if (hit.domain != null && hit.domain != _sourceDomain) {
@@ -339,9 +353,9 @@ class _BridgeScreenState extends State<BridgeScreen> {
         SnackBar(
           content: Text(
             _isArcUsdc && amt + platformFee <= available + 1e-9
-                ? 'Leave ${formatMoney(_arcUsdcGasReserve)} on Arc to cover the fee'
+                ? 'Leave ${formatTokenAmount(_arcUsdcGasReserve)} on Arc to cover the fee'
                 : platformFee > 0 && amt <= spendable + 1e-9
-                    ? 'Not enough for the amount plus the ${formatMoney(platformFee)} Evabob fee'
+                    ? 'Not enough for the amount plus the ${formatTokenAmount(platformFee)} Evabob fee'
                     : 'Not enough on $_sourceName (${formatTokenAmount(available, 'USDC')})',
           ),
           behavior: SnackBarBehavior.floating,
@@ -414,7 +428,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
         _phase = stage.isNotEmpty ? stage : (ok ? 'minted' : 'error');
         _phaseLabel = res['error']?.toString() ??
             (ok
-                ? 'Moved ${formatMoney(amt)} · $_sourceName → $_destName'
+                ? 'Moved ${formatTokenAmount(amt)} · $_sourceName → $_destName'
                 : _phaseLabel ?? 'That did not finish.');
         if (!ok) {
           _lastError = res['error']?.toString() ??
@@ -436,7 +450,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
       if (ok && (stage == 'minted' || stage == 'burned')) {
         if (stage == 'minted') {
           await _showMoveDone(
-            '${_expectedLine ?? formatMoney(amt)} is now on $_destName.',
+            '${_expectedLine ?? formatTokenAmount(amt)} is now on $_destName.',
           );
           if (!mounted) return;
           widget.onBack?.call();
@@ -657,8 +671,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
     final landed = _expectedAmount;
     final network = landed != null && landed < amt ? amt - landed : null;
     return [
-      'Evabob fee ${formatMoney(evabob)}',
-      if (network != null) 'network fee ${formatMoney(network)}',
+      'Evabob fee ${formatTokenAmount(evabob)}',
+      if (network != null) 'network fee ${formatTokenAmount(network)}',
     ].join(' · ');
   }
 
@@ -836,7 +850,10 @@ class _BridgeScreenState extends State<BridgeScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  if (!_editDest && _dest.text.trim().isEmpty)
+                  // The address is filled in for them and kept out of reach:
+                  // one mistyped character sends the money somewhere else.
+                  // It opens only when they choose to change it.
+                  if (!_editDest)
                     Align(
                       alignment: Alignment.centerLeft,
                       child: TextButton.icon(
@@ -844,8 +861,9 @@ class _BridgeScreenState extends State<BridgeScreen> {
                             ? null
                             : () => setState(() => _editDest = true),
                         icon: const Icon(Icons.edit_outlined, size: 16),
-                        label: Text(
-                            'Change address · goes to your wallet on $_destName'),
+                        label: Text(_destIsOwn
+                            ? 'Goes to your wallet on $_destName · Change address'
+                            : 'Goes to ${_shortAddr(_dest.text.trim())} · Change address'),
                       ),
                     )
                   else
@@ -928,7 +946,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
                     child: Text(
                       _busy
                           ? (_phaseLabel ?? 'Working…')
-                          : 'Move ${formatMoney(double.tryParse(_amount.text.trim()) ?? 0)} · $_sourceName → $_destName',
+                          : 'Move ${formatTokenAmount(double.tryParse(_amount.text.trim()) ?? 0)} · $_sourceName → $_destName',
                     ),
                   ),
                   const SizedBox(height: 8),

@@ -8,9 +8,12 @@ import '../../core/widgets/motion.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
-import '../../core/widgets/agent_avatar.dart';
 import 'chat_thread_screen.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:intl/intl.dart';
+import '../../core/chat/chat_models.dart';
+import '../../core/utils/handles.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -111,173 +114,349 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
+  /// Filters the list as they type; Enter on a handle, email or address
+  /// starts a conversation with that person.
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openWith(String peer) async {
+    final who = normalizePayee(peer);
+    if (who.isEmpty) return;
+    final chat = context.read<ChatService>();
+    try {
+      final thread = await chat.startThread(peer: who);
+      if (!mounted || thread == null) return;
+      _search.clear();
+      await Navigator.of(context).push(
+        SpringPageRoute(page: ChatThreadScreen(thread: thread)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showTopSnack(
+        context,
+        SnackBar(
+          content:
+              Text(friendlyError(e, fallback: 'Could not open that chat.')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  static String _when(DateTime? at) {
+    if (at == null) return '';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(at.year, at.month, at.day);
+    final days = today.difference(day).inDays;
+    if (days <= 0) return DateFormat('HH:mm').format(at);
+    if (days == 1) return 'Yesterday';
+    if (days < 7) return DateFormat('EEE').format(at);
+    return DateFormat('d MMM').format(at);
+  }
+
+  void _open(ChatThread t) {
+    Navigator.of(context)
+        .push(SpringPageRoute(page: ChatThreadScreen(thread: t)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final chat = context.watch<ChatService>();
+    final q = _search.text.trim().toLowerCase().replaceFirst('@', '');
+    final agent = chat.threads.where((t) => t.isAgent).firstOrNull;
+    final people = chat.threads
+        .where((t) => !t.isAgent)
+        .where((t) =>
+            q.isEmpty ||
+            t.title.toLowerCase().contains(q) ||
+            (t.handle ?? '').toLowerCase().contains(q))
+        .toList();
 
+    // Figma "Chat · List" (2:148).
     return SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      bottom: false,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 12, 12, 8),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'New conversation',
-                  onPressed: _newConversation,
-                  icon: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: EvabobColors.emerald.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.add_rounded,
-                      color: EvabobColors.emeraldDeep,
-                    ),
-                  ),
+          Row(
+            children: [
+              Text(
+                'Chat',
+                style: Type.title.copyWith(
+                  fontSize: 24,
+                  height: 32 / 24,
+                  letterSpacing: -0.4,
                 ),
-                const Text(
-                  'Chat',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w400,
-                    color: EvabobColors.navy,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.md),
-            child: Text(
-              'Ask Evabob to send money, convert currency, or check your '
-              'balance — in your own words.',
-              style: TextStyle(color: EvabobColors.navyMuted, fontSize: 10),
-            ),
-          ),
-          Expanded(
-            child: chat.loading && chat.threads.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                // With no threads this was a header and then blank space —
-                // nothing to read and nothing to tap.
-                : chat.threads.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                            Space.page, Space.xl, Space.page, Space.page),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'No conversations yet.',
-                              style: Type.section
-                                  .copyWith(color: EvabobColors.nearBlack),
-                            ),
-                            const SizedBox(height: Space.sm),
-                            Text(
-                              'Start one with someone you want to pay, or ask '
-                              'Evabob a question.',
-                              style: Type.body
-                                  .copyWith(color: EvabobColors.navyMuted),
-                            ),
-                          ],
+              ),
+              const Spacer(),
+              Semantics(
+                button: true,
+                label: 'New conversation',
+                child: GestureDetector(
+                  onTap: _newConversation,
+                  child: SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SvgPicture.asset('assets/figma/btn_new_chat.svg',
+                            width: 40, height: 40),
+                        const Text(
+                          '+',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
+                            height: 26 / 20,
+                            color: EvabobColors.pageBg,
+                          ),
                         ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(
-                            Space.page, 0, Space.page, 100),
-                        itemCount: chat.threads.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: Space.sm),
-                        itemBuilder: (context, i) {
-                          final t = chat.threads[i];
-                          final letter = t.title.isNotEmpty
-                              ? t.title.characters.first
-                              : '?';
-                          return RiseIn(
-                            index: i,
-                            child: PressScale(
-                              scale: Motion.pressScale,
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  SpringPageRoute(
-                                      page: ChatThreadScreen(thread: t)),
-                                );
-                              },
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  // The assistant is pinned and tinted, so it reads
-                                  // as part of the app rather than as a contact.
-                                  color: t.isAgent
-                                      ? EvabobColors.mint
-                                      : EvabobColors.sheet,
-                                  borderRadius: Radii.all(Radii.md),
-                                  boxShadow: Shadows.subtle,
-                                ),
-                                padding: const EdgeInsets.all(Space.md),
-                                child: Row(
-                                  children: [
-                                    t.isAgent
-                                        ? const EvabobAgentAvatar(size: 40)
-                                        : PeerAvatar(
-                                            name: letter,
-                                            avatarUrl: t.peerAvatarUrl,
-                                            bundleIndex: t.peerAvatarBundle,
-                                          ),
-                                    const SizedBox(width: Space.md),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            t.title,
-                                            style: Type.label.copyWith(
-                                              color: EvabobColors.nearBlack,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            t.isPending
-                                                ? 'Invitation · approval required'
-                                                : t.subtitle,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: Type.caption.copyWith(
-                                              color: EvabobColors.navyMuted,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    if (t.unread > 0)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: Space.sm,
-                                            vertical: Space.xs),
-                                        decoration: BoxDecoration(
-                                          color: EvabobColors.lime,
-                                          borderRadius: Radii.all(Radii.pill),
-                                        ),
-                                        child: Text(
-                                          '${t.unread}',
-                                          style: Type.micro.copyWith(
-                                            color: EvabobColors.forest,
-                                            fontWeight: FontWeight.w400,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
           ),
+          const SizedBox(height: 22),
+          Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: EvabobColors.white,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            alignment: Alignment.centerLeft,
+            child: TextField(
+              controller: _search,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: _openWith,
+              textInputAction: TextInputAction.go,
+              style: Type.body,
+              decoration: InputDecoration(
+                isCollapsed: true,
+                filled: false,
+                contentPadding: EdgeInsets.zero,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                hintText: '@handle, email or wallet address',
+                hintStyle: Type.body.copyWith(color: EvabobColors.blueSoft),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (q.isEmpty)
+            GestureDetector(
+              onTap: agent == null ? null : () => _open(agent),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 22, 16, 22),
+                decoration: BoxDecoration(
+                  color: EvabobColors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          SvgPicture.asset('assets/figma/avatar_agent.svg',
+                              width: 48, height: 48),
+                          Text(
+                            'eb',
+                            style: Type.body.copyWith(
+                              color: EvabobColors.white,
+                              letterSpacing: 0,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Evabob', style: Type.body),
+                          const SizedBox(height: 6),
+                          Text(
+                            'You can send money, swap currency or check your balance - just ask.',
+                            style: Type.label.copyWith(
+                              color: EvabobColors.slate,
+                              height: 15 / 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if ((agent?.unread ?? 0) > 0)
+                      _UnreadDot(count: agent!.unread),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 24),
+          Text(
+            'PEOPLE',
+            style: Type.section.copyWith(color: EvabobColors.inkTertiary),
+          ),
+          const SizedBox(height: 12),
+          if (chat.loading && chat.threads.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (people.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: EvabobColors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: Shadows.card,
+              ),
+              child: Text(
+                q.isEmpty
+                    ? 'No conversations yet. Search for someone above to start one.'
+                    : 'No one here matches. Press enter to start a chat with $q.',
+                style: Type.label.copyWith(color: EvabobColors.slate),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 4, 20, 20),
+              decoration: BoxDecoration(
+                color: EvabobColors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: Shadows.card,
+              ),
+              child: Column(
+                children: [
+                  for (var i = 0; i < people.length; i++) ...[
+                    if (i > 0)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 56),
+                        child:
+                            Divider(height: 1, color: EvabobColors.hairline),
+                      ),
+                    _ThreadRow(
+                      thread: people[i],
+                      when: _when(people[i].updatedAt),
+                      onTap: () => _open(people[i]),
+                    ),
+                  ],
+                ],
+              ),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+class _ThreadRow extends StatelessWidget {
+  const _ThreadRow({
+    required this.thread,
+    required this.when,
+    required this.onTap,
+  });
+
+  final ChatThread thread;
+  final String when;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = thread;
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        height: 75,
+        child: Row(
+          children: [
+            PeerAvatar(
+              name: t.title,
+              avatarUrl: t.peerAvatarUrl,
+              bundleIndex: t.peerAvatarBundle,
+              size: 44,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          t.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Type.body,
+                        ),
+                      ),
+                      Text(
+                        when,
+                        style: Type.label
+                            .copyWith(color: EvabobColors.inkTertiary),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          t.isPending
+                              ? 'Invitation · approval required'
+                              : t.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Type.label.copyWith(color: EvabobColors.slate),
+                        ),
+                      ),
+                      if (t.unread > 0) _UnreadDot(count: t.unread),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UnreadDot extends StatelessWidget {
+  const _UnreadDot({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: const BoxDecoration(
+        color: EvabobColors.blue,
+        borderRadius: BorderRadius.all(Radius.circular(999)),
+      ),
+      child: Text(
+        '$count',
+        style: Type.label.copyWith(color: EvabobColors.white),
       ),
     );
   }

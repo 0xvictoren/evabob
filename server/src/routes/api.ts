@@ -38,7 +38,7 @@ import { syncInboundInBackground } from "../services/inbound.js";
 import { clientError } from "../utils/http-error.js";
 import { jsonSafe } from "../utils/json-safe.js";
 import { flushPrimaryStore, primaryStoreHealth } from "../services/primary-store.js";
-import { avatarFilename, decodeAvatar } from "../services/avatar.js";
+import { avatarBundleFor, avatarFilename, decodeAvatar } from "../services/avatar.js";
 import { dataPath } from "../utils/data-path.js";
 import { llmConfigured } from "../services/llm.js";
 import { safeError } from "../utils/safe-log.js";
@@ -444,11 +444,22 @@ api.get("/public/claims/:transferId", async (c) => {
     const { readTransfer } = await import("../services/protectedEscrow.js");
     const row = await readTransfer(transferId);
     if (row.status === "None") return c.json({ error: "not_found" }, 404);
+    // Who sent it, by name and picture only; their wallet stays private.
+    const from = store.findUserByRecipient(row.sender);
     return c.json({
       transferId,
       status: row.status.toLowerCase(),
       amount: row.amountUsdc,
       token: "USDC",
+      createdAt: new Date(row.createdAt * 1000).toISOString(),
+      sender: from
+        ? {
+            name: from.displayName || (from.handle ? `@${from.handle}` : "Someone"),
+            handle: from.handle ? `@${from.handle.toLowerCase()}` : null,
+            avatarUrl: from.avatarUrl || null,
+            avatarBundle: avatarBundleFor(from),
+          }
+        : null,
       expiresAt: new Date(row.expiresAt * 1000).toISOString(),
       expired: row.expired,
       deepLink: `evabob://claim?transferId=${encodeURIComponent(transferId)}`,
@@ -648,6 +659,14 @@ api.get("/users/me", (c) => {
     /** Can decide held-payment reviews; the app shows the review screen. */
     operator: config.auth.operatorUserIds.includes(id),
   });
+});
+
+/** Naira or dollars: what every amount is shown and typed in for this person. */
+api.post("/users/me/currency", async (c) => {
+  const body = z.object({ currency: z.enum(["NGN", "USD"]) }).parse(await c.req.json());
+  const user = store.setCurrency(userId(c), body.currency);
+  if (!user) return c.json({ error: "account_not_found" }, 404);
+  return c.json({ currency: user.currency });
 });
 
 api.post("/users/me/ai-preference", async (c) => {
@@ -1761,10 +1780,35 @@ api.get("/escrow/job/:id", async (c) => {
 // ─── Payment requests (invoice links) ────────────────────────────────────
 
 api.get("/payment-requests", async (c) => {
-  const { listPaymentRequests } = await import(
+  const { listInvoicesForUser } = await import(
     "../services/payment-requests.js"
   );
-  return c.json({ items: listPaymentRequests(userId(c)) });
+  // "sent" (the default, what you asked for) or "received" (asked of you).
+  const role = c.req.query("role") === "received" ? "received" : "sent";
+  const uid = userId(c);
+  const personFor = (id: string | undefined, label: string | undefined) => {
+    const u = id ? store.getUser(id) : undefined;
+    if (!u) return label ? { name: label, avatarUrl: null, avatarBundle: null } : null;
+    const url = u.avatarUrl && !u.avatarUrl.startsWith("data:") ? u.avatarUrl : null;
+    return {
+      name: u.displayName || (u.handle ? `@${u.handle}` : u.email),
+      handle: u.handle ? `@${u.handle}` : null,
+      avatarUrl: url,
+      avatarBundle: url ? null : avatarBundleFor(u),
+    };
+  };
+  const items = listInvoicesForUser(uid)
+    .filter((r) => r.role === role)
+    .map(({ invoice }) => ({
+      ...invoice,
+      // Who is on the other side: who was asked, or who is asking.
+      person:
+        role === "sent"
+          ? personFor(invoice.receiverId, invoice.receiverHandle)
+          : personFor(invoice.senderId || invoice.userId, undefined),
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return c.json({ items });
 });
 
 /**
@@ -1802,6 +1846,10 @@ api.post("/payment-requests", async (c) => {
       milestones: z.boolean().optional(),
       /** Who should pay (@handle or email), so reminders reach them. */
       payer: z.string().max(120).optional(),
+      /** The total as typed, in the creator's own currency. */
+      display: z
+        .object({ currency: z.enum(["NGN", "USD"]), amount: z.number().positive() })
+        .optional(),
     })
     .refine((b) => b.amount != null || (b.items && b.items.length > 0), {
       message: "Needs an amount, or at least one priced line",
@@ -1826,6 +1874,7 @@ api.post("/payment-requests", async (c) => {
       threadId: body.threadId,
       dueAt: body.dueAt,
       milestones: body.milestones,
+      display: body.display,
       ...(payer
         ? { receiverId: payer.id, receiverHandle: payer.handle ? `@${payer.handle}` : payer.email }
         : {}),
@@ -1850,6 +1899,10 @@ api.get("/payment-requests/:id", async (c) => {
         ? `@${issuer.handle}`
         : issuer?.displayName || issuer?.email || "Evabob user",
       address: issuer?.evmAddress || null,
+      name: issuer?.displayName || null,
+      handle: issuer?.handle ? `@${issuer.handle.toLowerCase()}` : null,
+      avatarUrl: issuer?.avatarUrl || null,
+      avatarBundle: issuer ? avatarBundleFor(issuer) : null,
     },
   });
 });
@@ -2084,11 +2137,34 @@ api.post("/payment-requests/:id/mark", async (c) => {
     if (body.status === "paid" || body.status === "escrow") {
       const statusLabel =
         body.status === "paid" ? "Request · paid" : "Request · escrow";
+      const touched = new Set<string>();
       for (const m of store.findMessagesByRequestId(
         c.req.param("id"),
         body.threadId,
       )) {
         store.updateMessageMeta(m.id, { status: statusLabel });
+        touched.add(m.threadId);
+      }
+      // The card changed for both people. Nothing used to say so, and the
+      // person who asked kept seeing "unpaid" until they restarted the app.
+      const payerLabel = payer?.handle ? `@${payer.handle}` : payer?.displayName || "They";
+      const { alertUser } = await import("../services/notifyUser.js");
+      for (const threadId of touched) {
+        void pusherTrigger(`private-chat-${threadId}`, "message", {
+          id: `request-${c.req.param("id")}-${body.status}`,
+          kind: "update",
+          text: statusLabel,
+        }).catch(() => undefined);
+      }
+      const issuerId = requested.senderId || requested.userId;
+      if (issuerId && issuerId !== userId(c)) {
+        const threadId = [...touched][0] ?? body.threadId;
+        alertUser(issuerId, {
+          kind: "request_update",
+          title: body.status === "paid" ? "Request paid" : "Request paid into a hold",
+          body: `${payerLabel} paid your request${requested.description ? ` · ${requested.description}` : ""}.`,
+          ...(threadId ? { threadId, link: `evabob://chat/${threadId}` } : {}),
+        });
       }
     }
     return c.json(row);
@@ -2105,6 +2181,24 @@ api.post("/payment-requests/:id/mark", async (c) => {
 });
 
 // ─── Balances ──────────────────────────────────────────────────────────────
+
+/** How long the balance answer waits on Gateway after the wallet is read. */
+const GATEWAY_BALANCE_GRACE_MS = 1_500;
+
+type GatewayRead = {
+  gatewayUsdc: number;
+  gatewayPendingUsdc: number;
+  gatewayConfirmedUsdc: number;
+  gatewayBalances: Array<Record<string, unknown>>;
+  gatewayError?: string;
+};
+
+/**
+ * The last Gateway answer per wallet. A read that misses the grace window
+ * still finishes and lands here, so the next refresh has it even when Circle
+ * is consistently slower than the wallet.
+ */
+const lastGatewayRead = new Map<string, GatewayRead>();
 
 api.get("/wallet/balances", async (c) => {
   const uid = userId(c);
@@ -2137,132 +2231,13 @@ api.get("/wallet/balances", async (c) => {
   // loads next.
   syncInboundInBackground({ userId: uid, address });
 
-  let gatewayUsdc = 0;
-  let gatewayPendingUsdc = 0;
-  let gatewayConfirmedUsdc = 0;
-  let gatewayBalances: Array<{
-    domain: number;
-    balance: string;
-    balanceUsdc: number;
-    pendingUsdc?: number;
-    confirmedUsdc?: number;
-    chainId?: string;
-    name?: string;
-  }> = [];
-  let gatewayError: string | undefined;
-  let appKitOk = false;
-  try {
-    if (/^0x[a-fA-F0-9]{40}$/.test(address)) {
-      const { DEPOSIT_CHAINS } = await import("../config.js");
-      const nameByDomain = new Map(
-        DEPOSIT_CHAINS.map((ch) => [ch.domain as number, ch.name]),
-      );
-      const idByDomain = new Map(
-        DEPOSIT_CHAINS.map((ch) => [ch.domain as number, ch.id]),
-      );
-
-      // Prefer App Kit unified balance (correct field parse + testnet + pending).
-      try {
-        const { appKitGetBalances } = await import("../services/appKitMoney.js");
-        const ub = await appKitGetBalances({
-          address,
-          includePending: true,
-        });
-        gatewayConfirmedUsdc = ub.confirmedUsdc;
-        gatewayPendingUsdc = ub.pendingUsdc;
-        gatewayUsdc =
-          ub.totalUsdc > 0 ? ub.totalUsdc : ub.confirmedUsdc + ub.pendingUsdc;
-        if (Array.isArray(ub.balances) && ub.balances.length > 0) {
-          gatewayBalances = ub.balances
-            .map((b) => {
-              const domain =
-                typeof b.domain === "number"
-                  ? b.domain
-                  : b.chain
-                    ? ({
-                        Arc_Testnet: 26,
-                        Ethereum_Sepolia: 0,
-                        Base_Sepolia: 6,
-                        Ethereum: 0,
-                        Base: 6,
-                      } as Record<string, number>)[String(b.chain)]
-                    : undefined;
-              if (domain == null) return null;
-              const conf =
-                typeof b.confirmedUsdc === "number"
-                  ? b.confirmedUsdc
-                  : typeof b.balanceUsdc === "number"
-                    ? b.balanceUsdc
-                    : 0;
-              const pend =
-                typeof b.pendingUsdc === "number" ? b.pendingUsdc : 0;
-              return {
-                domain,
-                balance: String(Math.round((conf + pend) * 1e6)),
-                balanceUsdc: conf + pend,
-                confirmedUsdc: conf,
-                pendingUsdc: pend,
-                chainId: idByDomain.get(domain),
-                name:
-                  nameByDomain.get(domain) ||
-                  (b.name as string | undefined) ||
-                  (b.chain as string | undefined),
-              };
-            })
-            .filter((x): x is NonNullable<typeof x> => x != null);
-        }
-        appKitOk =
-          gatewayUsdc > 0 ||
-          gatewayPendingUsdc > 0 ||
-          gatewayBalances.length > 0 ||
-          Boolean(ub.raw);
-      } catch (e) {
-        gatewayError =
-          clientError(e, "app kit balances failed");
-      }
-
-      // Legacy Gateway API when App Kit is empty or failed. It reports
-      // pendingBatch per domain, so a deposit that has landed on chain but is
-      // not yet final still shows up rather than reading as nothing happened.
-      if (!appKitOk || (gatewayUsdc <= 0 && gatewayPendingUsdc <= 0)) {
-        try {
-          const g = await fetchGatewayBalances(address as `0x${string}`);
-          if (gatewayUsdc <= 0 && gatewayPendingUsdc <= 0) {
-            gatewayUsdc = g.totalUsdc;
-            gatewayConfirmedUsdc = g.totalUsdc;
-            gatewayPendingUsdc = g.pendingUsdc;
-          }
-          if (gatewayBalances.length === 0) {
-            const toUsdc = (raw: string | undefined) => {
-              const s = String(raw ?? "0").trim();
-              if (!s) return 0;
-              return s.includes(".") ? Number(s) || 0 : (Number(s) || 0) / 1e6;
-            };
-            gatewayBalances = (g.balances || []).map((b) => ({
-              domain: b.domain,
-              balance: b.balance,
-              balanceUsdc: toUsdc(b.balance),
-              confirmedUsdc: toUsdc(b.balance),
-              pendingUsdc: toUsdc(b.pendingBatch),
-              chainId: idByDomain.get(b.domain),
-              name: nameByDomain.get(b.domain),
-            }));
-          }
-        } catch (e) {
-          if (!gatewayError) {
-            gatewayError =
-              clientError(e, "gateway balances failed");
-          }
-        }
-      }
-    }
-  } catch (e) {
-    gatewayError = clientError(e, "gateway error");
-  }
-
+  // The Arc wallet read used to start only after the Gateway lookups had
+  // finished — two Circle round trips on a bad day — so the balance people
+  // spend from arrived last. Both now start together, and a slow Gateway is
+  // cut off below rather than holding the wallet number back.
   const { readMultiChainBalances } = await import("../services/arc-balances.js");
   let onchainError: string | undefined;
-  const [onchain, chainBalances] = await Promise.all([
+  const onchainTask = Promise.all([
     readTokenBalances(address).catch((e) => {
       onchainError = clientError(e, "onchain balances failed");
       return {
@@ -2282,6 +2257,152 @@ api.get("/wallet/balances", async (c) => {
       return null;
     }),
   ]);
+
+  const gatewayTask = (async () => {
+    let gatewayUsdc = 0;
+    let gatewayPendingUsdc = 0;
+    let gatewayConfirmedUsdc = 0;
+    let gatewayBalances: Array<{
+      domain: number;
+      balance: string;
+      balanceUsdc: number;
+      pendingUsdc?: number;
+      confirmedUsdc?: number;
+      chainId?: string;
+      name?: string;
+    }> = [];
+    let gatewayError: string | undefined;
+    let appKitOk = false;
+    try {
+      if (/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        const { DEPOSIT_CHAINS } = await import("../config.js");
+        const nameByDomain = new Map(
+          DEPOSIT_CHAINS.map((ch) => [ch.domain as number, ch.name]),
+        );
+        const idByDomain = new Map(
+          DEPOSIT_CHAINS.map((ch) => [ch.domain as number, ch.id]),
+        );
+
+        // Prefer App Kit unified balance (correct field parse + testnet + pending).
+        try {
+          const { appKitGetBalances } = await import("../services/appKitMoney.js");
+          const ub = await appKitGetBalances({
+            address,
+            includePending: true,
+          });
+          gatewayConfirmedUsdc = ub.confirmedUsdc;
+          gatewayPendingUsdc = ub.pendingUsdc;
+          gatewayUsdc =
+            ub.totalUsdc > 0 ? ub.totalUsdc : ub.confirmedUsdc + ub.pendingUsdc;
+          if (Array.isArray(ub.balances) && ub.balances.length > 0) {
+            gatewayBalances = ub.balances
+              .map((b) => {
+                const domain =
+                  typeof b.domain === "number"
+                    ? b.domain
+                    : b.chain
+                      ? ({
+                          Arc_Testnet: 26,
+                          Ethereum_Sepolia: 0,
+                          Base_Sepolia: 6,
+                          Ethereum: 0,
+                          Base: 6,
+                        } as Record<string, number>)[String(b.chain)]
+                      : undefined;
+                if (domain == null) return null;
+                const conf =
+                  typeof b.confirmedUsdc === "number"
+                    ? b.confirmedUsdc
+                    : typeof b.balanceUsdc === "number"
+                      ? b.balanceUsdc
+                      : 0;
+                const pend =
+                  typeof b.pendingUsdc === "number" ? b.pendingUsdc : 0;
+                return {
+                  domain,
+                  balance: String(Math.round((conf + pend) * 1e6)),
+                  balanceUsdc: conf + pend,
+                  confirmedUsdc: conf,
+                  pendingUsdc: pend,
+                  chainId: idByDomain.get(domain),
+                  name:
+                    nameByDomain.get(domain) ||
+                    (b.name as string | undefined) ||
+                    (b.chain as string | undefined),
+                };
+              })
+              .filter((x): x is NonNullable<typeof x> => x != null);
+          }
+          appKitOk =
+            gatewayUsdc > 0 ||
+            gatewayPendingUsdc > 0 ||
+            gatewayBalances.length > 0 ||
+            Boolean(ub.raw);
+        } catch (e) {
+          gatewayError =
+            clientError(e, "app kit balances failed");
+        }
+
+        // Legacy Gateway API when App Kit is empty or failed. It reports
+        // pendingBatch per domain, so a deposit that has landed on chain but is
+        // not yet final still shows up rather than reading as nothing happened.
+        if (!appKitOk || (gatewayUsdc <= 0 && gatewayPendingUsdc <= 0)) {
+          try {
+            const g = await fetchGatewayBalances(address as `0x${string}`);
+            if (gatewayUsdc <= 0 && gatewayPendingUsdc <= 0) {
+              gatewayUsdc = g.totalUsdc;
+              gatewayConfirmedUsdc = g.totalUsdc;
+              gatewayPendingUsdc = g.pendingUsdc;
+            }
+            if (gatewayBalances.length === 0) {
+              const toUsdc = (raw: string | undefined) => {
+                const s = String(raw ?? "0").trim();
+                if (!s) return 0;
+                return s.includes(".") ? Number(s) || 0 : (Number(s) || 0) / 1e6;
+              };
+              gatewayBalances = (g.balances || []).map((b) => ({
+                domain: b.domain,
+                balance: b.balance,
+                balanceUsdc: toUsdc(b.balance),
+                confirmedUsdc: toUsdc(b.balance),
+                pendingUsdc: toUsdc(b.pendingBatch),
+                chainId: idByDomain.get(b.domain),
+                name: nameByDomain.get(b.domain),
+              }));
+            }
+          } catch (e) {
+            if (!gatewayError) {
+              gatewayError =
+                clientError(e, "gateway balances failed");
+            }
+          }
+        }
+      }
+    } catch (e) {
+      gatewayError = clientError(e, "gateway error");
+    }
+    return {
+      gatewayUsdc,
+      gatewayPendingUsdc,
+      gatewayConfirmedUsdc,
+      gatewayBalances,
+      gatewayError,
+    };
+  })().then((r) => {
+    lastGatewayRead.set(address.toLowerCase(), r);
+    return r;
+  });
+
+  const [onchain, chainBalances] = await onchainTask;
+  // Give the Gateway a short grace once the wallet is known, then answer
+  // without it. Its fields go out as null, which the app reads as "not read
+  // this round" and keeps what it showed last.
+  const gw =
+    (await Promise.race([
+      gatewayTask,
+      new Promise<null>((r) => setTimeout(() => r(null), GATEWAY_BALANCE_GRACE_MS)),
+    ])) ?? lastGatewayRead.get(address.toLowerCase()) ?? null;
+  const gatewayUsdc = gw?.gatewayUsdc ?? null;
   if (chainBalances) {
     const arcRow = chainBalances.find((r) => r.id === "arc" || r.domain === 26);
     if (arcRow) {
@@ -2298,7 +2419,9 @@ api.get("/wallet/balances", async (c) => {
   }
   // Failed wallet read stays null so the client keeps its last painted amount.
   const totalUsdc =
-    onchain.usdc == null ? null : onchain.usdc + gatewayUsdc;
+    onchain.usdc == null || gatewayUsdc == null
+      ? null
+      : onchain.usdc + gatewayUsdc;
 
   return c.json({
     address,
@@ -2308,13 +2431,13 @@ api.get("/wallet/balances", async (c) => {
     eurcWallet: onchain.eurc,
     cirbtcWallet: onchain.cirbtc,
     gatewayUsdc,
-    gatewayConfirmedUsdc,
-    gatewayPendingUsdc,
-    gatewayBalances,
+    gatewayConfirmedUsdc: gw?.gatewayConfirmedUsdc ?? null,
+    gatewayPendingUsdc: gw?.gatewayPendingUsdc ?? null,
+    gatewayBalances: gw?.gatewayBalances ?? null,
     chainBalances,
     totalUsdc,
     balancesPartial: onchain.partial,
-    gatewayError,
+    gatewayError: gw?.gatewayError,
     onchainError,
     source: "arc+multichain+appkit",
   });
@@ -2571,13 +2694,21 @@ async function announceProfileChange(uid: string) {
   for (const t of store.listThreadsForUser(uid)) {
     for (const m of t.members) if (m && m !== uid) peers.add(m);
   }
+  // Everyone they have paid or been paid by sees their face on a receipt
+  // too, chat or no chat — so they hear about the change as well.
+  const me = [user.handle ? `@${user.handle}` : "", user.handle ?? "", user.evmAddress ?? "", user.email ?? ""]
+    .filter(Boolean)
+    .map((v) => v.toLowerCase());
+  for (const row of store.listActivityCounterpartsOf(me)) {
+    if (row !== uid) peers.add(row);
+  }
   const payload = {
     kind: "profile_updated",
     userId: uid,
     displayName: user.displayName,
     handle: user.handle ?? null,
     avatarUrl: user.avatarUrl ?? null,
-    avatarBundle: user.avatarBundleIndex ?? null,
+    avatarBundle: avatarBundleFor(user),
     title: "",
     body: "",
   };
@@ -2596,6 +2727,23 @@ api.patch("/users/me", async (c) => {
 api.post("/users/me", async (c) => {
   const r = await patchMe(c);
   return c.json(r.body, r.status);
+});
+
+/**
+ * Who a scanned wallet address (or typed handle) belongs to, so a scanned
+ * code lands in Send as a @handle rather than a hex string. Returns only the
+ * public handle and name — what anyone paying them sees anyway.
+ */
+api.get("/users/lookup", (c) => {
+  const to = (c.req.query("to") || "").trim();
+  if (!to) return c.json({ error: "to required" }, 400);
+  const u = store.findUserByRecipient(to);
+  if (!u || !u.handle) return c.json({ found: false });
+  return c.json({
+    found: true,
+    handle: `@${u.handle.toLowerCase()}`,
+    displayName: u.displayName || null,
+  });
 });
 
 api.get("/users/handle/check", (c) => {
@@ -2824,7 +2972,8 @@ function withPeople<T extends { kind: string; counterparty?: string; receiver?: 
   const cache = new Map<string, Record<string, unknown> | null>();
   const personFor = (raw: string | undefined) => {
     const key = (raw ?? "").trim();
-    if (!key) return null;
+    // "Unknown" is money from outside Evabob, not a handle to look up.
+    if (!key || key === "Unknown") return null;
     if (cache.has(key)) return cache.get(key)!;
     let person: Record<string, unknown> | null = null;
     const user = store.findUserByRecipient(key);
@@ -2834,7 +2983,7 @@ function withPeople<T extends { kind: string; counterparty?: string; receiver?: 
         name: user.displayName || (user.handle ? `@${user.handle}` : user.email),
         handle: user.handle ? `@${user.handle}` : null,
         avatarUrl: url,
-        avatarBundle: user.avatarBundleIndex ?? null,
+        avatarBundle: url ? null : avatarBundleFor(user),
       };
     } else {
       const agent = store.findAgentByHandle(key.replace(/^@/, ""));
@@ -3056,7 +3205,7 @@ async function announceChatMessage(
       title: name,
       body:
         msg.meta?.type === "invoice_card"
-          ? `Sent you a request for ${String(msg.meta.amount ?? "")} ${String(msg.meta.token ?? "USDC")}`.trim()
+          ? `Sent you a request for ${msg.text.replace(/^Payment request · /, "")}`
           : msg.meta?.type === "photo"
             ? "Sent you a photo"
             : msg.text.slice(0, 140),
@@ -3092,12 +3241,12 @@ api.post("/chat/threads/:id/request", async (c) => {
   const peer = peerId ? store.getUser(peerId) : undefined;
   if (peer) inv = assignInvoiceReceiver(inv.id, { id: peer.id, handle: peer.handle }, thread.id) ?? inv;
   const card = invoiceCardMeta(inv);
-  const symbol = (inv.token || "USDC").toUpperCase() === "EURC" ? "€" : "$";
+  const { requestAmountLabel } = await import("../services/payment-requests.js");
   const msg = store.addMessage({
     threadId: thread.id,
     senderId: uid,
     kind: "receipt",
-    text: `Payment request · ${symbol}${inv.total.toFixed(2)}${inv.description ? ` · ${inv.description}` : ""}`,
+    text: `Payment request · ${requestAmountLabel(inv)}${inv.description ? ` · ${inv.description}` : ""}`,
     meta: card,
   });
   await announceChatMessage(thread, uid, msg);
@@ -3216,10 +3365,17 @@ api.post("/chat/threads/:id/send-command", async (c) => {
     },
   });
 
-  try {
-    await pusherTrigger(`private-chat-${c.req.param("id")}`, "message", receipt);
-  } catch (e) {
-    console.warn("pusher receipt", e);
+  // To the other person as well as the open chat — the receipt is a message
+  // like any other, and they should hear about it wherever they are.
+  const receiptThread = store.listThreads().find((t) => t.id === c.req.param("id"));
+  if (receiptThread) {
+    await announceChatMessage(receiptThread, fromId, receipt);
+  } else {
+    try {
+      await pusherTrigger(`private-chat-${c.req.param("id")}`, "message", receipt);
+    } catch (e) {
+      console.warn("pusher receipt", e);
+    }
   }
 
   return c.json({ transfer, receipt, onchain: true, rail: "app-kit-or-ucw" });

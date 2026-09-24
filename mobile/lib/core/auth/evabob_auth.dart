@@ -881,8 +881,13 @@ class EvabobAuth extends ChangeNotifier {
   }
 
   /// Merge server profile fields (phone lock, handle, wallet) after session sync.
+  /// The dominant currency saved on the account ("NGN" / "USD"), if any.
+  String? serverCurrency;
+
   Future<void> applyServerProfile(Map<String, dynamic> user) async {
     if (_user == null) return;
+    final currency = user['currency']?.toString();
+    if (currency != null && currency.isNotEmpty) serverCurrency = currency;
     final phone = user['phone']?.toString();
     final linked = user['phoneLinked'] == true ||
         (user['phoneLinkedAt']?.toString().isNotEmpty == true);

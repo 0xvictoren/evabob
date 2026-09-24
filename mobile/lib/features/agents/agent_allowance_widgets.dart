@@ -61,7 +61,7 @@ class _AllowanceSheetState extends State<AllowanceSheet> {
       'month' => 'this month',
       _ => 'this week',
     };
-    return '${formatMoney(amount)} $when, $what';
+    return '${formatTokenAmount(amount)} $when, $what';
   }
 
   void _save() {
@@ -287,9 +287,9 @@ class AllowanceMeter extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           [
-            '${formatMoney(meter.spentUsdc)} spent',
-            if (meter.heldUsdc > 0) '${formatMoney(meter.heldUsdc)} waiting',
-            '${formatMoney(meter.remainingUsdc)} left',
+            '${formatTokenAmount(meter.spentUsdc)} spent',
+            if (meter.heldUsdc > 0) '${formatTokenAmount(meter.heldUsdc)} waiting',
+            '${formatTokenAmount(meter.remainingUsdc)} left',
             if (!compact && _resets.isNotEmpty) _resets,
           ].join(' · '),
           style: Type.caption.copyWith(color: EvabobColors.navyMuted),
@@ -352,8 +352,8 @@ class _ApprovalTileState extends State<ApprovalTile> {
         children: [
           Text(
             a.isTask
-                ? 'Wants to hire someone for ${formatMoney(a.amountUsdc)}'
-                : 'Wants to spend ${formatMoney(a.amountUsdc)}',
+                ? 'Wants to hire someone for ${formatTokenAmount(a.amountUsdc)}'
+                : 'Wants to spend ${formatTokenAmount(a.amountUsdc)}',
             style: Type.body.copyWith(color: EvabobColors.nearBlack),
           ),
           Text(
@@ -564,7 +564,7 @@ class _AgentHiresState extends State<AgentHires> {
                       ],
                     ),
                   ),
-                  Text(formatMoney(t.amountUsdc),
+                  Text(formatTokenAmount(t.amountUsdc),
                       style:
                           Type.caption.copyWith(color: EvabobColors.nearBlack)),
                   if (t.status == 'open' || t.status == 'awaiting_approval')
@@ -631,7 +631,7 @@ class _AgentPaymentsState extends State<AgentPayments> {
                 'evabob-evidence-${p.key.substring(0, p.key.length.clamp(0, 16))}.json',
           ),
         ],
-        text: 'Evidence for a ${formatMoney(p.amountUsdc)} payment by my agent',
+        text: 'Evidence for a ${formatTokenAmount(p.amountUsdc)} payment by my agent',
         sharePositionOrigin:
             box != null ? box.localToGlobal(Offset.zero) & box.size : null,
       ));
@@ -690,7 +690,7 @@ class _AgentPaymentsState extends State<AgentPayments> {
                       ],
                     ),
                   ),
-                  Text(formatMoney(p.amountUsdc),
+                  Text(formatTokenAmount(p.amountUsdc),
                       style: Type.caption.copyWith(
                         color: EvabobColors.nearBlack,
                         decoration:

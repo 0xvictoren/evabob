@@ -54,6 +54,7 @@ flutter:
     - assets/circle_w3s_sdk.js.sha256
     - assets/dp-pic-asset/
     - assets/icons/
+    - assets/figma/
     - assets/icons-png/
     - assets/logo.png
     - assets/sounds/

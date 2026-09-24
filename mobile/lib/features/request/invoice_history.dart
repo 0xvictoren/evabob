@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/fx/fx_service.dart';
+import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
@@ -153,6 +155,19 @@ class InvoiceHistoryState extends State<InvoiceHistory> {
   }
 }
 
+/// Opens one of your requests: its lines, who paid, and the link to share.
+Future<void> openInvoiceDetail(
+  BuildContext context,
+  Map<String, dynamic> invoice,
+) {
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (ctx) => _Detail(invoice: invoice),
+  );
+}
+
 class _Row extends StatelessWidget {
   const _Row({required this.invoice, required this.onTap});
 
@@ -162,7 +177,6 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final token = invoice['token']?.toString() ?? 'USDC';
-    final symbol = token == 'EURC' ? '€' : r'$';
     final total = (invoice['total'] as num?)?.toDouble() ??
         (invoice['amount'] as num?)?.toDouble() ??
         0;
@@ -206,7 +220,15 @@ class _Row extends StatelessWidget {
             ),
             const SizedBox(width: Space.sm),
             Text(
-              '$symbol${total.toStringAsFixed(2)}',
+              context.watch<FxService>().requestPrimary(
+                usd: total,
+                token: token,
+                displayCurrency: (invoice['display'] as Map?)?['currency']
+                    ?.toString(),
+                displayAmount:
+                    ((invoice['display'] as Map?)?['amount'] as num?)
+                        ?.toDouble(),
+              ),
               style: Type.amount.copyWith(color: EvabobColors.nearBlack),
             ),
             const SizedBox(width: Space.xs),
@@ -228,8 +250,7 @@ class _Detail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final token = invoice['token']?.toString() ?? 'USDC';
-    final symbol = token == 'EURC' ? '€' : r'$';
-    String money(num? v) => '$symbol${(v ?? 0).toDouble().toStringAsFixed(2)}';
+    String money(num? v) => formatMoney((v ?? 0).toDouble(), token);
 
     final items = (invoice['items'] as List?) ?? const [];
     final status = invoice['status']?.toString() ?? 'open';

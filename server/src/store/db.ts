@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { avatarBundleFor } from "../services/avatar.js";
+import { humanizeAmounts } from "../utils/money-text.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { writeJsonAtomic } from "../utils/write-json-atomic.js";
 import { dirname } from "node:path";
@@ -47,6 +49,11 @@ export type UserRecord = {
   onboardingCompletedAt?: string | null;
   /** ISO time of last display-name change. */
   displayNameChangedAt?: string | null;
+  /**
+   * The currency this person thinks in: every amount in the app is shown and
+   * typed in it. Money still moves as USDC underneath. Absent means naira.
+   */
+  currency?: "NGN" | "USD";
   /**
    * Highest Arc block already scanned for inbound transfers to this wallet.
    * Absent means the wallet has never been scanned, and scanning starts from
@@ -937,6 +944,21 @@ export const store = {
     return this.findUserByHandle(t);
   },
 
+  /**
+   * Users whose activity names any of [keys] (handles, addresses, emails,
+   * lowercased) as the other side. Bounded to recent rows.
+   */
+  listActivityCounterpartsOf(keys: string[], scan = 5_000): string[] {
+    if (keys.length === 0) return [];
+    const wanted = new Set(keys);
+    const out = new Set<string>();
+    for (const a of db.activity.slice(0, scan)) {
+      const sides = [a.counterparty, a.sender, a.receiver];
+      if (sides.some((v) => v && wanted.has(v.toLowerCase()))) out.add(a.userId);
+    }
+    return [...out];
+  },
+
   listActivity(userId: string, limit = 50) {
     return db.activity
       .filter(
@@ -956,6 +978,8 @@ export const store = {
       id: randomUUID(),
       createdAt: item.createdAt || new Date().toISOString(),
       ...item,
+      title: humanizeAmounts(item.title),
+      description: humanizeAmounts(item.description),
     };
     db.activity.unshift(row);
     save(db);
@@ -1098,6 +1122,7 @@ export const store = {
     const row = db.activity.find((a) => a.id === id);
     if (!row) return null;
     Object.assign(row, patch);
+    if (patch.description) row.description = humanizeAmounts(patch.description);
     save(db);
     return row;
   },
@@ -1173,7 +1198,7 @@ export const store = {
       // The other person's picture, as they chose it: an uploaded photo, or
       // one of the built-in ones.
       peerAvatarUrl: isAgent ? null : other?.avatarUrl ?? null,
-      peerAvatarBundle: isAgent ? null : other?.avatarBundleIndex ?? null,
+      peerAvatarBundle: isAgent || !other ? null : avatarBundleFor(other),
       subtitle: thread.subtitle,
       kind: isAgent ? "agent" : thread.kind || "dm",
       isAgent,
@@ -1243,6 +1268,9 @@ export const store = {
       id: randomUUID(),
       createdAt: msg.createdAt || new Date().toISOString(),
       ...msg,
+      // What the app writes (receipts, notes) reads in rounded dollars; what
+      // a person typed is left exactly as they typed it.
+      text: msg.kind === "text" ? msg.text : humanizeAmounts(msg.text),
     };
     db.messages.push(row);
     const t = db.threads.find((x) => x.id === msg.threadId);
@@ -1408,6 +1436,15 @@ export const store = {
     ];
     save(db);
     return thread;
+  },
+
+  setCurrency(userId: string, currency: "NGN" | "USD") {
+    const user = this.getUser(userId);
+    if (!user) return null;
+    user.currency = currency;
+    save(db);
+    void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
+    return user;
   },
 
   setAiOptOut(userId: string, aiOptOut: boolean) {

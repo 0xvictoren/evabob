@@ -306,3 +306,58 @@ test("a bridge lands the amount less Circle's fast fee, never more", async () =>
   assert.deepEqual(landedAfterFastFee(25, 0), { fee: 0, landed: 25 });
   assert.deepEqual(landedAfterFastFee(0, 1), { fee: 0, landed: 0 });
 });
+
+// ─── What counts as held (only bridges after the first PIN) ───────────────
+
+import { heldJobDecision, pinWasEntered } from "./appKitJobExpiry.js";
+
+test("held: a job with no PIN evidence was never entered", () => {
+  assert.equal(pinWasEntered(undefined), false);
+  assert.equal(pinWasEntered({}), false);
+  assert.equal(pinWasEntered({ txHashes: [] }), false);
+  assert.equal(pinWasEntered({ firstPinAt: "2026-09-24T10:00:00Z" }), true);
+  assert.equal(pinWasEntered({ txHashes: ["0xabc"] }), true);
+  assert.equal(pinWasEntered({ burnAt: "2026-09-24T10:00:00Z" }), true);
+});
+
+test("held: no PIN is hidden while the PIN screen may be open, then dropped", () => {
+  assert.equal(heldJobDecision({ pinEntered: false, live: true, jobAgeMs: 60_000 }), "hide");
+  assert.equal(heldJobDecision({ pinEntered: false, live: false, jobAgeMs: 60_000 }), "discard");
+  assert.equal(
+    heldJobDecision({ pinEntered: false, live: true, jobAgeMs: 9 * 60_000 }),
+    "discard",
+  );
+});
+
+test("held: once a PIN is entered the job is shown", () => {
+  assert.equal(heldJobDecision({ pinEntered: true, live: false, jobAgeMs: 0 }), "show");
+});
+
+test("abandoned bridge: the clock starts at the first PIN when that is earlier", () => {
+  const firstPinAtMs = 1_000_000;
+  const windowMs = 40 * 60_000;
+  const due = (nowMs: number) =>
+    abandonedBridgeDue({
+      burnAtMs: firstPinAtMs + 120_000,
+      firstPinAtMs,
+      jobCreatedAtMs: firstPinAtMs - 60_000,
+      nowMs,
+      windowMs,
+    });
+  assert.equal(due(firstPinAtMs + windowMs - 1), false);
+  assert.equal(due(firstPinAtMs + windowMs), true);
+});
+
+test("abandoned bridge: a server asleep past the window finishes it on waking", () => {
+  const firstPinAtMs = 1_000_000;
+  assert.equal(
+    abandonedBridgeDue({
+      burnAtMs: null,
+      firstPinAtMs,
+      jobCreatedAtMs: firstPinAtMs,
+      nowMs: firstPinAtMs + 3 * 60 * 60_000,
+      windowMs: 40 * 60_000,
+    }),
+    true,
+  );
+});

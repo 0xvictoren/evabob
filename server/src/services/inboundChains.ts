@@ -13,6 +13,7 @@ import { createPublicClient, formatUnits, http, parseAbiItem, type Address } fro
 import { store } from "../store/db.js";
 import { MULTICHAIN_ASSETS } from "./arc-balances.js";
 import { alertUser } from "./notifyUser.js";
+import { inboundSender } from "./inbound.js";
 
 const TRANSFER_EVENT = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 value)",
@@ -116,16 +117,20 @@ async function syncNetwork(
       if (store.hasActivityWithTx(input.userId, log.transactionHash)) continue;
       const amount = Number(formatUnits(log.args.value, token.decimals));
       if (!(amount > 0)) continue;
-      const shown = Math.round(amount * 100) / 100;
+      const shown = (Math.round(amount * 100) / 100).toFixed(2);
+      const who = inboundSender(log.args.from);
       store.addActivity({
         userId: input.userId,
         kind: "receive",
         title: "Money received",
-        description: `${shown} on ${net.name} from ${short(log.args.from)}`,
+        description:
+          who.label === "Unknown"
+            ? `${shown} on ${net.name} from Unknown (${short(log.args.from)})`
+            : `${shown} on ${net.name} from ${who.label}`,
         amountUsdc: token.symbol === "USDC" ? amount : 0,
         token: token.symbol,
         amountToken: amount,
-        counterparty: log.args.from,
+        counterparty: who.label,
         sender: log.args.from,
         receiver: input.address,
         txHash: log.transactionHash,
@@ -139,10 +144,10 @@ async function syncNetwork(
           kind: "money_in",
           moneyIn: true,
           title: "Money received",
-          body: `${amount} ${token.symbol} arrived on ${net.name}`,
+          body: `${shown} ${token.symbol} arrived on ${net.name}`,
           amountUsdc: token.symbol === "USDC" ? amount : undefined,
           token: token.symbol,
-          counterparty: log.args.from,
+          counterparty: who.label,
           txHash: log.transactionHash,
         });
       }

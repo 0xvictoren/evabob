@@ -84,7 +84,25 @@ export type PaymentRequest = {
    * that part of the work is delivered.
    */
   milestoneTransferIds?: string[];
+  /**
+   * The amount as its creator typed it, in their own currency. Money is
+   * always the dollar `total`; this is only so someone who asked for ₦2,500
+   * sees ₦2,500 — not ₦2,500 converted to dollars and back — and so the
+   * payer's app can show it in theirs.
+   */
+  display?: RequestDisplay;
 };
+
+export type RequestDisplay = { currency: "NGN" | "USD"; amount: number };
+
+/** "₦2,500.00" when it was asked for in naira, else "$1.80" / "€1.80". */
+export function requestAmountLabel(inv: Pick<PaymentRequest, "display" | "total" | "token">): string {
+  const two = (n: number) =>
+    n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (inv.display?.currency === "NGN") return `₦${two(inv.display.amount)}`;
+  const symbol = (inv.token || "USDC").toUpperCase() === "EURC" ? "€" : "$";
+  return `${symbol}${two(inv.total)}`;
+}
 
 export type Invoice = PaymentRequest;
 
@@ -178,6 +196,7 @@ export function createInvoice(input: {
   dueAt?: string;
   /** Let the payer hold one payment per line item, released as each is delivered. */
   milestones?: boolean;
+  display?: RequestDisplay;
 }): PaymentRequest {
   const description = input.description?.trim() || input.note?.trim() || "";
   const items = normalizeItems(input.items, input.amount || 0, description);
@@ -214,6 +233,7 @@ export function createInvoice(input: {
     amount: total,
     token,
     description: description || items.map((i) => i.description).join(", "),
+    ...(input.display && input.display.amount > 0 ? { display: input.display } : {}),
     note: input.note?.trim() || "",
     allowedStructures: allowed,
     status: "open",
@@ -249,6 +269,7 @@ export function createPaymentRequest(input: {
   receiverHandle?: string;
   dueAt?: string;
   milestones?: boolean;
+  display?: RequestDisplay;
 }): PaymentRequest {
   return createInvoice(input);
 }
@@ -430,6 +451,7 @@ export function invoiceChatMeta(inv: PaymentRequest): Record<string, unknown> {
     amount: inv.total,
     amountUsdc: inv.token === "USDC" ? inv.total : null,
     token: inv.token,
+    display: inv.display ?? null,
     description: inv.description,
     note: inv.note || "",
     allowedStructures: inv.allowedStructures,

@@ -30,6 +30,7 @@ import 'features/auth/app_lock_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/onboarding/post_signup_onboarding.dart';
 import 'features/shell/app_shell.dart';
+import 'core/theme/evabob_tokens.dart';
 
 Future<void> main() async {
   // `debugPrint` is not automatically compiled out of profile/release builds.
@@ -102,6 +103,12 @@ class EvabobServices {
     // approvals and pauses refresh the list.
     final agents = AgentService(api);
     moneyAlerts.events.listen(agents.onAlert);
+    // Someone changed their name, handle or picture: receipts show the new
+    // one at once, not after the next reload.
+    final activity = ActivityService(api, fx);
+    moneyAlerts.events.listen((alert) {
+      if (alert['kind'] == 'profile_updated') activity.refresh();
+    });
     return EvabobServices(
       api: api,
       fx: fx,
@@ -109,7 +116,7 @@ class EvabobServices {
       chat: chat,
       wallet: WalletService(api, auth),
       circle: CircleWalletService(api, auth),
-      activity: ActivityService(api, fx),
+      activity: activity,
       agents: agents,
       contacts: ContactsService(api),
       theme: ThemeController(),
@@ -205,13 +212,18 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Only lock when app is backgrounded — not on inactive (PIN WebView overlays).
+    // Locks only after [AppLockService.lockAfter] away, judged on return.
     if (state == AppLifecycleState.paused) {
-      _appLock.lockNow();
+      _appLock.markBackgrounded();
     }
     if (state == AppLifecycleState.resumed) {
+      _appLock.onResumed();
       // Startup may have raced an unreachable API; never stay fail-closed
       // for the rest of the session once the server is back.
       _features.refresh();
+      // The live connection may have dropped while the phone slept; without
+      // it, messages and paid requests only appeared after a restart.
+      _pusher.refreshConnection();
       // A sign-in that expired while the phone slept ends now, before the
       // refreshes below would send it.
       _auth.checkSessionExpiry();
@@ -265,6 +277,8 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
       _push.start(circleId);
       _wallet.syncSession().then((_) {
         _features.refresh();
+        // Naira or dollars, as chosen on this account — on any phone.
+        _fx.adoptServerCurrency(_auth.serverCurrency);
         // Prefer live Circle address once ready; fall back to the SCA the
         // server rebound for this email so Home isn't stuck at $0.
         _circle.hydrateDisplayAddress(_auth.user?.smartAccount);
@@ -411,60 +425,47 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
   }
 }
 
+/// Figma "Splash" (18:830).
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: EvabobColors.blue,
+    return Scaffold(
+      backgroundColor: EvabobColors.white,
       body: SafeArea(
         child: Stack(
           children: [
-            Center(
+            // The group sits a little above the middle, as drawn.
+            Align(
+              alignment: const Alignment(0, -0.135),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox.square(
-                    dimension: 88,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: EvabobColors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.all(20),
-                        child: Image(
-                          image: AssetImage('assets/logo.png'),
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: 20),
+                  Image.asset('assets/logo.png', width: 96, height: 96),
+                  const SizedBox(height: 16),
                   Text(
                     'evabob',
-                    style: TextStyle(
-                      fontSize: 30,
-                      height: 1,
-                      color: EvabobColors.white,
-                    ),
+                    textAlign: TextAlign.center,
+                    style: Type.hero.copyWith(color: EvabobColors.blue),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Money that moves like a message',
+                    textAlign: TextAlign.center,
+                    style: Type.body.copyWith(color: EvabobColors.slate),
                   ),
                 ],
               ),
             ),
             Positioned(
-              left: 0,
-              right: 0,
-              bottom: 32,
-              child: Center(
-                child: SizedBox.square(
-                  dimension: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: EvabobColors.white,
-                  ),
-                ),
+              left: 20,
+              right: 20,
+              bottom: 24,
+              child: Text(
+                'Your money never leaves your hands',
+                textAlign: TextAlign.center,
+                style: Type.label.copyWith(color: EvabobColors.inkTertiary),
               ),
             ),
           ],

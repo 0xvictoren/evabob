@@ -22,7 +22,50 @@ class PusherService {
   /// call is rejected. Kept in sync by [EvabobApp] on every auth change.
   String? _authToken;
 
-  void setAuthToken(String? token) => _authToken = token;
+  void setAuthToken(String? token) {
+    final changed = token != _authToken;
+    _authToken = token;
+    // A channel asked for before the session token arrived was refused by the
+    // server and never tried again — so live chat and alerts only started
+    // working after a restart. Ask again once there is a token to sign with.
+    if (changed && token != null && token.isNotEmpty && _ready) {
+      refreshConnection();
+    }
+  }
+
+  /// Reconnects if the socket dropped (the phone slept, the network
+  /// changed) and asks again for every channel this app listens on.
+  Future<void> refreshConnection() async {
+    if (!Env.hasPusher) return;
+    if (!_ready) await init();
+    if (!_ready) return;
+    try {
+      if (_pusher.connectionState != 'CONNECTED' &&
+          _pusher.connectionState != 'CONNECTING') {
+        await _pusher.connect();
+      }
+    } catch (e) {
+      debugPrint('Pusher reconnect: $e');
+    }
+    final channels = [..._alertHandlers.keys, ..._handlers.keys];
+    for (final channel in channels) {
+      if (_pusher.getChannel(channel) != null && _subscribed.contains(channel)) {
+        continue;
+      }
+      try {
+        await _pusher.unsubscribe(channelName: channel);
+      } catch (_) {}
+      try {
+        await _pusher.subscribe(channelName: channel);
+      } catch (e) {
+        debugPrint('resubscribe $channel: $e');
+      }
+    }
+  }
+
+  /// Channels the server has confirmed. A refused one is dropped from here
+  /// so [refreshConnection] knows to ask again.
+  final Set<String> _subscribed = {};
 
   bool get isReady => _ready && Env.hasPusher;
 
@@ -77,6 +120,16 @@ class PusherService {
             debugPrint('Pusher event parse: $e');
           }
         },
+        onSubscriptionSucceeded: (channelName, data) {
+          _subscribed.add(channelName);
+        },
+        onSubscriptionError: (message, e) {
+          debugPrint('Pusher subscription error: $message $e');
+          _subscribed.clear();
+        },
+        onConnectionStateChange: (current, previous) {
+          if (current.toUpperCase() != 'CONNECTED') _subscribed.clear();
+        },
         onError: (message, code, e) {
           debugPrint('Pusher error: $message $code $e');
         },
@@ -107,6 +160,7 @@ class PusherService {
   Future<void> unsubscribeChat(String threadId) async {
     final channel = 'private-chat-$threadId';
     _handlers.remove(channel);
+    _subscribed.remove(channel);
     try {
       await _pusher.unsubscribe(channelName: channel);
     } catch (_) {}
@@ -136,6 +190,7 @@ class PusherService {
   Future<void> unsubscribeUserAlerts(String userId) async {
     final channel = 'private-user-$userId';
     _alertHandlers.remove(channel);
+    _subscribed.remove(channel);
     try {
       await _pusher.unsubscribe(channelName: channel);
     } catch (_) {}

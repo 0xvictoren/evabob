@@ -107,3 +107,32 @@ export function avatarFilename(userId: string, extension: string): string {
   const owner = createHash("sha256").update(userId).digest("hex").slice(0, 32);
   return `avatar_${owner}.${extension}`;
 }
+
+/** How many built-in pictures the app ships (mobile `kBundleAvatarCount`). */
+export const BUNDLE_AVATAR_COUNT = 22;
+
+/**
+ * The built-in picture someone has before they choose one: FNV-1a over their
+ * account id, the same as the app's `deterministicAvatarIndex`. Sent to
+ * everyone else, so they see that person's picture rather than an initial.
+ */
+export function defaultAvatarBundle(seed: string): number {
+  if (!seed) return 0;
+  let h = 0x811c9dc5;
+  for (const b of Buffer.from(seed, "utf8")) {
+    h = Math.imul((h ^ b) >>> 0, 0x01000193) >>> 0;
+  }
+  return h % BUNDLE_AVATAR_COUNT;
+}
+
+/** The picture others should see: their upload, their choice, or the default. */
+export function avatarBundleFor(user: {
+  id: string;
+  avatarUrl?: string | null;
+  avatarBundleIndex?: number | null;
+}): number | null {
+  if (user.avatarBundleIndex != null) return user.avatarBundleIndex;
+  const url = user.avatarUrl;
+  if (url && !url.startsWith("data:")) return null;
+  return defaultAvatarBundle(user.id);
+}

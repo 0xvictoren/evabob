@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/fx/fx_service.dart';
 import '../../core/auth/evabob_auth.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/chat/chat_models.dart';
@@ -343,9 +344,10 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: const [AmountInputFormatter()],
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Amount',
-                border: OutlineInputBorder(),
+                prefixText: '${context.read<FxService>().dominant.symbol} ',
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 10),
@@ -388,6 +390,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
           amount: amount,
           token: 'USDC',
           description: descCtrl.text.trim(),
+          typedInMainCurrency: true,
         );
     _scrollToBottom(animate: true);
   }

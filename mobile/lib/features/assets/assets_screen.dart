@@ -183,7 +183,7 @@ class _AssetsScreenState extends State<AssetsScreen> {
                       thumbnail: networks[i]['name'].toString(),
                       name: networks[i]['name'].toString(),
                       subtitle: networks[i]['subtitle'].toString(),
-                      amount: formatMoney(networks[i]['amount'] as double),
+                      amount: formatTokenAmount(networks[i]['amount'] as double),
                       onTap: () => _networkActions(networks[i]),
                     ),
                     if (i != networks.length - 1) const _InsetDivider(),
@@ -199,8 +199,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
                   _CurrencyData('EURC', 'Euros'),
                 ],
                 amounts: [
-                  formatMoney(wallet.totalUsdc),
-                  formatMoney(wallet.eurcWallet, 'EURC'),
+                  formatTokenAmount(wallet.totalUsdc),
+                  formatTokenAmount(wallet.eurcWallet, 'EURC'),
                 ],
                 children: const [],
               ),
@@ -220,7 +220,7 @@ class _TotalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fx = context.watch<FxService>();
-    final amount = formatNgn(fx.usdcToNgn(total));
+    final amount = fx.primary(total);
     final dot = amount.lastIndexOf('.');
     return Container(
       height: 140,
@@ -251,7 +251,7 @@ class _TotalCard extends StatelessWidget {
             maxLines: 1,
           ),
           Text(
-            '≈ ${formatMoney(total)} USD · Spendable, Gateway Account and on hold',
+            '≈ ${formatTokenAmount(total)} USD · Spendable, Gateway Account and on hold',
             style: Type.label.copyWith(color: EvabobColors.lightDark),
           ),
         ],

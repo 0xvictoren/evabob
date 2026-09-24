@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/handles.dart';
 import '../api/api_client.dart';
 import '../utils/text_safe.dart';
 import '../fx/fx_service.dart';
@@ -41,12 +42,12 @@ String? explorerTxHash(Map<String, dynamic>? data) {
 
 /// Chat backed by Evabob API. Money commands use real Circle UCW sends.
 class ChatService extends ChangeNotifier {
-  ChatService(FxService fx, this._api, {SectionNotify? notify})
-      : _notify = notify {
-    // Fx retained for constructor compatibility with MultiProvider wiring.
-    // Naira display was removed; token amounts are shown directly.
-    assert(fx.usdToNgn > 0 || true);
-  }
+  ChatService(this._fx, this._api, {SectionNotify? notify})
+      : _notify = notify;
+
+  /// The person's main currency: a request typed as ₦2,500 is created in
+  /// dollars and keeps "₦2,500" for display.
+  final FxService _fx;
 
   final ApiClient _api;
   final SectionNotify? _notify;
@@ -114,9 +115,13 @@ class ChatService extends ChangeNotifier {
           refreshThreads();
         }
       case 'request_update':
-        if (threadId != null && _messages.containsKey(threadId)) {
+        // A request was paid or declined: the card changes for both people,
+        // whether or not the conversation is open right now.
+        if (threadId != null &&
+            (threadId == openThreadId || _messages.containsKey(threadId))) {
           loadMessages(threadId);
         }
+        refreshThreads();
       case 'profile_updated':
         refreshThreads();
     }
@@ -492,7 +497,7 @@ class ChatService extends ChangeNotifier {
       } else {
         final dest = (to != null && to.isNotEmpty)
             ? to
-            : (peerHandle.startsWith('@') ? peerHandle : '@$peerHandle');
+            : normalizePayee('@${bareHandle(peerHandle)}');
         final res = await payPaymentRequest(
           context: context,
           circle: circle,
@@ -532,7 +537,7 @@ class ChatService extends ChangeNotifier {
       } else {
         final dest = (to != null && to.isNotEmpty)
             ? to
-            : (peerHandle.startsWith('@') ? peerHandle : '@$peerHandle');
+            : normalizePayee('@${bareHandle(peerHandle)}');
         ok = await _executeSendCommand(
           threadId: threadId,
           cmd: SendCommand(
@@ -542,7 +547,7 @@ class ChatService extends ChangeNotifier {
                 : token.toLowerCase() == 'eurc'
                     ? 'eurc'
                     : 'usdc',
-            recipientHandle: dest.startsWith('@') ? dest.substring(1) : null,
+            recipientHandle: dest.startsWith('@') ? bareHandle(dest) : null,
           ),
           myId: myId,
           peerHandle: dest.replaceFirst('@', ''),
@@ -851,7 +856,7 @@ class ChatService extends ChangeNotifier {
         kind: ChatMessageKind.receipt,
         text: '${cmd.action} done',
         receipt: ReceiptData(
-          amountLabel: '${cmd.amount} ${cmd.tokenIn}',
+          amountLabel: formatTokenAmount(cmd.amount, cmd.tokenIn),
           fxLabel: cmd.action,
           description: cmd.description.isEmpty ? 'Sent' : cmd.description,
           statusLabel: 'Done',
@@ -893,8 +898,8 @@ class ChatService extends ChangeNotifier {
     final to = (destinationOverride != null && destinationOverride.isNotEmpty)
         ? destinationOverride
         : cmd.recipientHandle != null
-            ? '@${cmd.recipientHandle}'
-            : (peerHandle.startsWith('@') ? peerHandle : '@$peerHandle');
+            ? '@${bareHandle(cmd.recipientHandle)}'
+            : normalizePayee('@${bareHandle(peerHandle)}');
 
     if (context == null || circle == null) {
       _localSystem(
@@ -1051,12 +1056,18 @@ class ChatService extends ChangeNotifier {
     required double amount,
     required String token,
     String description = '',
+
+    /// [amount] was typed in the person's main currency, not in dollars.
+    bool typedInMainCurrency = false,
   }) async {
     try {
+      final inMain = typedInMainCurrency && token.toUpperCase() == 'USDC';
       final created = await _api.post('/v1/payment-requests', body: {
-        'amount': amount,
+        'amount': inMain ? _fx.toUsd(amount) : amount,
         'token': token,
         'description': description,
+        if (inMain)
+          'display': {'currency': _fx.dominant.code, 'amount': amount},
       });
       final requestId = created['id']?.toString() ?? '';
       if (requestId.isEmpty) return false;
@@ -1068,8 +1079,14 @@ class ChatService extends ChangeNotifier {
         'requestId': requestId,
       });
       await loadMessages(threadId);
-      _touchThread(threadId,
-          'Payment request · ${formatMoney(amount, token)}');
+      final label = inMain
+          ? _fx.requestPrimary(
+              usd: _fx.toUsd(amount),
+              displayCurrency: _fx.dominant.code,
+              displayAmount: amount,
+            )
+          : formatMoney(amount, token);
+      _touchThread(threadId, 'Payment request · $label');
       return true;
     } catch (e) {
       _localSystem(threadId, 'Could not create request: $e');
@@ -1098,7 +1115,7 @@ class ChatService extends ChangeNotifier {
     if (amount <= 0) {
       return {'ok': false, 'error': 'Invalid amount'};
     }
-    final to = peerHandle.startsWith('@') ? peerHandle : '@$peerHandle';
+    final to = normalizePayee('@${bareHandle(peerHandle)}');
 
     void markRequestLocal(String statusLabel) {
       if (requestId == null) return;
@@ -1232,7 +1249,7 @@ class ChatService extends ChangeNotifier {
       );
       try {
         await _api.post('/v1/chat/threads/$threadId/messages', body: {
-          'text': 'Held ${formatMoney(lockAmount, token)} for $peerHandle',
+          'text': 'Held ${formatTokenAmount(lockAmount, token)} for $peerHandle',
           'senderId': myId,
           'kind': 'receipt',
           'meta': msg.meta,
@@ -1327,7 +1344,7 @@ class ChatService extends ChangeNotifier {
         );
         try {
           await _api.post('/v1/chat/threads/$threadId/messages', body: {
-            'text': 'Paid 50% · ${formatMoney(instant, token)}',
+            'text': 'Paid 50% · ${formatTokenAmount(instant, token)}',
             'senderId': myId,
             'kind': 'receipt',
             'meta': paidMsg.meta,
@@ -1397,7 +1414,7 @@ class ChatService extends ChangeNotifier {
       );
       try {
         await _api.post('/v1/chat/threads/$threadId/messages', body: {
-          'text': 'Paid · ${formatMoney(amount, token)}',
+          'text': 'Paid · ${formatTokenAmount(amount, token)}',
           'senderId': myId,
           'kind': 'receipt',
           'meta': msg.meta,

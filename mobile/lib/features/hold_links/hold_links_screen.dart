@@ -14,6 +14,7 @@ import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
 import 'package:evabob_mobile/core/utils/amount_input.dart';
+import 'package:evabob_mobile/core/fx/fx_service.dart';
 
 /// For people who sell on WhatsApp and Instagram: one link per thing sold.
 ///
@@ -361,7 +362,8 @@ class _NewLinkSheetState extends State<_NewLinkSheet> {
     try {
       final link = await widget.api.create(
         title: _title.text.trim(),
-        amount: price,
+        // Priced in the seller's own currency; buyers pay the dollar amount.
+        amount: context.read<FxService>().toUsd(price),
         description: _details.text.trim(),
         deliveryDays: _days,
       );
@@ -406,18 +408,26 @@ class _NewLinkSheetState extends State<_NewLinkSheet> {
                   ),
                 ),
                 const SizedBox(height: Space.sm),
-                TextField(
-                  controller: _price,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    const AmountInputFormatter(),
-                  ],
-                  decoration: const InputDecoration(
-                    labelText: 'Price',
-                    prefixText: r'$ ',
-                  ),
-                ),
+                Builder(builder: (context) {
+                  final fx = context.watch<FxService>();
+                  final typed = double.tryParse(_price.text.trim()) ?? 0;
+                  return TextField(
+                    controller: _price,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      const AmountInputFormatter(),
+                    ],
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'Price',
+                      prefixText: '${fx.dominant.symbol} ',
+                      helperText: typed > 0
+                          ? '≈ ${fx.secondary(fx.toUsd(typed))}'
+                          : null,
+                    ),
+                  );
+                }),
                 const SizedBox(height: Space.sm),
                 TextField(
                   controller: _details,

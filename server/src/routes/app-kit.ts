@@ -43,6 +43,7 @@ import {
   startUcwSendJob,
   startUcwSpendJob,
   startUcwSwapJob,
+  noteJobPinEntered,
   submitChallengeSignature,
 } from "../services/appKitMoney.js";
 import { circleAppId } from "../services/circle-ucw.js";
@@ -469,6 +470,17 @@ appKitRoutes.post("/jobs/:id/recover", async (c) => {
       400,
     );
   }
+});
+
+/**
+ * The app reports a PIN for this job went through. The first report starts
+ * the hold: from then on the job is shown as on hold, and a bridge left
+ * unfinished is completed by the server 40 minutes later.
+ */
+appKitRoutes.post("/jobs/:id/pin", (c) => {
+  const r = noteJobPinEntered({ jobId: c.req.param("id"), userId: userId(c) });
+  if (!r.ok) return c.json({ error: "Job not found" }, 404);
+  return c.json({ ok: true, firstPinAt: r.firstPinAt });
 });
 
 /**

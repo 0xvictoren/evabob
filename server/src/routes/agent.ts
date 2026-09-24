@@ -137,47 +137,57 @@ async function replyInThread(opts: {
   return msg;
 }
 
+const two = (n: number) =>
+  (Math.round((Number.isFinite(n) ? n : 0) * 100) / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+/**
+ * "What's my balance" is answered here without the model. It used to read
+ * only the unified Gateway balance, so someone whose money sat in their
+ * wallet — which is where it all starts — was told about a pot they may not
+ * even use. Two reports now, in the order people spend from them: the
+ * wallet (Arc), then the Gateway unified balance with its networks under it.
+ * Dollars and euros stay separate; euros are never added into a dollar total.
+ */
 async function formatBalances(uid: string): Promise<string> {
   const user = store.getUser(uid);
   const address = user?.evmAddress;
   if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return "I don't see a wallet on your account yet. Open Profile and finish Circle PIN setup.";
   }
-  try {
-    const { appKitGetBalances } = await import("../services/appKitMoney.js");
-    const ub = await appKitGetBalances({
-      address,
-      includePending: true,
-    });
-    const rows = ub.balances || [];
-    const lines = rows
-      .slice(0, 8)
-      .map(
-        (r) =>
-          `• USDC on ${r.chain || r.name || "chain"}: ${r.balanceUsdc}`,
-      );
-    return [
-      "Here's what I can see:",
-      `Unified USDC ≈ ${ub.totalUsdc}`,
-      ub.pendingUsdc ? `(pending ${ub.pendingUsdc})` : "",
-      ...lines,
-    ]
-      .filter(Boolean)
-      .join("\n");
-  } catch {
-    try {
-      const { readTokenBalances } = await import("../services/arc-balances.js");
-      const b = await readTokenBalances(address as `0x${string}`);
-      return [
-        "Arc wallet:",
-        `• USDC ${b.usdc ?? 0}`,
-        `• EURC ${b.eurc ?? 0}`,
-        `• CBTC ${b.cirbtc ?? 0}`,
-      ].join("\n");
-    } catch (e) {
-      return `Couldn't read balances: ${clientError(e, "error")}`;
-    }
+  const [arc, ub] = await Promise.all([
+    import("../services/arc-balances.js")
+      .then((m) => m.readTokenBalances(address as `0x${string}`))
+      .catch(() => null),
+    import("../services/appKitMoney.js")
+      .then((m) => m.appKitGetBalances({ address, includePending: true }))
+      .catch(() => null),
+  ]);
+
+  const lines: string[] = [];
+  lines.push("Spendable balance");
+  if (arc && arc.usdc != null) {
+    lines.push(`• Dollars: $${two(arc.usdc)}`);
+    if (arc.eurc) lines.push(`• Euros: €${two(arc.eurc)}`);
+    if (arc.cirbtc) lines.push(`• Bitcoin: ${arc.cirbtc} CBTC`);
+  } else {
+    lines.push("• I couldn't read your wallet just now — try again in a moment.");
   }
+
+  lines.push("", "Gateway unified balance");
+  if (ub) {
+    lines.push(`• Total: $${two(Number(ub.totalUsdc ?? 0))}`);
+    if (ub.pendingUsdc) lines.push(`• Still arriving: $${two(Number(ub.pendingUsdc))}`);
+    for (const r of (ub.balances || []).slice(0, 8)) {
+      const amt = Number(r.balanceUsdc ?? 0);
+      if (amt > 0) lines.push(`   – ${r.name || r.chain || "Network"}: $${two(amt)}`);
+    }
+  } else {
+    lines.push("• I couldn't read your unified balance just now.");
+  }
+  return lines.join("\n");
 }
 
 function formatActivity(uid: string): string {

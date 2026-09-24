@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/utils/handles.dart';
+import '../../core/fx/fx_service.dart';
+import '../../core/utils/money_format.dart';
 import '../../core/api/api_client.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/auth/evabob_auth.dart';
@@ -13,7 +16,7 @@ import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/receive_qr_sheet.dart';
-import 'invoice_history.dart';
+import 'request_history_screen.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
 import 'package:evabob_mobile/core/utils/amount_input.dart';
 
@@ -340,9 +343,6 @@ class _InvoiceTabState extends State<_InvoiceTab> {
   bool get _milestonesPossible =>
       _currency == 'USDC' && _pricedLines >= 2 && _pricedLines <= 10;
 
-  /// Bumped after a generate so the history below reloads itself.
-  int _historyToken = 0;
-
   @override
   void dispose() {
     for (final l in _lines) {
@@ -450,24 +450,32 @@ class _InvoiceTabState extends State<_InvoiceTab> {
     setState(() => _creating = true);
     try {
       final api = context.read<ApiClient>();
+      final fx = context.read<FxService>();
       final items = [
         for (final l in _lines)
           if (l.value > 0)
             {
               'description': l.description.text.trim(),
-              'amount': l.value,
+              // Typed in the person's own currency; the request is in
+              // dollars underneath.
+              'amount': _currency == 'USDC' ? fx.toUsd(l.value) : l.value,
             },
       ];
       // The caller is recorded as the one to be paid, so a link carries who
       // the money is for. Without that, whoever opens it has an amount and
       // nobody to send it to.
-      final payer = _payer.text.trim();
+      // "ekuma", "@Ekuma" and "@ekuma" are the same person.
+      final payer = normalizePayee(_payer.text);
       final data = await api.post('/v1/payment-requests', body: {
         'items': items,
         'token': _currency,
         'description': _lines.first.description.text.trim(),
         if (_dueAt != null) 'dueAt': _dueAt!.toUtc().toIso8601String(),
         if (payer.isNotEmpty) 'payer': payer,
+        // What was typed, so it reads ₦2,500 — not a converted dollar
+        // figure — for anyone who also thinks in naira.
+        if (_currency == 'USDC')
+          'display': {'currency': fx.dominant.code, 'amount': _total},
         if (_milestones && _milestonesPossible) 'milestones': true,
       });
       if (!mounted) return;
@@ -488,7 +496,6 @@ class _InvoiceTabState extends State<_InvoiceTab> {
         _payer.clear();
         _dueAt = null;
         _milestones = false;
-        _historyToken++;
       });
 
       await _showSent(link);
@@ -509,7 +516,8 @@ class _InvoiceTabState extends State<_InvoiceTab> {
 
   @override
   Widget build(BuildContext context) {
-    final symbol = _currency == 'EURC' ? '€' : r'$';
+    final fx = context.watch<FxService>();
+    final symbol = _currency == 'EURC' ? '€' : fx.dominant.symbol;
     return ListView(
       padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, 120),
       children: [
@@ -564,7 +572,9 @@ class _InvoiceTabState extends State<_InvoiceTab> {
                           AssetThumbnail(asset: c, size: 20),
                           const SizedBox(width: 6),
                           Text(
-                            c == 'EURC' ? 'Euros' : 'Dollars',
+                            c == 'EURC'
+                                ? 'Euros'
+                                : (fx.isNaira ? 'Naira' : 'Dollars'),
                             style: Type.body.copyWith(
                               color: _currency == c
                                   ? EvabobColors.white
@@ -668,9 +678,23 @@ class _InvoiceTabState extends State<_InvoiceTab> {
                 style: Type.section.copyWith(color: EvabobColors.forest),
               ),
               const Spacer(),
-              Text(
-                '$symbol${_total.toStringAsFixed(2)}',
-                style: Type.title.copyWith(color: EvabobColors.nearBlack),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _currency == 'EURC'
+                        ? formatEur(_total)
+                        : (fx.isNaira ? formatNgn(_total) : formatUsd(_total)),
+                    style: Type.title.copyWith(color: EvabobColors.nearBlack),
+                  ),
+                  if (_total > 0)
+                    Text(
+                      _currency == 'EURC'
+                          ? '≈ ${fx.secondaryToken(_total, 'EURC')}'
+                          : '≈ ${fx.secondary(fx.toUsd(_total))}',
+                      style: Type.label.copyWith(color: EvabobColors.forest),
+                    ),
+                ],
               ),
             ],
           ),
@@ -709,7 +733,40 @@ class _InvoiceTabState extends State<_InvoiceTab> {
                   'hold some of it until you deliver.',
           style: Type.caption.copyWith(color: EvabobColors.navyMuted),
         ),
-        InvoiceHistory(refreshToken: _historyToken),
+        const SizedBox(height: Space.lg),
+        // Every request, both ways, lives on its own screen (Figma
+        // "Request · history").
+        Material(
+          color: EvabobColors.white,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => RequestHistoryScreen.open(context),
+            child: Padding(
+              padding: const EdgeInsets.all(Space.lg),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Your requests', style: Type.body),
+                        const SizedBox(height: 2),
+                        Text(
+                          'What you asked for, and what was asked of you',
+                          style: Type.label
+                              .copyWith(color: EvabobColors.navyMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded,
+                      color: EvabobColors.navyMuted),
+                ],
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }

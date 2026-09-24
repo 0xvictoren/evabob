@@ -6,12 +6,12 @@ import '../../core/activity/activity_service.dart';
 import '../../core/utils/money_format.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/wallet/circle_wallet_service.dart';
-import '../../core/widgets/evabob_ui.dart';
-import '../../core/widgets/glass.dart';
 import 'incomplete_jobs_banner.dart';
 import 'held_payments_banner.dart';
 import 'receipt_sheet.dart';
 import 'activity_thumb.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import '../../core/theme/evabob_tokens.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({
@@ -29,15 +29,83 @@ class ActivityScreen extends StatefulWidget {
   State<ActivityScreen> createState() => _ActivityScreenState();
 }
 
-class _ActivityScreenState extends State<ActivityScreen> {
-  String _filter = 'all';
-  DateTimeRange? _range;
+/// What the filter sheet narrows the list to. Figma "Activity · Filter".
+class ActivityFilter {
+  const ActivityFilter({
+    this.show = 'all',
+    this.when = 'any',
+    this.person,
+    this.ended,
+  });
 
-  static const _filters = <(String, String)>[
-    ('all', 'All'),
-    ('in', 'Money in'),
-    ('out', 'Money out'),
-    ('held', 'On hold'),
+  /// all | in | out | held (the last only from the chips on the screen).
+  final String show;
+
+  /// any | today | 7 | 30
+  final String when;
+
+  /// A person's name as the rows show it, or null for anyone.
+  final String? person;
+
+  /// landed | on_the_way | failed | held, or null for any.
+  final String? ended;
+
+  bool get isDefault =>
+      show == 'all' && when == 'any' && person == null && ended == null;
+
+  ActivityFilter copyWith({
+    String? show,
+    String? when,
+    String? Function()? person,
+    String? Function()? ended,
+  }) =>
+      ActivityFilter(
+        show: show ?? this.show,
+        when: when ?? this.when,
+        person: person != null ? person() : this.person,
+        ended: ended != null ? ended() : this.ended,
+      );
+
+  static String personOf(ActivityEntry e) =>
+      e.personName ?? e.counterparty ?? e.title;
+
+  static String endedOf(ActivityEntry e) {
+    if (e.didNotLand) return 'failed';
+    if (e.isPending) return e.resumable ? 'held' : 'on_the_way';
+    return 'landed';
+  }
+
+  List<ActivityEntry> apply(List<ActivityEntry> items) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return items.where((e) {
+      if (show == 'in' && !e.positive) return false;
+      if (show == 'out' && e.positive) return false;
+      if (show == 'held' && !e.isPending) return false;
+      final t = e.createdAt.toLocal();
+      if (when == 'today' && t.isBefore(today)) return false;
+      if (when == '7' && t.isBefore(today.subtract(const Duration(days: 6)))) {
+        return false;
+      }
+      if (when == '30' &&
+          t.isBefore(today.subtract(const Duration(days: 29)))) {
+        return false;
+      }
+      if (person != null && personOf(e) != person) return false;
+      if (ended != null && endedOf(e) != ended) return false;
+      return true;
+    }).toList();
+  }
+}
+
+class _ActivityScreenState extends State<ActivityScreen> {
+  ActivityFilter _f = const ActivityFilter();
+
+  static const _chips = <(String, String, double)>[
+    ('all', 'All', 60),
+    ('in', 'Money in', 88),
+    ('out', 'Money out', 96),
+    ('held', 'On hold', 82),
   ];
 
   @override
@@ -51,95 +119,60 @@ class _ActivityScreenState extends State<ActivityScreen> {
     });
   }
 
-  List<ActivityEntry> _filtered(List<ActivityEntry> items) {
-    var list = items;
-    if (_filter == 'in') list = list.where((e) => e.positive).toList();
-    if (_filter == 'out') list = list.where((e) => !e.positive).toList();
-    if (_filter == 'held') list = list.where((e) => e.isPending).toList();
-    if (_range != null) {
-      final start = DateTime(
-        _range!.start.year,
-        _range!.start.month,
-        _range!.start.day,
-      );
-      final end = DateTime(
-        _range!.end.year,
-        _range!.end.month,
-        _range!.end.day,
-        23,
-        59,
-        59,
-      );
-      list = list.where((e) {
-        final t = e.createdAt.toLocal();
-        return !t.isBefore(start) && !t.isAfter(end);
-      }).toList();
-    }
-    return list;
-  }
-
-  ({double sent, double received, int sendCount, int receiveCount}) _totals(
-    List<ActivityEntry> items,
-  ) {
+  ({double sent, double received}) _totals(List<ActivityEntry> items) {
     var sent = 0.0;
     var received = 0.0;
-    var sendCount = 0;
-    var receiveCount = 0;
     for (final e in items) {
-      if (e.isPending) continue;
+      if (e.isPending || e.didNotLand) continue;
       if (e.kind == 'send' ||
           e.kind == 'bridge' ||
           e.kind == 'agent' ||
           (e.kind == 'exchange' && e.amountUsdc < 0)) {
         sent += e.displayAmount;
-        sendCount++;
       }
       if (e.kind == 'receive' || (e.kind == 'exchange' && e.amountUsdc > 0)) {
         received += e.displayAmount;
-        receiveCount++;
       }
     }
-    return (
-      sent: sent,
-      received: received,
-      sendCount: sendCount,
-      receiveCount: receiveCount,
-    );
+    return (sent: sent, received: received);
   }
 
-  Future<void> _pickRange() async {
-    final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(now.year - 2),
-      lastDate: now,
-      initialDateRange: _range ??
-          DateTimeRange(
-            start: now.subtract(const Duration(days: 30)),
-            end: now,
-          ),
-    );
-    if (picked != null) setState(() => _range = picked);
+  Future<void> _openFilter(List<ActivityEntry> all) async {
+    final picked = await ActivityFilterSheet.open(context, _f, all);
+    if (picked != null && mounted) setState(() => _f = picked);
   }
 
-  Widget _activityRow(
-    BuildContext context,
-    ActivityEntry entry,
-    DateFormat timeFormat,
-  ) {
-    final positive = entry.amountUsdc > 0;
-    return PressScale(
-      onTap: entry.resumable
-          ? () => IncompleteJobsBanner.continueJob(context, entry.jobId!)
-          : () => ReceiptSheet.open(context, entry),
+  static String _subtitle(ActivityEntry e) {
+    if (e.resumable) return 'On hold · tap to continue';
+    if (e.didNotLand) return "Didn't land";
+    if (e.isPending) {
+      final who = ActivityFilter.personOf(e).split(' ').first.replaceFirst('@', '');
+      return e.kind == 'send' || e.kind == 'escrow'
+          ? 'Waiting for $who to join'
+          : 'On the way';
+    }
+    if (e.kind == 'send') return 'You sent';
+    if (e.kind == 'receive') return 'Sent to you';
+    return kindLabel(e.kind);
+  }
+
+  Widget _row(BuildContext context, ActivityEntry e) {
+    final color = e.isPending || e.didNotLand
+        ? EvabobColors.slate
+        : e.positive
+            ? EvabobColors.moneyIn
+            : EvabobColors.ink;
+    return InkWell(
+      onTap: e.resumable
+          ? () => IncompleteJobsBanner.continueJob(context, e.jobId!)
+          : () => ReceiptSheet.open(context, e),
       child: SizedBox(
         height: 72,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              // The person's face, or the token — never a generic icon.
-              ActivityThumb(entry: entry),
+              ActivityThumb(entry: e),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -147,24 +180,18 @@ class _ActivityScreenState extends State<ActivityScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      entry.title,
+                      e.personName ?? e.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: EvabobColors.ink,
-                      ),
+                      style: Type.body,
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      entry.isPending
-                          ? 'On hold · tap to continue'
-                          : '${kindLabel(entry.kind)} · ${timeFormat.format(entry.createdAt.toLocal())}',
+                      _subtitle(e),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: entry.isPending
+                      style: Type.label.copyWith(
+                        color: e.resumable
                             ? EvabobColors.danger
                             : EvabobColors.inkTertiary,
                       ),
@@ -173,33 +200,30 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              Flexible(
-                flex: 0,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 132),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      entry.resumable
-                          ? 'Continue'
-                          : entry.isPending
-                              ? 'On hold'
-                              : entry.amountLine,
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: entry.resumable
-                            ? EvabobColors.blue
-                            : entry.isPending
-                                ? EvabobColors.inkMuted
-                                : positive
-                                    ? EvabobColors.moneyIn
-                                    : EvabobColors.ink,
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 130),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        e.resumable ? 'Continue' : formatMoney(e.displayAmount, e.displayToken),
+                        maxLines: 1,
+                        style: Type.body.copyWith(
+                          color: e.resumable ? EvabobColors.blue : color,
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 2),
+                  Text(
+                    DateFormat('HH:mm').format(e.createdAt.toLocal()),
+                    style: Type.label.copyWith(color: EvabobColors.inkTertiary),
+                  ),
+                ],
               ),
             ],
           ),
@@ -211,9 +235,11 @@ class _ActivityScreenState extends State<ActivityScreen> {
   @override
   Widget build(BuildContext context) {
     final activity = context.watch<ActivityService>();
-    final df = DateFormat('MMM d · HH:mm');
-    final items = _filtered(activity.items);
-    final totals = _totals(items);
+    final items = _f.apply(activity.items);
+    final monthStart = DateTime(DateTime.now().year, DateTime.now().month);
+    final totals = _totals(activity.items
+        .where((e) => !e.createdAt.toLocal().isBefore(monthStart))
+        .toList());
     final now = DateTime.now();
     final groups = <String, List<ActivityEntry>>{};
     for (final entry in items) {
@@ -227,39 +253,83 @@ class _ActivityScreenState extends State<ActivityScreen> {
       groups.putIfAbsent(label, () => []).add(entry);
     }
 
+    const card = BoxDecoration(
+      color: EvabobColors.white,
+      borderRadius: BorderRadius.all(Radius.circular(12)),
+      boxShadow: Shadows.card,
+    );
+    const sectionStyle = TextStyle(
+      fontSize: 10,
+      height: 14 / 10,
+      letterSpacing: .8,
+      color: EvabobColors.inkTertiary,
+    );
+
+    // Figma "Activity" (5:255).
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
+        bottom: false,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: EvabobPageHeader(
-                title: 'Activity',
-                root: widget.onBack == null,
-                onBack: widget.onBack,
-                trailing: Semantics(
-                  button: true,
-                  label: 'Filter activity',
-                  child: PressScale(
-                    onTap: _pickRange,
-                    child: const SizedBox.square(
-                      dimension: 44,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: EvabobColors.blue,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.tune_rounded,
-                          size: 18,
-                          color: EvabobColors.white,
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+              child: Row(
+                children: [
+                  if (widget.onBack != null) ...[
+                    IconButton(
+                      onPressed: widget.onBack,
+                      tooltip: 'Back',
+                      icon: const Icon(Icons.chevron_left_rounded),
+                    ),
+                  ],
+                  Text(
+                    'Activity',
+                    style: Type.title.copyWith(
+                      fontSize: 24,
+                      height: 32 / 24,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  const Spacer(),
+                  Semantics(
+                    button: true,
+                    label: 'Filter activity',
+                    child: GestureDetector(
+                      onTap: () => _openFilter(activity.items),
+                      child: SizedBox.square(
+                        dimension: 44,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            SvgPicture.asset('assets/figma/btn_filter.svg',
+                                width: 44, height: 44),
+                            const Text(
+                              '≡',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontWeight: FontWeight.w900,
+                                fontSize: 18,
+                                height: 24 / 18,
+                                color: EvabobColors.ink,
+                              ),
+                            ),
+                            if (!_f.isDefault)
+                              const Positioned(
+                                top: 8,
+                                right: 8,
+                                child: CircleAvatar(
+                                  radius: 4,
+                                  backgroundColor: EvabobColors.blue,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
             if (activity.loading && activity.items.isEmpty)
@@ -275,213 +345,463 @@ class _ActivityScreenState extends State<ActivityScreen> {
                   onTopUp: widget.onTopUp,
                 ),
               )
-            else ...[
-              if (_range != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${DateFormat.yMMMd().format(_range!.start)} – ${DateFormat.yMMMd().format(_range!.end)}',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: EvabobColors.emeraldDeep,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () => setState(() => _range = null),
-                        child: const Text('Clear'),
-                      ),
-                    ],
-                  ),
-                ),
-              SizedBox(
-                height: 52,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  children: [
-                    for (final f in _filters)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(f.$2),
-                          selected: _filter == f.$1,
-                          onSelected: (_) => setState(() => _filter = f.$1),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
-                child: Text(
-                  'THIS MONTH',
-                  style: TextStyle(
-                    color: EvabobColors.inkTertiary,
-                    fontSize: 10,
-                    height: 1.4,
-                    letterSpacing: .8,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: SizedBox(
-                  height: 92,
-                  child: Glass(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 28,
-                      vertical: 20,
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Text(
-                                'Money in',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: EvabobColors.inkTertiary,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                formatMoney(totals.received),
-                                style: const TextStyle(
-                                  fontSize: 22,
-                                  color: EvabobColors.moneyIn,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const VerticalDivider(
-                          width: 40,
-                          thickness: 1,
-                          color: EvabobColors.hairline,
-                        ),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Text(
-                                'Money out',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: EvabobColors.inkTertiary,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                formatMoney(totals.sent),
-                                style: const TextStyle(
-                                  fontSize: 22,
-                                  color: EvabobColors.ink,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: IncompleteJobsBanner(),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: HeldPaymentsBanner(),
-              ),
+            else
               Expanded(
-                child: items.isEmpty
-                    // Three different situations shared one message, and it
-                    // was written in the developer's words ("filter /
-                    // range"). A failed load in particular read as "you have
-                    // nothing", which is the worst of the three to get wrong.
-                    ? Center(
-                        child: Padding(
+                child: RefreshIndicator(
+                  color: EvabobColors.blue,
+                  onRefresh: activity.refresh,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 120),
+                    children: [
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final c in _chips) ...[
+                              _Pill(
+                                label: c.$2,
+                                width: c.$3,
+                                height: 36,
+                                selected: _f.show == c.$1,
+                                idle: EvabobColors.white,
+                                onTap: () => setState(
+                                    () => _f = _f.copyWith(show: c.$1)),
+                              ),
+                              if (c != _chips.last) const SizedBox(width: 8),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text('THIS MONTH', style: sectionStyle),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 92,
+                        decoration: card,
+                        padding: const EdgeInsets.fromLTRB(28, 22, 20, 22),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _Total(
+                                label: 'Money in',
+                                value: formatMoney(totals.received),
+                                color: EvabobColors.moneyIn,
+                              ),
+                            ),
+                            Container(
+                              width: 1,
+                              height: 48,
+                              color: EvabobColors.hairline,
+                            ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              child: _Total(
+                                label: 'Money out',
+                                value: formatMoney(totals.sent),
+                                color: EvabobColors.ink,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const IncompleteJobsBanner(),
+                      const HeldPaymentsBanner(),
+                      if (items.isEmpty)
+                        Padding(
                           padding: const EdgeInsets.all(24),
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                (_filter != 'all' || _range != null)
-                                    ? 'Nothing here. Try clearing what '
-                                        'you are filtering by.'
-                                    : 'Nothing yet. Once money comes in '
-                                        'or goes out, it shows up here.',
+                                'Nothing here. Try clearing what you are filtering by.',
                                 textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: EvabobColors.navyMuted,
-                                ),
+                                style: Type.body
+                                    .copyWith(color: EvabobColors.slate),
                               ),
-                              if (_filter != 'all' || _range != null) ...[
-                                const SizedBox(height: 8),
-                                TextButton(
-                                  onPressed: () => setState(() {
-                                    _filter = 'all';
-                                    _range = null;
-                                  }),
-                                  style: TextButton.styleFrom(
-                                    minimumSize: const Size(0, 44),
+                              TextButton(
+                                onPressed: () => setState(
+                                    () => _f = const ActivityFilter()),
+                                child: const Text('Show everything'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      for (final group in groups.entries) ...[
+                        const SizedBox(height: 8),
+                        Text(group.key, style: sectionStyle),
+                        const SizedBox(height: 8),
+                        Container(
+                          decoration: card,
+                          clipBehavior: Clip.antiAlias,
+                          child: Column(
+                            children: [
+                              for (var i = 0; i < group.value.length; i++) ...[
+                                _row(context, group.value[i]),
+                                if (i < group.value.length - 1)
+                                  const Padding(
+                                    padding: EdgeInsets.only(left: 68, right: 20),
+                                    child: Divider(
+                                        height: 1,
+                                        color: EvabobColors.hairline),
                                   ),
-                                  child: const Text('Show everything'),
-                                ),
                               ],
                             ],
                           ),
                         ),
-                      )
-                    : ListView(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-                        children: [
-                          for (final group in groups.entries) ...[
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8, top: 8),
-                              child: Text(
-                                group.key,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  height: 1.4,
-                                  letterSpacing: .8,
-                                  color: EvabobColors.inkTertiary,
-                                ),
-                              ),
-                            ),
-                            Glass(
-                              padding: EdgeInsets.zero,
-                              child: Column(
-                                children: [
-                                  for (var i = 0;
-                                      i < group.value.length;
-                                      i++) ...[
-                                    _activityRow(context, group.value[i], df),
-                                    if (i < group.value.length - 1)
-                                      const Padding(
-                                        padding: EdgeInsets.only(left: 72),
-                                        child: Divider(height: 1),
-                                      ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                        const SizedBox(height: 16),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Total extends StatelessWidget {
+  const _Total({required this.label, required this.value, required this.color});
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          label,
+          style: Type.label.copyWith(
+            color: EvabobColors.inkTertiary,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: 4),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(value, style: Type.title.copyWith(color: color)),
+        ),
+      ],
+    );
+  }
+}
+
+/// A rounded filter chip as the designs draw it: filled blue when chosen.
+class _Pill extends StatelessWidget {
+  const _Pill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.idle,
+    this.width,
+    this.height = 40,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color idle;
+  final double? width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      // A fixed width centres the label; without one the pill hugs it.
+      child: Container(
+        width: width,
+        height: width == null ? null : height,
+        padding: width == null
+            ? EdgeInsets.symmetric(horizontal: 20, vertical: (height - 18) / 2)
+            : null,
+        alignment: width == null ? null : Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? EvabobColors.blue : idle,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          softWrap: false,
+          style: Type.body.copyWith(
+            color: selected
+                ? (idle == EvabobColors.white
+                    ? EvabobColors.pageBg
+                    : EvabobColors.white)
+                : EvabobColors.slate,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Figma "Activity · Filter" (18:970): what to show, when, with whom, and
+/// how it ended — with the number of matches on the button.
+class ActivityFilterSheet extends StatefulWidget {
+  const ActivityFilterSheet({super.key, required this.initial, required this.items});
+
+  final ActivityFilter initial;
+  final List<ActivityEntry> items;
+
+  static Future<ActivityFilter?> open(
+    BuildContext context,
+    ActivityFilter current,
+    List<ActivityEntry> items,
+  ) {
+    return showModalBottomSheet<ActivityFilter>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: const Color(0xA60B1620),
+      builder: (_) => ActivityFilterSheet(initial: current, items: items),
+    );
+  }
+
+  @override
+  State<ActivityFilterSheet> createState() => _ActivityFilterSheetState();
+}
+
+class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
+  late ActivityFilter _f = widget.initial;
+
+  /// The people they deal with most, for the row of faces.
+  List<ActivityEntry> get _people {
+    final seen = <String, ActivityEntry>{};
+    final counts = <String, int>{};
+    for (final e in widget.items) {
+      if (e.personName == null) continue;
+      final k = ActivityFilter.personOf(e);
+      seen.putIfAbsent(k, () => e);
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+    final keys = seen.keys.toList()
+      ..sort((a, b) => (counts[b] ?? 0).compareTo(counts[a] ?? 0));
+    return [for (final k in keys.take(4)) seen[k]!];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const section = TextStyle(
+      fontSize: 10,
+      height: 14 / 10,
+      letterSpacing: .8,
+      color: EvabobColors.inkTertiary,
+    );
+    final count = _f.apply(widget.items).length;
+
+    // Widths are the design's, so each row fits on one line.
+    Widget chips(List<(String?, String, double)> options, String? value,
+        void Function(String?) pick) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final o in options)
+            _Pill(
+              label: o.$2,
+              width: o.$3,
+              selected: value == o.$1,
+              idle: EvabobColors.pageBg,
+              onTap: () => pick(o.$1),
+            ),
+        ],
+      );
+    }
+
+    Widget face({
+      required bool selected,
+      required String label,
+      required Widget child,
+      required VoidCallback onTap,
+    }) {
+      return GestureDetector(
+        onTap: onTap,
+        child: SizedBox(
+          width: 56,
+          child: Column(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: selected
+                      ? Border.all(color: EvabobColors.blue, width: 2)
+                      : null,
+                ),
+                child: ClipOval(child: child),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Type.label.copyWith(
+                  color: selected ? EvabobColors.blue : EvabobColors.slate,
+                ),
               ),
             ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: EvabobColors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        boxShadow: [
+          BoxShadow(color: Color(0x290B1620), blurRadius: 40, offset: Offset(0, -8)),
+        ],
+      ),
+      padding: EdgeInsets.fromLTRB(
+          20, 16, 20, 16 + MediaQuery.paddingOf(context).bottom),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: EvabobColors.hairline,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Text(
+                  'Filter',
+                  style: Type.title.copyWith(
+                      fontSize: 24, height: 32 / 24, letterSpacing: -0.4),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => setState(() => _f = const ActivityFilter()),
+                  child: Text('Reset',
+                      style: Type.body.copyWith(color: EvabobColors.blue)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Text('SHOW', style: section),
+            const SizedBox(height: 10),
+            chips(
+              const [
+                ('all', 'All', 74),
+                ('in', 'Money in', 112),
+                ('out', 'Money out', 111),
+              ],
+              _f.show == 'held' ? 'all' : _f.show,
+              (v) => setState(() => _f = _f.copyWith(show: v)),
+            ),
+            const SizedBox(height: 28),
+            const Text('WHEN', style: section),
+            const SizedBox(height: 10),
+            chips(
+              const [
+                ('any', 'Any time', 81),
+                ('today', 'Today', 82),
+                ('7', '7 days', 81),
+                ('30', '30 days', 82),
+              ],
+              _f.when,
+              (v) => setState(() => _f = _f.copyWith(when: v)),
+            ),
+            const SizedBox(height: 28),
+            const Text('PEOPLE', style: section),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  face(
+                    selected: _f.person == null,
+                    label: 'Anyone',
+                    onTap: () => setState(() => _f = _f.copyWith(person: () => null)),
+                    child: Container(
+                      color: EvabobColors.pageBg,
+                      alignment: Alignment.center,
+                      child: const Text(
+                        'All',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                          color: EvabobColors.blue,
+                        ),
+                      ),
+                    ),
+                  ),
+                  for (final e in _people) ...[
+                    const SizedBox(width: 16),
+                    face(
+                      selected: _f.person == ActivityFilter.personOf(e),
+                      label: ActivityFilter.personOf(e).split(' ').first,
+                      onTap: () => setState(() => _f = _f.copyWith(
+                          person: () => ActivityFilter.personOf(e))),
+                      child: ActivityThumb(entry: e, size: 48),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text('HOW IT ENDED', style: section),
+            const SizedBox(height: 10),
+            chips(
+              const [
+                ('landed', 'Landed', 66),
+                ('on_the_way', 'On the way', 96),
+                ('failed', "Didn't land", 90),
+                ('held', 'On hold', 73),
+              ],
+              _f.ended,
+              // Tapping the chosen one again clears it.
+              (v) => setState(() =>
+                  _f = _f.copyWith(ended: () => _f.ended == v ? null : v)),
+            ),
+            const SizedBox(height: 32),
+            DecoratedBox(
+              decoration: const BoxDecoration(
+                borderRadius: BorderRadius.all(Radius.circular(999)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x4700B5FF),
+                    blurRadius: 24,
+                    spreadRadius: -6,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context, _f),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: EvabobColors.blue,
+                    shape: const StadiumBorder(),
+                  ),
+                  child: Text(
+                    'Show $count ${count == 1 ? 'result' : 'results'}',
+                    style: Type.body.copyWith(color: EvabobColors.white),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),

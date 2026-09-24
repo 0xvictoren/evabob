@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Hono } from "hono";
@@ -26,6 +27,7 @@ import {
 } from "./services/primary-store.js";
 import { assertProductionSafety } from "./services/production-safety.js";
 import { installSafeConsole, logPseudonym, routeTemplate, safeError } from "./utils/safe-log.js";
+import { classifyUnhandled } from "./utils/unhandled-error.js";
 
 installSafeConsole();
 
@@ -347,10 +349,19 @@ app.onError((err, c) => {
       400,
     );
   }
-  console.error("[unhandled]", c.req.method, routeTemplate(c.req.path), safeError(err));
+  // A short reference ties what the person sees to this log line.
+  const ref = randomUUID().slice(0, 8).toUpperCase();
+  console.error(
+    `[unhandled] ref=${ref}`,
+    c.req.method,
+    routeTemplate(c.req.path),
+    safeError(err),
+  );
+  const reply = classifyUnhandled(err, ref);
   return c.json(
     {
-      error: "internal_error",
+      ...reply.body,
+      ref,
       detail:
         config.nodeEnv === "production"
           ? "Something went wrong."
@@ -358,7 +369,7 @@ app.onError((err, c) => {
             ? err.message
             : String(err),
     },
-    500,
+    reply.status,
   );
 });
 

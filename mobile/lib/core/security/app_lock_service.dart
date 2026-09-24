@@ -18,7 +18,13 @@ class AppLockService extends ChangeNotifier {
   static const _secureSalt = 'evabob_app_lock_salt_v1';
   static const _secureFailedAttempts = 'evabob_app_lock_failed_attempts_v1';
   static const _secureLockedUntil = 'evabob_app_lock_locked_until_v1';
+  static const _securePinLength = 'evabob_app_lock_pin_length_v1';
   static const _maxPinAttempts = 10;
+
+  /// How long the app may sit in the background before it asks for the PIN
+  /// again. Switching away for a moment — copying an address, answering a
+  /// message — should not lock someone out.
+  static const lockAfter = Duration(seconds: 10);
 
   final _auth = LocalAuthentication();
   final _secure = const FlutterSecureStorage();
@@ -31,6 +37,13 @@ class AppLockService extends ChangeNotifier {
   String? _error;
   int _failedAttempts = 0;
   DateTime? _lockedUntil;
+  int? _pinLength;
+  DateTime? _backgroundedAt;
+
+  /// Digits in the PIN, once known, so the lock screen can check it the
+  /// moment the last one is typed. Unknown for a PIN set before this was
+  /// recorded, until the first unlock with it.
+  int? get pinLength => _pinLength;
 
   bool get ready => _ready;
   bool get enabled => _enabled;
@@ -66,6 +79,9 @@ class AppLockService extends ChangeNotifier {
           _error =
               'App-lock data is unavailable. Use biometrics or reinstall the app.';
         }
+        _pinLength = int.tryParse(
+          await _secure.read(key: _securePinLength) ?? '',
+        );
         _failedAttempts = int.tryParse(
               await _secure.read(key: _secureFailedAttempts) ?? '',
             ) ??
@@ -135,6 +151,8 @@ class AppLockService extends ChangeNotifier {
     final hash = await _hashPin(cleaned, salt);
     await _secure.write(key: _secureSalt, value: salt);
     await _secure.write(key: _securePinHash, value: hash);
+    await _secure.write(key: _securePinLength, value: '${cleaned.length}');
+    _pinLength = cleaned.length;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefEnabled, true);
     await prefs.setBool(_prefBio, enableBiometrics && _bioAvailable);
@@ -162,6 +180,8 @@ class AppLockService extends ChangeNotifier {
     await _secure.delete(key: _secureSalt);
     await _secure.delete(key: _secureFailedAttempts);
     await _secure.delete(key: _secureLockedUntil);
+    await _secure.delete(key: _securePinLength);
+    _pinLength = null;
     _enabled = false;
     _bioEnabled = false;
     _unlocked = true;
@@ -195,6 +215,10 @@ class AppLockService extends ChangeNotifier {
           key: _securePinHash,
           value: await _hashPin(pin.trim(), salt),
         );
+      }
+      if (_pinLength != pin.trim().length) {
+        _pinLength = pin.trim().length;
+        await _secure.write(key: _securePinLength, value: '$_pinLength');
       }
       await _clearFailures();
       _unlocked = true;
@@ -256,7 +280,22 @@ class AppLockService extends ChangeNotifier {
     );
   }
 
-  /// Call when app goes to background so next open requires unlock.
+  /// The app went to the background. Nothing locks yet: [onResumed] decides,
+  /// by how long it was away.
+  void markBackgrounded() {
+    if (!_enabled || !_unlocked) return;
+    _backgroundedAt ??= DateTime.now();
+  }
+
+  /// The app is back. Locks when it was away for [lockAfter] or longer.
+  void onResumed() {
+    final at = _backgroundedAt;
+    _backgroundedAt = null;
+    if (at == null || !_enabled) return;
+    if (DateTime.now().difference(at) >= lockAfter) lockNow();
+  }
+
+  /// Locks at once.
   void lockNow() {
     if (!_enabled) return;
     _unlocked = false;

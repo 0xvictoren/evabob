@@ -44,7 +44,47 @@ class MoneyAlerts {
   ///
   /// Safe to call after startup: initialization and permission requests are
   /// idempotent on both supported mobile platforms.
-  Future<void> requestPermission() => _ensureReady();
+  ///
+  /// Returns whether notifications are allowed afterwards. Asks again even
+  /// after startup — the first ask may have been dismissed.
+  Future<bool> requestPermission() async {
+    await _ensureReady();
+    try {
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin>()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
+    } catch (e) {
+      debugPrint('MoneyAlerts permission: $e');
+    }
+    return permissionGranted();
+  }
+
+  /// Whether the phone currently lets Evabob show notifications. Read from
+  /// the system each time, so the in-app prompt disappears once it is on —
+  /// it used to ask again every time the screen opened.
+  Future<bool> permissionGranted() async {
+    try {
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (android != null) {
+        return await android.areNotificationsEnabled() ?? false;
+      }
+      final ios = _plugin.resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin>();
+      if (ios != null) {
+        final p = await ios.checkPermissions();
+        return p?.isEnabled ?? false;
+      }
+    } catch (e) {
+      debugPrint('MoneyAlerts permission check: $e');
+    }
+    return false;
+  }
 
   /// Android needs a channel declared before anything can be posted to it, and
   /// its importance is fixed at creation — raising it later is ignored, so it

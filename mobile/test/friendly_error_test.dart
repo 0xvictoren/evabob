@@ -78,6 +78,14 @@ void main() {
       expect(friendlyError(null), 'Something went wrong. Please try again.');
       expect(friendlyError('   '), 'Something went wrong. Please try again.');
     });
+
+    test('a server fault shows its reference so it can be found in the logs',
+        () {
+      expect(
+        friendlyError(_ApiException(500, 'internal_error:AB12CD34')),
+        'Something went wrong on our side. Please try again. (Ref AB12CD34)',
+      );
+    });
   });
 }
 

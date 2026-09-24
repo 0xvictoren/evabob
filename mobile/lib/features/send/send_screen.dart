@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/utils/handles.dart';
+import 'send_result_screen.dart';
 import '../../core/activity/activity_service.dart';
 import '../../core/api/api_client.dart';
 import '../../core/calc/calculator.dart';
@@ -65,7 +68,9 @@ class _SendScreenState extends State<SendScreen> {
 
   /// What actually gets paid: the picked contact's address, or whatever was
   /// typed if nobody was picked.
-  String get _target => _picked?.address ?? _to.text.trim();
+  /// Who the money goes to. A typed handle is read the same with or without
+  /// its @ and in any case, so "Ekuma" pays @ekuma.
+  String get _target => _picked?.address ?? normalizePayee(_to.text);
 
   /// Left behind to cover the fee, which on Arc is paid in USDC. Same figure
   /// Bridge uses.
@@ -116,16 +121,20 @@ class _SendScreenState extends State<SendScreen> {
     }
   }
 
+  /// Dollars are typed in the person's main currency: ₦2,000 on the keypad
+  /// sends the dollar equivalent. Euros are a balance of their own and are
+  /// typed as euros.
+  bool _typesInNaira(FxService fx) => _token == 'USDC' && fx.isNaira;
+
   double _tokenAmount(FxService fx) {
     final v = _calc.value ?? 0.0;
     if (v <= 0) return 0;
-    // Keypad is already the token amount (USDC or EURC).
-    return v;
+    return _token == 'USDC' ? fx.toUsd(v) : v;
   }
 
   /// The figure on the amount card: a currency symbol, not a ticker.
-  String _primaryLabel() {
-    final sign = _token == 'EURC' ? '€' : r'$';
+  String _primaryLabel(FxService fx) {
+    final sign = _token == 'EURC' ? '€' : (_typesInNaira(fx) ? '₦' : r'$');
     final v = _calc.value ?? 0;
     return v > 0 ? '$sign${_calc.display}' : '${sign}0';
   }
@@ -136,9 +145,23 @@ class _SendScreenState extends State<SendScreen> {
       return _token == 'EURC' ? 'Enter an amount in euros' : 'Enter an amount';
     }
     if (_token == 'EURC') {
-      return '≈ ${formatUsd(fx.eurToUsdc(v))}';
+      return '≈ ${fx.secondaryToken(v, 'EURC')}';
     }
-    return '';
+    // The other currency underneath: dollars under naira, naira under dollars.
+    return '≈ ${fx.secondary(_tokenAmount(fx))}';
+  }
+
+  /// Quick amounts in whatever the keypad is typing.
+  List<String> _quickAmounts(FxService fx) => _typesInNaira(fx)
+      ? const ['1000', '5000', '10000']
+      : const ['20', '50', '100'];
+
+  /// Whole amounts without ".00" — a chip is a quarter of the row, and
+  /// "₦10,000.00" does not fit in it.
+  String _quickLabel(FxService fx, String q) {
+    final v = double.parse(q);
+    final sign = _token == 'EURC' ? '€' : (_typesInNaira(fx) ? '₦' : r'$');
+    return '$sign${NumberFormat.decimalPattern('en_US').format(v)}';
   }
 
   /// Asks before paying someone who has no account yet.
@@ -542,10 +565,12 @@ class _SendScreenState extends State<SendScreen> {
                                       context,
                                       title: 'Scan payee',
                                     );
-                                    if (hit != null && mounted) {
+                                    if (hit != null &&
+                                        hit.payee.isNotEmpty &&
+                                        mounted) {
                                       setState(() {
                                         _picked = null;
-                                        _to.text = hit.address;
+                                        _to.text = hit.payee;
                                       });
                                     }
                                   },
@@ -667,7 +692,7 @@ class _SendScreenState extends State<SendScreen> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              _primaryLabel(),
+                              _primaryLabel(fx),
                               style: EvabobTheme.amountDisplay.copyWith(
                                 color: tooMuch ? EvabobColors.alert : null,
                               ),
@@ -719,7 +744,7 @@ class _SendScreenState extends State<SendScreen> {
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        for (final q in ['20', '50', '100', 'Max']) ...[
+                        for (final q in [..._quickAmounts(fx), 'Max']) ...[
                           Expanded(
                             child: PressScale(
                               onTap: () {
@@ -746,14 +771,21 @@ class _SendScreenState extends State<SendScreen> {
                                       ((available / (1 + feeBps / 10000)) * 100)
                                               .floorToDouble() /
                                           100;
-                                  final s = maxVal == maxVal.roundToDouble()
-                                      ? maxVal.toStringAsFixed(0)
-                                      : maxVal.toStringAsFixed(2);
+                                  // Shown in what the keypad types, rounded
+                                  // down so it never exceeds the balance.
+                                  final typed = _token == 'USDC'
+                                      ? (fx.fromUsd(maxVal) * 100)
+                                              .floorToDouble() /
+                                          100
+                                      : maxVal;
+                                  final s = typed == typed.roundToDouble()
+                                      ? typed.toStringAsFixed(0)
+                                      : typed.toStringAsFixed(2);
                                   setState(() {
                                     _calc = CalcState(
                                       expression: s,
                                       display: s,
-                                      value: maxVal,
+                                      value: typed,
                                     );
                                   });
                                 } else {
@@ -770,14 +802,23 @@ class _SendScreenState extends State<SendScreen> {
                                 borderRadius: 999,
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 10),
-                                child: Text(
-                                  q == 'Max'
-                                      ? 'All of it'
-                                      : formatMoney(double.parse(q), _token),
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w400,
-                                    color: EvabobColors.navyMuted,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8),
+                                    child: Text(
+                                      q == 'Max'
+                                          ? 'All of it'
+                                          : _quickLabel(fx, q),
+                                      maxLines: 1,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w400,
+                                        color: EvabobColors.navyMuted,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1114,6 +1155,38 @@ class _SendScreenState extends State<SendScreen> {
                                     'submitted',
                                     'in_progress',
                                   }.contains(status);
+                                  // A direct payment gets the full receipt
+                                  // screens (Figma "Send · On the way" /
+                                  // "Send · Sent"); money held for someone
+                                  // without an account keeps its own sheet.
+                                  if (mode != 'escrow') {
+                                    final name = sent?.personName ??
+                                        check?.displayName ??
+                                        _picked?.name ??
+                                        _to.text.trim();
+                                    await showSendResult(
+                                      context,
+                                      SendResult(
+                                        amount: amount,
+                                        token: _token,
+                                        fee: sent?.platformFee ??
+                                            context
+                                                .read<AppFeatures>()
+                                                .platformFeeFor(amount),
+                                        recipientName: name,
+                                        recipientAvatarUrl:
+                                            sent?.personAvatarUrl ??
+                                                check?.avatarUrl,
+                                        recipientAvatarBundle:
+                                            sent?.personAvatarBundle,
+                                        activityId: activityId,
+                                        txHash: txHint ?? sent?.txHash,
+                                      ),
+                                      onTheWay: onTheWay,
+                                    );
+                                    widget.onBack?.call();
+                                    return;
+                                  }
                                   await _showSendOutcome(
                                     title: mode == 'escrow'
                                         ? 'Held for them'

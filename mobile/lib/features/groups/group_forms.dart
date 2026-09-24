@@ -9,6 +9,7 @@ import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import 'package:evabob_mobile/core/utils/amount_input.dart';
+import 'package:evabob_mobile/core/fx/fx_service.dart';
 
 /// Starts a money circle. Returns its id once it is on chain.
 Future<String?> showCreateCircle(BuildContext context) =>
@@ -92,13 +93,16 @@ class _CreateCircleScreenState extends State<_CreateCircleScreen> {
   }
 
   Future<void> _create() async {
-    final amount = double.tryParse(_amount.text.trim());
+    // Typed in the person's own currency; the circle runs in dollars.
+    final typed = double.tryParse(_amount.text.trim());
+    final amount = typed == null ? null : context.read<FxService>().toUsd(typed);
     if (_name.text.trim().isEmpty) {
       setState(() => _error = 'Give the circle a name');
       return;
     }
     if (amount == null || amount < 1) {
-      setState(() => _error = 'Each person puts in at least \$1 a round');
+      setState(() => _error =
+          'Each person puts in at least ${formatMoney(1)} a round');
       return;
     }
     if (_members.length < 2) {
@@ -131,7 +135,8 @@ class _CreateCircleScreenState extends State<_CreateCircleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final amount = double.tryParse(_amount.text.trim()) ?? 0;
+    final fx = context.watch<FxService>();
+    final amount = fx.toUsd(double.tryParse(_amount.text.trim()) ?? 0);
     final n = _members.length;
     final everyLabel =
         _everyOptions.firstWhere((o) => o.$1 == _every).$2.toLowerCase();
@@ -160,9 +165,9 @@ class _CreateCircleScreenState extends State<_CreateCircleScreen> {
               inputFormatters: [
                 const AmountInputFormatter(),
               ],
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Each person puts in',
-                prefixText: r'$ ',
+                prefixText: '${fx.dominant.symbol} ',
               ),
               onChanged: (_) => setState(() {}),
             ),
@@ -328,13 +333,16 @@ class _CreatePotScreenState extends State<_CreatePotScreen> {
   }
 
   Future<void> _create() async {
-    final target = double.tryParse(_target.text.trim());
+    final typedTarget = double.tryParse(_target.text.trim());
+    final target = typedTarget == null
+        ? null
+        : context.read<FxService>().toUsd(typedTarget);
     if (_title.text.trim().isEmpty) {
       setState(() => _error = 'Say what the collection is for');
       return;
     }
     if (target == null || target < 1) {
-      setState(() => _error = 'Set a target of at least \$1');
+      setState(() => _error = 'Set a target of at least ${formatMoney(1)}');
       return;
     }
     setState(() {
@@ -401,9 +409,9 @@ class _CreatePotScreenState extends State<_CreatePotScreen> {
               inputFormatters: [
                 const AmountInputFormatter(),
               ],
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Target',
-                prefixText: r'$ ',
+                prefixText: '${context.watch<FxService>().dominant.symbol} ',
               ),
             ),
             const SizedBox(height: Space.sm),

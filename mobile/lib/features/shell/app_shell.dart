@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
@@ -10,6 +11,7 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/glass.dart';
+import '../../core/widgets/top_snack.dart';
 // SectionNotify used for tab badges
 import '../activity/activity_screen.dart';
 import '../agents/agents_screen.dart';
@@ -46,7 +48,8 @@ class _AppShellState extends State<AppShell> {
   String? _bootstrappedForUser;
 
   bool _enabled(String route, AppFeatures features) {
-    switch (route) {
+    // "send:@name" is Send with someone filled in — the same switch.
+    switch (route.split(':').first) {
       case 'send':
         return features.directSend;
       case 'request':
@@ -75,6 +78,37 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _close() => setState(() => _overlay = null);
+
+  DateTime? _lastBackAt;
+
+  /// The phone's back button steps back through the app instead of leaving
+  /// it: an open screen closes, another tab returns to Home, and only on Home
+  /// does a second press within two seconds close the app. Screens pushed on
+  /// top (a chat, a receipt) are popped by the navigator before this runs.
+  void _onBack() {
+    if (_overlay != null) {
+      _close();
+      return;
+    }
+    if (_tab != 0) {
+      setState(() => _tab = 0);
+      return;
+    }
+    final now = DateTime.now();
+    final last = _lastBackAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+      SystemNavigator.pop();
+      return;
+    }
+    _lastBackAt = now;
+    showTopSnack(
+      context,
+      const SnackBar(
+        content: Text('Press back again to exit'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
 
   bool get _showNav => _overlay == null;
 
@@ -207,18 +241,24 @@ class _AppShellState extends State<AppShell> {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _consumeAppLink(links));
     }
-    return Scaffold(
-      extendBody: true,
-      backgroundColor: EvabobColors.pageBg,
-      body: ColoredBox(
-        color: EvabobColors.pageBg,
-        child: AnimatedSwitcher(
-          duration: Motion.base,
-          switchInCurve: Motion.smooth,
-          child: _buildBody(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onBack();
+      },
+      child: Scaffold(
+        extendBody: true,
+        backgroundColor: EvabobColors.pageBg,
+        body: ColoredBox(
+          color: EvabobColors.pageBg,
+          child: AnimatedSwitcher(
+            duration: Motion.base,
+            switchInCurve: Motion.smooth,
+            child: _buildBody(),
+          ),
         ),
+        bottomNavigationBar: _showNav ? _bottomNav() : null,
       ),
-      bottomNavigationBar: _showNav ? _bottomNav() : null,
     );
   }
 
@@ -342,6 +382,8 @@ class _AppShellState extends State<AppShell> {
         return HomeScreen(
           key: const ValueKey('home'),
           onSend: () => _open('send'),
+          onSendTo: (to) => _open('send:$to'),
+          onOpenRequest: (id) => _open('pay:$id'),
           onFund: () => _open('fund'),
           onExchange: () => _open('buy'),
           onActivity: () => _open('activity'),

@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 import '../auth/evabob_auth.dart';
@@ -124,8 +128,87 @@ class WalletService extends ChangeNotifier {
   /// Per-chain wallet balances (USDC / EURC / cirBTC) from public RPCs.
   List<Map<String, dynamic>> chainBalances = [];
 
+  /// Address whose saved balances have been painted this session.
+  String? _restoredFor;
+
+  static String _snapshotKey(String addr) =>
+      'wallet.balances.${addr.toLowerCase()}';
+
+  /// Paints the balances saved on the last successful read, so a cold start
+  /// shows money at once instead of zero while the network catches up.
+  Future<void> _restoreSnapshot(String addr) async {
+    if (_restoredFor == addr.toLowerCase()) return;
+    _restoredFor = addr.toLowerCase();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_snapshotKey(addr));
+      if (raw == null) return;
+      final j = jsonDecode(raw);
+      if (j is! Map) return;
+      // A read that already landed wins over the saved copy.
+      if (_lastRefreshAt != null) return;
+      usdcWallet = _asDouble(j['usdcWallet']) ?? usdcWallet;
+      eurcWallet = _asDouble(j['eurcWallet']) ?? eurcWallet;
+      cirbtcWallet = _asDouble(j['cirbtcWallet']) ?? cirbtcWallet;
+      gatewayUsdc = _asDouble(j['gatewayUsdc']) ?? gatewayUsdc;
+      gatewayConfirmedUsdc =
+          _asDouble(j['gatewayConfirmedUsdc']) ?? gatewayConfirmedUsdc;
+      gatewayPendingUsdc =
+          _asDouble(j['gatewayPendingUsdc']) ?? gatewayPendingUsdc;
+      totalUsdc = usdcWallet + gatewayUsdc;
+      final gb = j['gatewayBalances'];
+      if (gb is List) {
+        gatewayBalances = gb
+            .whereType<Map>()
+            .map((e) =>
+                GatewayChainBalance.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+      }
+      final cb = j['chainBalances'];
+      if (cb is List) {
+        chainBalances =
+            cb.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      address ??= addr;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('restore balances: $e');
+    }
+  }
+
+  Future<void> _saveSnapshot(String addr) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _snapshotKey(addr),
+        jsonEncode({
+          'usdcWallet': usdcWallet,
+          'eurcWallet': eurcWallet,
+          'cirbtcWallet': cirbtcWallet,
+          'gatewayUsdc': gatewayUsdc,
+          'gatewayConfirmedUsdc': gatewayConfirmedUsdc,
+          'gatewayPendingUsdc': gatewayPendingUsdc,
+          'gatewayBalances': [
+            for (final b in gatewayBalances)
+              {
+                'domain': b.domain,
+                'balanceUsdc': b.balanceUsdc,
+                'name': b.name,
+                'chainId': b.chainId,
+              },
+          ],
+          'chainBalances': chainBalances,
+        }),
+      );
+    } catch (e) {
+      debugPrint('save balances: $e');
+    }
+  }
+
   /// Wipe balances when switching accounts so UI never shows another user's funds.
   void reset() {
+    _restoredFor = null;
+    _lastRefreshAt = null;
     usdcWallet = 0;
     eurcWallet = 0;
     cirbtcWallet = 0;
@@ -306,9 +389,17 @@ class WalletService extends ChangeNotifier {
       notifyListeners();
     }
     try {
-      await syncSession();
-      // Session may have just rebound the SCA — pick it up for this request.
-      addr = addr ?? _effectiveAddress(null);
+      if (addr != null) {
+        await _restoreSnapshot(addr);
+        // The wallet is already known, so the session sync (a server round
+        // trip of its own) no longer has to finish before the balances are
+        // asked for. It used to, and the Arc figure paid for it.
+        unawaited(syncSession());
+      } else {
+        await syncSession();
+        // Session may have just rebound the SCA — pick it up for this request.
+        addr = _effectiveAddress(null);
+      }
       final q = <String, String>{};
       if (addr != null) q['address'] = addr;
       final data = await _api.get('/v1/wallet/balances', query: q);
@@ -364,6 +455,10 @@ class WalletService extends ChangeNotifier {
         error = null;
       }
       _lastRefreshAt = DateTime.now();
+      final saved = address;
+      if (saved != null && saved.startsWith('0x')) {
+        unawaited(_saveSnapshot(saved));
+      }
     } catch (e) {
       if (seq == _refreshSeq) error = e.toString();
       debugPrint('refreshBalances: $e');

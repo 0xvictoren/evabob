@@ -13,7 +13,11 @@ class ChatThread {
     this.peerAvatarBundle,
     this.state,
     this.invitedBy,
+    this.updatedAt,
   });
+
+  /// When the conversation last moved, for the time on its row.
+  final DateTime? updatedAt;
 
   final String id;
   final String title;
@@ -46,6 +50,7 @@ class ChatThread {
         peerAvatarBundle: peerAvatarBundle,
         state: state ?? this.state,
         invitedBy: invitedBy,
+        updatedAt: updatedAt,
       );
 
   factory ChatThread.fromJson(Map<String, dynamic> j, {String? fallbackTitle}) =>
@@ -63,6 +68,7 @@ class ChatThread {
         peerAvatarBundle: (j['peerAvatarBundle'] as num?)?.toInt(),
         state: j['state']?.toString(),
         invitedBy: j['invitedBy']?.toString(),
+        updatedAt: DateTime.tryParse(j['updatedAt']?.toString() ?? '')?.toLocal(),
       );
 }
 

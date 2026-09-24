@@ -271,7 +271,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  formatMoney(w.balanceUsdc),
+                                  formatTokenAmount(w.balanceUsdc),
                                   style: const TextStyle(
                                     fontSize: 22,
                                     fontWeight: FontWeight.w400,
@@ -492,7 +492,7 @@ class _AgentDetailState extends State<_AgentDetail> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Available ${formatMoney(balanceUsdc)}. '
+              'Available ${formatTokenAmount(balanceUsdc)}. '
               'Goes back to your own wallet.',
               style: const TextStyle(
                 fontSize: 10,
@@ -523,7 +523,7 @@ class _AgentDetailState extends State<_AgentDetail> {
       showTopSnack(
         context,
         SnackBar(
-          content: Text('Withdrew ${formatMoney(amt)}'),
+          content: Text('Withdrew ${formatTokenAmount(amt)}'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -703,7 +703,7 @@ class _AgentDetailState extends State<_AgentDetail> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                formatMoney(w.balanceUsdc),
+                formatTokenAmount(w.balanceUsdc),
                 style: const TextStyle(
                   fontSize: 48,
                   fontWeight: FontWeight.w400,
@@ -923,7 +923,7 @@ class _PayableServicesState extends State<_PayableServices> {
                       ),
                     ),
                     Text(
-                      formatMoney(item.priceUsdc),
+                      formatTokenAmount(item.priceUsdc),
                       style: const TextStyle(
                         fontSize: 10,
                         color: EvabobColors.navy,
@@ -997,7 +997,7 @@ class _AllowanceCard extends StatelessWidget {
           ),
           Text(
             [
-              'Asks you above ${formatMoney(w.allowance.askAboveUsdc)}',
+              'Asks you above ${formatTokenAmount(w.allowance.askAboveUsdc)}',
               if (w.allowance.proofOnly) 'pays only after proof',
             ].join(' · '),
             style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),

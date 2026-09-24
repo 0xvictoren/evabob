@@ -1,4 +1,6 @@
 import 'package:evabob_mobile/core/chat/chat_models.dart';
+import 'package:evabob_mobile/core/fx/fx_service.dart';
+import 'package:provider/provider.dart';
 import 'package:evabob_mobile/core/wallet/circle_native_sdk.dart';
 import 'package:evabob_mobile/features/chat/request_card.dart';
 import 'package:flutter/material.dart';
@@ -18,7 +20,10 @@ Map<String, dynamic> _card({bool open = true, String status = 'Request · unpaid
       ],
     };
 
-Widget _host(Widget child) => MaterialApp(home: Scaffold(body: Center(child: child)));
+Widget _host(Widget child) => ChangeNotifierProvider(
+      create: (_) => FxService(),
+      child: MaterialApp(home: Scaffold(body: Center(child: child))),
+    );
 
 void main() {
   testWidgets('the person asked sees every line, the total, Pay and Cancel', (t) async {

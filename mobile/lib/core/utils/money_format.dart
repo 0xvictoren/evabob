@@ -29,6 +29,13 @@ String formatNgn(double v, {bool compactSign = false}) {
 }
 
 String formatUsd(double v) => _usd.format(v);
+
+/// Naira per dollar when the person's main currency is naira, else null.
+///
+/// Set by [FxService] when the choice changes. Every dollar amount shown
+/// through [formatMoney] follows it, so the whole app switches at once rather
+/// than screen by screen.
+double? moneyDisplayNgnRate;
 String formatEur(double v) => _eur.format(v);
 
 /// An amount the way a person reads one: a currency symbol and two decimals.
@@ -44,7 +51,8 @@ String formatMoney(double v, [String token = 'USDC']) {
     case 'CIRBTC':
       return '₿${v.toStringAsFixed(6)}';
     default:
-      return _usd.format(v);
+      final rate = moneyDisplayNgnRate;
+      return rate != null ? formatNgn(v * rate) : _usd.format(v);
   }
 }
 
@@ -53,5 +61,16 @@ String formatMoney(double v, [String token = 'USDC']) {
 /// outside Home, which is most of the crypto vocabulary the app had left.
 String formatUsdc(double v) => formatMoney(v);
 
-String formatTokenAmount(double v, [String token = 'USDC']) =>
-    formatMoney(v, token);
+/// The token amount itself — dollars as dollars — whatever the person's main
+/// currency. For screens that move a specific token between networks (Move
+/// money, Gateway, swaps), and for text stored where both people read it.
+String formatTokenAmount(double v, [String token = 'USDC']) {
+  switch (token.toUpperCase()) {
+    case 'EURC':
+      return _eur.format(v);
+    case 'CIRBTC':
+      return '₿${v.toStringAsFixed(6)}';
+    default:
+      return _usd.format(v);
+  }
+}

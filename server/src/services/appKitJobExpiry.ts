@@ -270,6 +270,51 @@ export function fundsIntactMessage(
   return "PIN expired. Your funds were not moved.";
 }
 
+// ─── What counts as "on hold" ─────────────────────────────────────────────
+
+/** Evidence on a job that the person entered a PIN and something was signed. */
+export function pinWasEntered(meta?: {
+  firstPinAt?: string;
+  txHash?: string;
+  lastTxHash?: string;
+  txHashes?: string[];
+  burnTxHash?: string;
+  burnAt?: string;
+} | null): boolean {
+  if (!meta) return false;
+  return Boolean(
+    meta.firstPinAt ||
+      meta.txHash ||
+      meta.lastTxHash ||
+      meta.burnTxHash ||
+      meta.burnAt ||
+      (meta.txHashes && meta.txHashes.length > 0),
+  );
+}
+
+/**
+ * Whether an unfinished job is shown to the person as held.
+ *
+ * The product rule: nothing is held unless money could be in motion. A swap,
+ * or a bridge whose first PIN was never entered, moved nothing — it is
+ * dropped, not held. While its PIN screen may still be open it is only kept
+ * out of sight; once that window has passed it is discarded.
+ */
+export function heldJobDecision(input: {
+  pinEntered: boolean;
+  live: boolean;
+  jobAgeMs: number;
+  graceMs?: number;
+}): "show" | "hide" | "discard" {
+  if (input.pinEntered) return "show";
+  const grace = input.graceMs ?? OPEN_CHALLENGE_GRACE_MS;
+  if (input.live && input.jobAgeMs < grace) return "hide";
+  return "discard";
+}
+
+/** What the app says, if anything, about a job dropped for lack of a PIN. */
+export const NO_PIN_MESSAGE = "No PIN was entered, so nothing moved.";
+
 // ─── Abandoned bridges ────────────────────────────────────────────────────
 
 /**
@@ -294,11 +339,21 @@ export function bridgeAbandonWindowMs(
  */
 export function abandonedBridgeDue(input: {
   burnAtMs: number | null;
+  /**
+   * When the person entered the first PIN, recorded by the server the
+   * moment it heard. The product rule counts 40 minutes from here; the
+   * earlier of this and the burn wins, so neither a late report nor a
+   * server that was asleep can stretch the wait.
+   */
+  firstPinAtMs?: number | null;
   jobCreatedAtMs: number;
   nowMs: number;
   windowMs: number;
 }): boolean {
-  const start = input.burnAtMs ?? input.jobCreatedAtMs;
+  const marks = [input.burnAtMs, input.firstPinAtMs].filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  const start = marks.length ? Math.min(...marks) : input.jobCreatedAtMs;
   if (!Number.isFinite(start)) return false;
   return input.nowMs - start >= input.windowMs;
 }

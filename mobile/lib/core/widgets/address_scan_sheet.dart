@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:provider/provider.dart';
 
+import '../api/api_client.dart';
 import '../theme/evabob_colors.dart';
+import '../utils/handles.dart';
 import 'glass.dart';
 
 class ScannedPayee {
@@ -10,9 +13,21 @@ class ScannedPayee {
     required this.kind,
     this.domain,
     this.chainName,
+    this.handle,
+    this.requestId,
   });
 
+  /// Set when the code was a payment request link rather than a person.
+  final String? requestId;
+
+  /// The wallet address, or empty when the code only carried a handle.
   final String address;
+
+  /// The Evabob `@handle` behind the code, when there is one.
+  final String? handle;
+
+  /// What to put in a Send "To" field: the handle when known, else the address.
+  String get payee => handle ?? address;
 
   /// Always `evm` for product networks.
   final String kind;
@@ -20,18 +35,36 @@ class ScannedPayee {
   final String? chainName;
 }
 
-/// Scan a QR / URI. EVM addresses can pick Arc / Ethereum Sepolia / Base Sepolia.
+/// Scan a QR / URI.
+///
+/// Every payment except Move money and Gateway runs on Arc, so a scan for a
+/// payment goes straight back with the person — their @handle when the code
+/// or the address belongs to an Evabob account — and never asks for a
+/// network. Only screens that really choose one (Move money, Gateway) pass
+/// [pickNetwork].
 class AddressScanSheet extends StatefulWidget {
-  const AddressScanSheet({super.key, this.title = 'Scan address'});
+  const AddressScanSheet({
+    super.key,
+    this.title = 'Scan address',
+    this.pickNetwork = false,
+  });
 
   final String title;
+  final bool pickNetwork;
 
-  static Future<ScannedPayee?> open(BuildContext context, {String? title}) {
+  static Future<ScannedPayee?> open(
+    BuildContext context, {
+    String? title,
+    bool pickNetwork = false,
+  }) {
     return showModalBottomSheet<ScannedPayee>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => AddressScanSheet(title: title ?? 'Scan address'),
+      builder: (_) => AddressScanSheet(
+        title: title ?? 'Scan address',
+        pickNetwork: pickNetwork,
+      ),
     );
   }
 
@@ -59,9 +92,33 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
     super.dispose();
   }
 
+  /// A handle carried by an Evabob code: `@name`, `evabob://pay/@name`,
+  /// `evabob://u/name`, or a web link ending in `/@name`.
+  static String? _handleIn(String s) {
+    final direct = asHandle(s);
+    if (direct != null && s.trim().startsWith('@')) return direct;
+    final m = RegExp(
+      r'^(?:evabob://(?:pay|u|user|send)/@?|https?://[^/]+/(?:u/|pay/)?@)([A-Za-z0-9_.]{2,32})/?(?:\?.*)?$',
+      caseSensitive: false,
+    ).firstMatch(s.trim());
+    if (m == null) return null;
+    return asHandle(m.group(1));
+  }
+
   ScannedPayee? _parse(String raw) {
     var s = raw.trim();
     if (s.isEmpty) return null;
+    // A payment request's own code opens that request.
+    final req = RegExp(
+      r'(?:evabob://pay/|https?://\S*/pay/)([0-9a-fA-F-]{36})',
+    ).firstMatch(s);
+    if (req != null) {
+      return ScannedPayee(address: '', kind: 'request', requestId: req.group(1));
+    }
+    final handle = _handleIn(s);
+    if (handle != null) {
+      return ScannedPayee(address: '', kind: 'handle', handle: handle);
+    }
     int? chainId;
     final eip155 = RegExp(
       r'^eip155:(\d+):(0x[a-fA-F0-9]{40})$',
@@ -115,6 +172,10 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
     _handled = true;
     await _controller.stop();
     if (!mounted) return;
+    if (parsed.kind == 'handle' || parsed.kind == 'request') {
+      Navigator.pop(context, parsed);
+      return;
+    }
     if (parsed.kind != 'evm') {
       setState(() {
         _handled = false;
@@ -122,8 +183,38 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
       });
       return;
     }
-    final chosen = await _pickEvmNetwork(parsed);
-    if (mounted) Navigator.pop(context, chosen ?? parsed);
+    if (widget.pickNetwork) {
+      final chosen = await _pickEvmNetwork(parsed);
+      if (mounted) Navigator.pop(context, chosen ?? parsed);
+      return;
+    }
+    // An address that belongs to an Evabob account comes back as its handle,
+    // which is what the person recognises on the Send screen.
+    final handle = await _handleForAddress(parsed.address);
+    if (!mounted) return;
+    Navigator.pop(
+      context,
+      ScannedPayee(
+        address: parsed.address,
+        kind: parsed.kind,
+        domain: parsed.domain,
+        chainName: parsed.chainName,
+        handle: handle,
+      ),
+    );
+  }
+
+  Future<String?> _handleForAddress(String address) async {
+    try {
+      final res = await context
+          .read<ApiClient>()
+          .get('/v1/users/lookup', query: {'to': address})
+          .timeout(const Duration(seconds: 4));
+      if (res['found'] == true) return asHandle(res['handle']?.toString());
+    } catch (_) {
+      // No answer means we fill in the address; the payment still works.
+    }
+    return null;
   }
 
   Future<void> _showBadCode() {

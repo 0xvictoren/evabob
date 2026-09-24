@@ -779,6 +779,18 @@ class CircleWalletService extends ChangeNotifier {
     return {'ok': true, 'settled': true, 'txHash': verified['txHash']};
   }
 
+  /// Tells the server a PIN for [jobId] went through. The first report is
+  /// the moment the job counts as held — and, for a bridge, when the
+  /// 40-minute clock for the server to finish it starts.
+  Future<void> _notePinEntered(String jobId) async {
+    try {
+      await _api.post('/v1/app-kit/jobs/$jobId/pin');
+    } catch (e) {
+      // The server also infers it from the first transaction hash.
+      debugPrint('note pin $jobId: $e');
+    }
+  }
+
   /// Relay a typed-data signature captured in the WebView to an App Kit job.
   Future<bool> _relaySignature({
     required String jobId,
@@ -1058,6 +1070,9 @@ class CircleWalletService extends ChangeNotifier {
         seen.add(id);
         status = 'Confirm with your PIN…';
         notifyListeners();
+        if (!context.mounted) {
+          return {'ok': false, 'error': 'Cancelled', 'jobId': jobId};
+        }
         final result = await executeChallengeAndVerify(
           context,
           id,
@@ -1075,6 +1090,7 @@ class CircleWalletService extends ChangeNotifier {
             'jobId': jobId,
           };
         }
+        await _notePinEntered(jobId);
       }
       if (statusStr == 'succeeded') {
         return {...latest, 'ok': true, 'jobId': jobId, 'rail': 'app-kit'};
@@ -1561,6 +1577,9 @@ class CircleWalletService extends ChangeNotifier {
   }) async {
     final seen = <String>{};
     Map<String, dynamic> latest = {};
+    // Nothing is held until a PIN goes through: before that, leaving or
+    // cancelling simply drops the attempt.
+    var pinEntered = false;
     for (var i = 0; i < 180; i++) {
       if (!context.mounted) {
         return {
@@ -1610,6 +1629,8 @@ class CircleWalletService extends ChangeNotifier {
           timeoutMs: 2500,
         );
         if (pre['ok'] == true || pre['anySettled'] == true) {
+          pinEntered = true;
+          await _notePinEntered(jobId);
           await _relaySignature(jobId: jobId, challengeId: id);
           continue;
         }
@@ -1679,8 +1700,22 @@ class CircleWalletService extends ChangeNotifier {
         }
 
         final proceed = result['ok'] == true || result['settled'] == true;
+        if (proceed) {
+          pinEntered = true;
+          await _notePinEntered(jobId);
+        }
         if (!proceed) {
           final cancelled = result['stage'] == 'cancelled';
+          if (!pinEntered) {
+            await _forgetJob(jobId);
+            return {
+              'ok': false,
+              'fundsIntact': true,
+              'error': 'No PIN was entered, so nothing moved.',
+              'jobId': jobId,
+              'stage': 'cancelled',
+            };
+          }
           final dead = result['dead'] == true;
           if (dead) {
             final dropped = await _reconcileExpiredJob(jobId);
