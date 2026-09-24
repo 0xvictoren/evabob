@@ -290,7 +290,7 @@ class _AgentTaskScreenState extends State<AgentTaskScreen> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.lock_clock_outlined,
+                            Icon(Icons.lock_clock_outlined,
                                 color: EvabobColors.emeraldDeep),
                             const SizedBox(width: Space.md),
                             Expanded(

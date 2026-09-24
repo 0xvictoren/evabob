@@ -102,6 +102,9 @@ class DoneReceiptScreen extends StatelessWidget {
                     'assets/figma/hero_check.png',
                     width: 36,
                     height: 36,
+                    // One solid colour: drawn in the chosen theme's.
+                    color: EvabobColors.blue,
+                    colorBlendMode: BlendMode.srcIn,
                   ),
                 ),
               ),
@@ -170,11 +173,11 @@ class DoneReceiptScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               DecoratedBox(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   borderRadius: BorderRadius.all(Radius.circular(12)),
                   boxShadow: [
                     BoxShadow(
-                      color: Color(0x4700B5FF),
+                      color: EvabobColors.buttonGlow,
                       blurRadius: 24,
                       spreadRadius: -6,
                     ),

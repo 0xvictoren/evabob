@@ -131,7 +131,7 @@ class _PostSignupOnboardingState extends State<PostSignupOnboarding> {
       backgroundColor: EvabobColors.white,
       body: SafeArea(
         child: _checking
-            ? const Center(
+            ? Center(
                 child: CircularProgressIndicator(color: EvabobColors.blue),
               )
             : ListView(
@@ -189,7 +189,7 @@ class _PostSignupOnboardingState extends State<PostSignupOnboarding> {
                         color: EvabobColors.blue.withValues(alpha: .06),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: const Row(
+                      child: Row(
                         children: [
                           Icon(
                             Icons.lock_outline_rounded,

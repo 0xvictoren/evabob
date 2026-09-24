@@ -320,7 +320,7 @@ class _HeldPaymentScreenState extends State<HeldPaymentScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.lock_clock_outlined,
+              Icon(Icons.lock_clock_outlined,
                   color: EvabobColors.emeraldDeep),
               const SizedBox(width: Space.md),
               Expanded(
@@ -512,7 +512,7 @@ class _Countdown extends StatelessWidget {
       padding: const EdgeInsets.all(Space.lg),
       child: Row(
         children: [
-          const Icon(Icons.timer_outlined, color: EvabobColors.blue),
+          Icon(Icons.timer_outlined, color: EvabobColors.blue),
           const SizedBox(width: Space.md),
           Expanded(
             child: Text(

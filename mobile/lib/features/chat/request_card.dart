@@ -89,7 +89,7 @@ class RequestCard extends StatelessWidget {
                 ),
                 child: Text(
                   status,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
                     color: EvabobColors.emeraldDeep,
                   ),

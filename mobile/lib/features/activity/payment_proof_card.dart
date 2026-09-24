@@ -147,7 +147,7 @@ class _PaymentProofCardState extends State<PaymentProofCard> {
             SelectableText(
               link.url,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 color: EvabobColors.emeraldDeep,
               ),

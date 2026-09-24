@@ -125,7 +125,7 @@ class EvabobPrimaryButton extends StatelessWidget {
             width: double.infinity,
             constraints: const BoxConstraints(minHeight: 56),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: EvabobColors.blue,
               borderRadius: BorderRadius.all(Radius.circular(999)),
               boxShadow: Shadows.button,
@@ -162,7 +162,7 @@ class TestnetBadge extends StatelessWidget {
         height: 28,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         alignment: Alignment.center,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: EvabobColors.pageBg,
           borderRadius: BorderRadius.all(Radius.circular(999)),
         ),

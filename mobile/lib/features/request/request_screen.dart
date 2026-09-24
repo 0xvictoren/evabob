@@ -48,7 +48,7 @@ class _RequestScreenState extends State<RequestScreen>
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(gradient: EvabobColors.meshWarm),
+      decoration: BoxDecoration(gradient: EvabobColors.meshWarm),
       child: SafeArea(
         child: Column(
           children: [
@@ -405,7 +405,7 @@ class _InvoiceTabState extends State<_InvoiceTab> {
               ),
             ),
             const SizedBox(height: 40),
-            const CircleAvatar(
+            CircleAvatar(
               radius: 44,
               backgroundColor: EvabobColors.blueSoft,
               child: Icon(

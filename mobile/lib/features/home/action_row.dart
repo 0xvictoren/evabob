@@ -47,7 +47,7 @@ class HomeActionRow extends StatelessWidget {
               width: 56,
               height: 56,
               alignment: Alignment.center,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: EvabobColors.blue,
                 shape: BoxShape.circle,
               ),

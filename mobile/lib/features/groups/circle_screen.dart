@@ -216,7 +216,7 @@ class _CircleScreenState extends State<CircleScreen> {
                 SizedBox(
                   width: 28,
                   child: m.paid
-                      ? const Icon(Icons.check_circle_rounded,
+                      ? Icon(Icons.check_circle_rounded,
                           size: 20, color: EvabobColors.emeraldDeep)
                       : Text('${m.place ?? ''}',
                           style: Type.body

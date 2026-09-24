@@ -218,7 +218,7 @@ class _CircleRow extends StatelessWidget {
       child: Glass(
         child: Row(
           children: [
-            const Icon(Icons.autorenew_rounded,
+            Icon(Icons.autorenew_rounded,
                 color: EvabobColors.emeraldDeep),
             const SizedBox(width: Space.md),
             Expanded(
@@ -265,7 +265,7 @@ class _PotRow extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.volunteer_activism_outlined,
+                Icon(Icons.volunteer_activism_outlined,
                     color: EvabobColors.emeraldDeep),
                 const SizedBox(width: Space.md),
                 Expanded(

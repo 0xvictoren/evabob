@@ -138,7 +138,7 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                                 EvabobColors.emerald.withValues(alpha: 0.15),
                             child: Text(
                               c.displayName.characters.first.toUpperCase(),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: EvabobColors.emeraldDeep,
                                 fontWeight: FontWeight.w400,
                               ),

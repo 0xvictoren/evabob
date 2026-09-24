@@ -220,7 +220,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Transform.translate(
             offset: const Offset(0, -55),
             child: Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: EvabobColors.pageBg,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               ),
@@ -316,11 +316,11 @@ class _Hero extends StatelessWidget {
     return Container(
       height: 424,
       padding: EdgeInsets.fromLTRB(20, top + 18, 20, 86),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.bottomLeft,
           end: Alignment.topRight,
-          colors: [Color(0xFF06B3F9), EvabobColors.blue, Color(0xFF00B5FF)],
+          colors: [EvabobColors.blue, EvabobColors.blue, EvabobColors.blue],
         ),
       ),
       child: Stack(
@@ -337,7 +337,7 @@ class _Hero extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF22C3F0).withValues(alpha: .55),
+                      color: EvabobColors.blue.withValues(alpha: .55),
                       blurRadius: 70,
                       spreadRadius: 20,
                     ),
@@ -451,7 +451,7 @@ class _MenuButton extends StatelessWidget {
 
   final VoidCallback onTap;
 
-  static const _dot = SizedBox(
+  static Widget get _dot => SizedBox(
     width: 10,
     height: 10,
     child: DecoratedBox(
@@ -477,7 +477,7 @@ class _MenuButton extends StatelessWidget {
             shape: BoxShape.circle,
             color: EvabobColors.white.withValues(alpha: .18),
           ),
-          child: const Column(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
@@ -657,7 +657,7 @@ class _MoneyCard extends StatelessWidget {
                   width: 40,
                   height: 40,
                   alignment: Alignment.center,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: EvabobColors.pageBg,
                     shape: BoxShape.circle,
                   ),

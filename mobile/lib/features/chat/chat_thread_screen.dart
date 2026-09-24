@@ -750,7 +750,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
               const SizedBox(height: 20),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const CircleAvatar(
+                leading: CircleAvatar(
                   backgroundColor: EvabobColors.blueSoft,
                   child: Icon(
                     Icons.request_page_outlined,
@@ -764,7 +764,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
               if (!thread.isAgent)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(
+                  leading: CircleAvatar(
                     backgroundColor: EvabobColors.pageBg,
                     child: Icon(
                       Icons.alternate_email_rounded,
@@ -778,7 +778,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
               if (!thread.isAgent)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(
+                  leading: CircleAvatar(
                     backgroundColor: EvabobColors.pageBg,
                     child: Icon(Icons.flag_outlined, color: EvabobColors.alert),
                   ),
@@ -788,7 +788,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
               if (!thread.isAgent)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(
+                  leading: CircleAvatar(
                     backgroundColor: EvabobColors.pageBg,
                     child: Icon(Icons.block_rounded, color: EvabobColors.alert),
                   ),
@@ -797,7 +797,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const CircleAvatar(
+                leading: CircleAvatar(
                   backgroundColor: EvabobColors.pageBg,
                   child: Icon(
                     Icons.close_rounded,
@@ -856,7 +856,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(gradient: EvabobColors.meshWarm),
+        decoration: BoxDecoration(gradient: EvabobColors.meshWarm),
         child: SafeArea(
           child: Column(
             children: [
@@ -993,7 +993,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                                 height: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Icon(
+                            : Icon(
                                 Icons.attach_file_rounded,
                                 color: EvabobColors.emeraldDeep,
                               ),
@@ -1032,7 +1032,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                           child: Container(
                             width: 44,
                             height: 44,
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               gradient: EvabobColors.gradientEmerald,
                             ),
@@ -1263,7 +1263,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                         : const Text('Confirm'),
                   ),
                 ] else
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.only(top: 10),
                     child: Text(
                       'Confirmed',
@@ -1316,7 +1316,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                       ),
                       child: Text(
                         r.statusLabel,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w400,
                           color: EvabobColors.emeraldDeep,

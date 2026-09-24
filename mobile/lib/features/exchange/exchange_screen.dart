@@ -644,7 +644,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                           child: Glass(
                             borderRadius: 999,
                             padding: const EdgeInsets.all(12),
-                            child: const Icon(
+                            child: Icon(
                               Icons.swap_vert_rounded,
                               color: EvabobColors.emeraldDeep,
                             ),

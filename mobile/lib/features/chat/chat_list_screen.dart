@@ -10,10 +10,10 @@ import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
 import 'chat_thread_screen.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 import '../../core/chat/chat_models.dart';
 import '../../core/utils/handles.dart';
+import '../../core/widgets/themed_svg.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -206,9 +206,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        SvgPicture.asset('assets/figma/btn_new_chat.svg',
+                        ThemedSvg('assets/figma/btn_new_chat.svg',
                             width: 40, height: 40),
-                        const Text(
+                        Text(
                           '+',
                           style: TextStyle(
                             fontFamily: 'Inter',
@@ -271,7 +271,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          SvgPicture.asset('assets/figma/avatar_agent.svg',
+                          ThemedSvg('assets/figma/avatar_agent.svg',
                               width: 48, height: 48),
                           Text(
                             'eb',
@@ -346,8 +346,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     if (i > 0)
                       const Padding(
                         padding: EdgeInsets.only(left: 56),
-                        child:
-                            Divider(height: 1, color: EvabobColors.hairline),
+                        child: Divider(height: 1, color: EvabobColors.hairline),
                       ),
                     _ThreadRow(
                       thread: people[i],
@@ -423,8 +422,7 @@ class _ThreadRow extends StatelessWidget {
                               : t.subtitle,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style:
-                              Type.label.copyWith(color: EvabobColors.slate),
+                          style: Type.label.copyWith(color: EvabobColors.slate),
                         ),
                       ),
                       if (t.unread > 0) _UnreadDot(count: t.unread),
@@ -450,7 +448,7 @@ class _UnreadDot extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(left: 8),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: EvabobColors.blue,
         borderRadius: BorderRadius.all(Radius.circular(999)),
       ),

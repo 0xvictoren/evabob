@@ -429,7 +429,7 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.lock_outline_rounded,
                         size: 16,
                         color: EvabobColors.emeraldDeep,
@@ -453,7 +453,7 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
               Expanded(
                 child: ClipRect(
                   child: _controller == null
-                      ? const Center(
+                      ? Center(
                           child: CircularProgressIndicator(
                             color: EvabobColors.blue,
                           ),

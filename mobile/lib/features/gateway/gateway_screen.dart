@@ -457,14 +457,14 @@ class _GatewayScreenState extends State<GatewayScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Gateway Account',
                     style:
                         TextStyle(color: EvabobColors.lightDark, fontSize: 10),
                   ),
                   // The one invented term the app keeps, so it gets defined
                   // where it is used rather than in a help page nobody opens.
-                  const Text(
+                  Text(
                     'Money you have moved here, ready to spend anywhere.',
                     style:
                         TextStyle(color: EvabobColors.lightDark, fontSize: 10),
@@ -489,7 +489,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   ),
                   Text(
                     'Still arriving  ${formatTokenAmount(wallet.gatewayPendingUsdc)}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w400,
                       color: EvabobColors.lightDark,
@@ -500,11 +500,11 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     // shown beside a dollar total.
                     'Wallet ${formatTokenAmount(wallet.usdcWallet)} · '
                     'Total ${formatTokenAmount(wallet.totalUsdc)}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10, color: EvabobColors.lightDark),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
+                  Text(
                     'Where it came from',
                     style: TextStyle(
                       fontSize: 10,
@@ -558,7 +558,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                               ),
                               Text(
                                 formatTokenAmount(b.balanceUsdc),
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w400,
                                   fontFamily: 'monospace',

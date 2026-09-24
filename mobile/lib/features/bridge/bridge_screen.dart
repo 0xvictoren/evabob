@@ -530,7 +530,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
               ),
             ),
             const SizedBox(height: 40),
-            const CircleAvatar(
+            CircleAvatar(
               radius: 44,
               backgroundColor: EvabobColors.blueSoft,
               child: Icon(

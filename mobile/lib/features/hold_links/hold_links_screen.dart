@@ -191,7 +191,7 @@ class _HoldLinksScreenState extends State<HoldLinksScreen> {
                     Glass(
                       child: Row(
                         children: [
-                          const Icon(Icons.verified_outlined,
+                          Icon(Icons.verified_outlined,
                               color: EvabobColors.emeraldDeep),
                           const SizedBox(width: Space.md),
                           Expanded(

@@ -412,7 +412,7 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
             _FigmaHeader(title: 'Request', onBack: widget.onBack),
             Expanded(
               child: _busy && invoice == null
-                  ? const Center(
+                  ? Center(
                       child:
                           CircularProgressIndicator(color: EvabobColors.blue))
                   : ListView(
@@ -639,9 +639,9 @@ class _BlueButton extends StatelessWidget {
         borderRadius: const BorderRadius.all(Radius.circular(12)),
         boxShadow: onPressed == null
             ? const []
-            : const [
+            : [
                 BoxShadow(
-                  color: Color(0x4700B5FF),
+                  color: EvabobColors.buttonGlow,
                   blurRadius: 24,
                   spreadRadius: -6,
                 ),
@@ -865,12 +865,12 @@ class _ClaimLinkScreenState extends State<ClaimLinkScreen> {
                 width: 24,
                 height: 24,
                 alignment: Alignment.center,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: EvabobColors.pageBg,
                   shape: BoxShape.circle,
                 ),
                 child: done
-                    ? const Icon(Icons.check_rounded,
+                    ? Icon(Icons.check_rounded,
                         size: 14, color: EvabobColors.blue)
                     : Text(
                         '$n',
@@ -891,7 +891,7 @@ class _ClaimLinkScreenState extends State<ClaimLinkScreen> {
             _FigmaHeader(onBack: widget.onBack),
             Expanded(
               child: _busy && claim == null
-                  ? const Center(
+                  ? Center(
                       child:
                           CircularProgressIndicator(color: EvabobColors.blue))
                   : ListView(

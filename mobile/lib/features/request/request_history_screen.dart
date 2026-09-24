@@ -280,7 +280,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
                   children: [
                     if (_loading && _rows.isEmpty)
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.all(40),
                         child: Center(
                           child: CircularProgressIndicator(
@@ -322,11 +322,11 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               child: DecoratedBox(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   borderRadius: BorderRadius.all(Radius.circular(999)),
                   boxShadow: [
                     BoxShadow(
-                      color: Color(0x4700B5FF),
+                      color: EvabobColors.buttonGlow,
                       blurRadius: 24,
                       spreadRadius: -6,
                       offset: Offset(0, 10),

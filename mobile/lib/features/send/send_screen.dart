@@ -453,7 +453,7 @@ class _SendScreenState extends State<SendScreen> {
                   leading: AssetThumbnail(asset: token, size: 36),
                   title: Text(token == 'EURC' ? 'Euros' : 'Dollars'),
                   trailing: token == _token
-                      ? const Icon(
+                      ? Icon(
                           Icons.check_rounded,
                           color: EvabobColors.blue,
                         )
@@ -574,7 +574,7 @@ class _SendScreenState extends State<SendScreen> {
                                       });
                                     }
                                   },
-                                  icon: const Icon(
+                                  icon: Icon(
                                     Icons.qr_code_scanner_rounded,
                                     color: EvabobColors.blue,
                                   ),
@@ -593,7 +593,7 @@ class _SendScreenState extends State<SendScreen> {
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const CircleAvatar(
+                                    CircleAvatar(
                                       radius: 18,
                                       backgroundColor: EvabobColors.blueSoft,
                                       child: Icon(
@@ -666,7 +666,7 @@ class _SendScreenState extends State<SendScreen> {
                                           color: EvabobColors.inkTertiary,
                                         ),
                                       ),
-                                      trailing: const Icon(
+                                      trailing: Icon(
                                         Icons.arrow_forward_rounded,
                                         size: 18,
                                         color: EvabobColors.blue,
@@ -836,7 +836,7 @@ class _SendScreenState extends State<SendScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.notes_rounded,
                                 size: 19,
                                 color: EvabobColors.blue,

@@ -29,6 +29,7 @@ import 'family_check_screen.dart';
 // import '../gateway/gateway_screen.dart';
 import '../wallet/circle_onboard_sheet.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
+import '../../core/theme/theme_controller.dart';
 
 /// Profile: identity, wallet, appearance, sign out.
 class ProfileScreen extends StatelessWidget {
@@ -337,7 +338,7 @@ class ProfileScreen extends StatelessWidget {
               Container(
                 width: 64,
                 height: 64,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: EvabobColors.blueSoft,
                   shape: BoxShape.circle,
                 ),
@@ -530,7 +531,7 @@ class ProfileScreen extends StatelessWidget {
                       const UserAvatar(size: 80),
                       Container(
                         padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: EvabobColors.emerald,
                           shape: BoxShape.circle,
                         ),
@@ -559,7 +560,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 Text(
                   '@${user?.handleOrFallback ?? '…'}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: EvabobColors.emeraldDeep,
                     fontWeight: FontWeight.w400,
                     fontSize: 14,
@@ -580,7 +581,7 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   child: Text(
                     auth.isDemoMode ? 'Demo account' : 'Signed in',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w400,
                       color: EvabobColors.emeraldDeep,
@@ -694,6 +695,19 @@ class ProfileScreen extends StatelessWidget {
                           ? 'Naira (₦) · amounts shown and typed in naira'
                           : r'Dollar ($) · amounts shown and typed in dollars',
                       () => _pickCurrency(context),
+                    );
+                  },
+                ),
+                Divider(
+                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                Builder(
+                  builder: (context) {
+                    final theme = context.watch<ThemeController>();
+                    return _tile(
+                      Icons.palette_outlined,
+                      'App theme',
+                      theme.palette.label,
+                      () => _pickTheme(context),
                     );
                   },
                 ),
@@ -901,7 +915,8 @@ class ProfileScreen extends StatelessWidget {
               ListTile(
                 leading: Text(
                   c.symbol,
-                  style: const TextStyle(fontSize: 20, color: EvabobColors.navy),
+                  style:
+                      const TextStyle(fontSize: 20, color: EvabobColors.navy),
                 ),
                 title: Text(c == DominantCurrency.ngn ? 'Naira' : 'Dollar'),
                 subtitle: Text(
@@ -910,7 +925,7 @@ class ProfileScreen extends StatelessWidget {
                       : r'Amounts in dollars, naira underneath',
                 ),
                 trailing: fx.dominant == c
-                    ? const Icon(Icons.check_rounded, color: EvabobColors.blue)
+                    ? Icon(Icons.check_rounded, color: EvabobColors.blue)
                     : null,
                 onTap: () => Navigator.pop(ctx, c),
               ),
@@ -925,6 +940,33 @@ class ProfileScreen extends StatelessWidget {
     } catch (_) {
       // Kept on this phone; it is saved to the account next time.
     }
+  }
+
+  /// Blue, pink or grey: the colour of buttons, links and backgrounds
+  /// across the app. Kept on this phone.
+  Future<void> _pickTheme(BuildContext context) async {
+    final theme = context.read<ThemeController>();
+    final picked = await showModalBottomSheet<EvabobPalette>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final p in EvabobPalette.values)
+              ListTile(
+                leading: _PaletteSwatch(palette: p),
+                title: Text(p.label),
+                trailing: theme.palette == p
+                    ? Icon(Icons.check_rounded, color: EvabobColors.blue)
+                    : null,
+                onTap: () => Navigator.pop(ctx, p),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    await theme.setPalette(picked);
   }
 
   Widget _tile(
@@ -982,8 +1024,7 @@ class _OperatorReviewsTileState extends State<_OperatorReviewsTile> {
         Divider(height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
         ListTile(
           contentPadding: EdgeInsets.zero,
-          leading:
-              const Icon(Icons.gavel_rounded, color: EvabobColors.emeraldDeep),
+          leading: Icon(Icons.gavel_rounded, color: EvabobColors.emeraldDeep),
           title: const Text(
             'Held-payment reviews',
             style: TextStyle(
@@ -1053,8 +1094,8 @@ class _BiometricConfirmTileState extends State<_BiometricConfirmTile> {
           contentPadding: EdgeInsets.zero,
           value: on,
           onChanged: _busy ? null : _toggle,
-          secondary: const Icon(Icons.fingerprint_rounded,
-              color: EvabobColors.emeraldDeep),
+          secondary:
+              Icon(Icons.fingerprint_rounded, color: EvabobColors.emeraldDeep),
           title: const Text(
             'Confirm with fingerprint or Face ID',
             style: TextStyle(
@@ -1126,7 +1167,7 @@ class _ExternalAiTileState extends State<_ExternalAiTile> {
           contentPadding: EdgeInsets.zero,
           value: _enabled,
           onChanged: _busy ? null : _toggle,
-          secondary: const Icon(
+          secondary: Icon(
             Icons.auto_awesome_outlined,
             color: EvabobColors.emeraldDeep,
           ),
@@ -1137,6 +1178,37 @@ class _ExternalAiTileState extends State<_ExternalAiTile> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The three tones of a colour theme, overlapping: base, light-dark, light.
+class _PaletteSwatch extends StatelessWidget {
+  const _PaletteSwatch({required this.palette});
+
+  final EvabobPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget dot(Color color) => Container(
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: EvabobColors.white, width: 2),
+          ),
+        );
+    return SizedBox(
+      width: 48,
+      height: 20,
+      child: Stack(
+        children: [
+          Positioned(left: 24, child: dot(palette.light)),
+          Positioned(left: 12, child: dot(palette.lightDark)),
+          Positioned(left: 0, child: dot(palette.base)),
+        ],
+      ),
     );
   }
 }

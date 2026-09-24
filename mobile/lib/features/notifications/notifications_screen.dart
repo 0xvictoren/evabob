@@ -205,7 +205,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 const SizedBox(height: 24),
               ],
               if (activity.loading && items.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.all(40),
                   child: Center(
                     child: CircularProgressIndicator(color: EvabobColors.blue),
@@ -368,7 +368,7 @@ class _NotificationRow extends StatelessWidget {
             SizedBox(
               width: 24,
               child: unread
-                  ? const Center(
+                  ? Center(
                       child: CircleAvatar(
                         radius: 3,
                         backgroundColor: EvabobColors.blue,

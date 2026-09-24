@@ -13,7 +13,7 @@ class EvabobTheme {
   static ThemeData dark() => _build();
 
   static ThemeData _build() {
-    const surface = EvabobColors.pageBg;
+    final surface = EvabobColors.pageBg;
     const onSurface = EvabobColors.nearBlack;
 
     final base = ThemeData(
@@ -21,7 +21,7 @@ class EvabobTheme {
       brightness: Brightness.light,
       scaffoldBackgroundColor: surface,
       fontFamily: 'Numans',
-      colorScheme: const ColorScheme(
+      colorScheme: ColorScheme(
         brightness: Brightness.light,
         primary: EvabobColors.emerald,
         onPrimary: EvabobColors.onPrimary,
@@ -119,7 +119,7 @@ class EvabobTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: EvabobColors.emerald),
+          borderSide: BorderSide(color: EvabobColors.emerald),
         ),
         errorStyle: const TextStyle(color: EvabobColors.alert),
       ),
@@ -140,7 +140,7 @@ class EvabobTheme {
         labelStyle: Type.body.copyWith(color: EvabobColors.nearBlack),
         secondaryLabelStyle: const TextStyle(color: EvabobColors.onPrimary),
       ),
-      snackBarTheme: const SnackBarThemeData(
+      snackBarTheme: SnackBarThemeData(
         backgroundColor: EvabobColors.creamDeep,
         contentTextStyle: TextStyle(color: EvabobColors.nearBlack),
         behavior: SnackBarBehavior.floating,

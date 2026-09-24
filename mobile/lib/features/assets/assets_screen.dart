@@ -225,7 +225,7 @@ class _TotalCard extends StatelessWidget {
     return Container(
       height: 140,
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: EvabobColors.blue,
         borderRadius: BorderRadius.all(Radius.circular(12)),
       ),

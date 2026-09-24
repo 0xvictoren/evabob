@@ -435,7 +435,7 @@ class _AppShellState extends State<AppShell> {
                           child: Container(
                             width: 56,
                             height: 56,
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: EvabobColors.blue,
                               boxShadow: Shadows.button,

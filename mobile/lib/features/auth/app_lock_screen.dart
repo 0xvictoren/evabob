@@ -166,7 +166,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
               ),
             ),
             const SizedBox(height: Space.xl),
-            const CircleAvatar(
+            CircleAvatar(
               radius: 34,
               backgroundColor: EvabobColors.blueSoft,
               child: Icon(
@@ -545,7 +545,7 @@ class _LockedOutViewState extends State<_LockedOutView> {
                   width: 56,
                   height: 56,
                   alignment: Alignment.center,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: EvabobColors.pageBg,
                     shape: BoxShape.circle,
                   ),
@@ -627,11 +627,11 @@ class _LockedOutViewState extends State<_LockedOutView> {
               ),
               const SizedBox(height: 76),
               DecoratedBox(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   borderRadius: BorderRadius.all(Radius.circular(12)),
                   boxShadow: [
                     BoxShadow(
-                      color: Color(0x4700B5FF),
+                      color: EvabobColors.buttonGlow,
                       blurRadius: 24,
                       spreadRadius: -6,
                     ),

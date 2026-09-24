@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'evabob_colors.dart';
+
 /// Spacing, radius, type and motion tokens.
 ///
 /// The palette was already centralised; everything else was not. Sizes and
@@ -61,9 +63,9 @@ class Shadows {
     BoxShadow(color: Color(0x290B1620), blurRadius: 40, offset: Offset(0, -8)),
   ];
 
-  static const button = [
+  static List<BoxShadow> get button => [
     BoxShadow(
-      color: Color(0x4700B5FF),
+      color: EvabobColors.buttonGlow,
       blurRadius: 24,
       spreadRadius: -6,
       offset: Offset(0, 10),

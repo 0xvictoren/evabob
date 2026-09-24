@@ -316,7 +316,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                               ),
                             ),
                             if (!_f.isDefault)
-                              const Positioned(
+                              Positioned(
                                 top: 8,
                                 right: 8,
                                 child: CircleAvatar(
@@ -734,7 +734,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
                     child: Container(
                       color: EvabobColors.pageBg,
                       alignment: Alignment.center,
-                      child: const Text(
+                      child: Text(
                         'All',
                         style: TextStyle(
                           fontFamily: 'Inter',
@@ -775,11 +775,11 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
             ),
             const SizedBox(height: 32),
             DecoratedBox(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 borderRadius: BorderRadius.all(Radius.circular(999)),
                 boxShadow: [
                   BoxShadow(
-                    color: Color(0x4700B5FF),
+                    color: EvabobColors.buttonGlow,
                     blurRadius: 24,
                     spreadRadius: -6,
                     offset: Offset(0, 10),
@@ -824,7 +824,7 @@ class _ActivityEmptyState extends StatelessWidget {
           Container(
             width: 88,
             height: 88,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: EvabobColors.blueSoft,
               shape: BoxShape.circle,
             ),

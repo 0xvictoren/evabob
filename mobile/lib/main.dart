@@ -54,6 +54,7 @@ Future<void> main() async {
       systemNavigationBarIconBrightness: Brightness.dark,
     ),
   );
+  await ThemeController.preloadPalette();
   runApp(const EvabobApp());
 }
 

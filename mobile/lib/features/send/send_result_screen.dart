@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -13,6 +12,7 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/bundle_avatar.dart';
+import '../../core/widgets/themed_svg.dart';
 
 /// What a finished send shows: who, how much, and the proof.
 class SendResult {
@@ -42,7 +42,8 @@ class SendResult {
 
   /// A short, quotable reference for the payment ("EVB-9F42C1").
   String get reference {
-    final seed = (activityId ?? txHash ?? '').replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+    final seed =
+        (activityId ?? txHash ?? '').replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
     if (seed.isEmpty) return '—';
     final tail = seed.length > 6 ? seed.substring(0, 6) : seed;
     return 'EVB-${tail.toUpperCase()}';
@@ -92,12 +93,15 @@ class SendSentScreen extends StatelessWidget {
     final sameDay =
         at.year == now.year && at.month == now.month && at.day == now.day;
     final time = DateFormat('HH:mm').format(at);
-    return sameDay ? 'Today, $time' : '${DateFormat('d MMM').format(at)}, $time';
+    return sameDay
+        ? 'Today, $time'
+        : '${DateFormat('d MMM').format(at)}, $time';
   }
 
   Future<void> _share(BuildContext context) async {
     final activity = context.read<ActivityService>();
-    final entry = activity.items.where((e) => e.id == result.activityId).firstOrNull;
+    final entry =
+        activity.items.where((e) => e.id == result.activityId).firstOrNull;
     final fx = context.read<FxService>();
     final text = entry?.receiptText() ??
         'Evabob receipt\n'
@@ -122,7 +126,9 @@ class SendSentScreen extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(label, style: Type.label.copyWith(color: EvabobColors.slate, height: 16 / 10)),
+              Text(label,
+                  style: Type.label
+                      .copyWith(color: EvabobColors.slate, height: 16 / 10)),
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
@@ -151,7 +157,8 @@ class SendSentScreen extends StatelessWidget {
                   const SizedBox(height: 20),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Image.asset('assets/logo.png', width: 24, height: 24),
+                    child:
+                        Image.asset('assets/logo.png', width: 24, height: 24),
                   ),
                   const SizedBox(height: 3),
                   const Center(child: _SuccessMark()),
@@ -187,10 +194,15 @@ class SendSentScreen extends StatelessWidget {
                         row('When', _when(r.at)),
                         row('Reference', r.reference),
                         // Kept on purpose: the proof someone can look up.
-                        row('Trx Hash', hash == null || hash.isEmpty ? '—' : shortHash(hash, head: 5, tail: 4)),
+                        row(
+                            'Trx Hash',
+                            hash == null || hash.isEmpty
+                                ? '—'
+                                : shortHash(hash, head: 5, tail: 4)),
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 4),
-                          child: Divider(height: 1, color: EvabobColors.hairline),
+                          child:
+                              Divider(height: 1, color: EvabobColors.hairline),
                         ),
                         row('Amount', amount),
                         row('Fee', _money(context, r.fee, r.token)),
@@ -198,7 +210,8 @@ class SendSentScreen extends StatelessWidget {
                           padding: const EdgeInsets.only(top: 4),
                           child: Row(
                             children: [
-                              Text('Total', style: Type.body.copyWith(height: 20 / 14)),
+                              Text('Total',
+                                  style: Type.body.copyWith(height: 20 / 14)),
                               const Spacer(),
                               Text(total, style: Type.title),
                             ],
@@ -212,16 +225,17 @@ class SendSentScreen extends StatelessWidget {
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () => _share(context),
-                      child: Text('Share receipt', style: Type.body.copyWith(color: EvabobColors.blue)),
+                      child: Text('Share receipt',
+                          style: Type.body.copyWith(color: EvabobColors.blue)),
                     ),
                   ),
                   const SizedBox(height: 24),
                   DecoratedBox(
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       borderRadius: BorderRadius.all(Radius.circular(999)),
                       boxShadow: [
                         BoxShadow(
-                          color: Color(0x4D0077A8),
+                          color: EvabobColors.emeraldDeep.withAlpha(0x4D),
                           blurRadius: 24,
                           spreadRadius: -6,
                           offset: Offset(0, 10),
@@ -236,7 +250,9 @@ class SendSentScreen extends StatelessWidget {
                           backgroundColor: EvabobColors.blue,
                           shape: const StadiumBorder(),
                         ),
-                        child: Text('Done', style: Type.body.copyWith(color: EvabobColors.white)),
+                        child: Text('Done',
+                            style:
+                                Type.body.copyWith(color: EvabobColors.white)),
                       ),
                     ),
                   ),
@@ -267,10 +283,11 @@ class _SuccessMark extends StatelessWidget {
         children: [
           ImageFiltered(
             imageFilter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-            child: SvgPicture.asset('assets/figma/success_glow.svg', width: 218, height: 218),
+            child: ThemedSvg('assets/figma/success_glow.svg',
+                width: 218, height: 218),
           ),
-          SvgPicture.asset('assets/figma/success_disc.svg', width: 65, height: 65),
-          SvgPicture.asset('assets/figma/success_check.svg', width: 23, height: 23),
+          ThemedSvg('assets/figma/success_disc.svg', width: 65, height: 65),
+          ThemedSvg('assets/figma/success_check.svg', width: 23, height: 23),
         ],
       ),
     );
@@ -291,7 +308,8 @@ class SendOnTheWayScreen extends StatefulWidget {
 class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _spin =
-      AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
+      AnimationController(vsync: this, duration: const Duration(seconds: 2))
+        ..repeat();
   Timer? _poll;
   int _tries = 0;
 
@@ -324,7 +342,8 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
-        builder: (_) => SendSentScreen(result: widget.result.withTx(entry.txHash)),
+        builder: (_) =>
+            SendSentScreen(result: widget.result.withTx(entry.txHash)),
       ),
     );
   }
@@ -353,7 +372,7 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  SvgPicture.asset(badge, width: 40, height: 40),
+                  ThemedSvg(badge, width: 40, height: 40),
                   Text(
                     glyph,
                     style: TextStyle(
@@ -375,7 +394,8 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
                 children: [
                   Text(title, style: Type.body.copyWith(color: titleColor)),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: Type.label.copyWith(color: subtitleColor)),
+                  Text(subtitle,
+                      style: Type.label.copyWith(color: subtitleColor)),
                 ],
               ),
             ),
@@ -408,7 +428,8 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          SvgPicture.asset('assets/figma/ring_track.svg', width: 160, height: 160),
+                          ThemedSvg('assets/figma/ring_track.svg',
+                              width: 160, height: 160),
                           RotationTransition(
                             turns: _spin,
                             child: SizedBox(
@@ -416,7 +437,7 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
                               height: 160,
                               child: Align(
                                 alignment: Alignment.centerRight,
-                                child: SvgPicture.asset(
+                                child: ThemedSvg(
                                   'assets/figma/ring_progress.svg',
                                   width: 107.362,
                                   height: 160,
@@ -438,7 +459,8 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
                   Text(
                     'On the way',
                     textAlign: TextAlign.center,
-                    style: Type.title.copyWith(fontSize: 24, height: 32 / 24, letterSpacing: -0.4),
+                    style: Type.title.copyWith(
+                        fontSize: 24, height: 32 / 24, letterSpacing: -0.4),
                   ),
                   const SizedBox(height: 2),
                   Text(

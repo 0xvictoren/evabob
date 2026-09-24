@@ -197,7 +197,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
 
     return Container(
       height: h,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: EvabobColors.cream,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -403,7 +403,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                     const SizedBox(height: 6),
                     Text(
                       _actionHint!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w400,
                         color: EvabobColors.emeraldDeep,

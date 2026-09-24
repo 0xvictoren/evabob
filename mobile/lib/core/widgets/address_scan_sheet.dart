@@ -243,7 +243,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
               Container(
                 width: 88,
                 height: 88,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: EvabobColors.blueSoft,
                   shape: BoxShape.circle,
                 ),
