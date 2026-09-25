@@ -18,8 +18,10 @@ held-payment screen. Change them here first.
 Only the three kinds above are held payments. Two things that move money in
 steps are not:
 
-- **Conversions (swaps)** are never shown as held or pending. If one does not
-  finish, nothing moved.
+- **Conversions (swaps)** are never shown as held. One that is still being
+  confirmed reads "On the way"; the server asks the chain how it ended.
+- **Sends** are never held either. A send still being confirmed reads
+  "Confirming"; "Waiting for X to join" is only for a claim link.
 - **Bridges** count as in flight only once their first PIN has been entered.
   The server finishes a bridge left for 40 minutes after that PIN. A bridge
   left before any PIN is dropped with "No PIN was entered, so nothing moved."
@@ -145,6 +147,11 @@ PaymentEscrowV3 (`0x37Cb011C7a53e52f569b9c388B6208A71cD0Df39` on Arc Testnet):
   the hold was created.
 - If the server stops entirely, every hold still refunds to its payer once it
   expires. Money cannot be stranded by the server going away.
+
+The chain is also the authority over the server's own records. Before a
+release, and whenever a hold is opened, the server reads the transfer: one
+already paid out or refunded is marked so, rather than offered for payment
+again. Each on-chain hold is recorded once, however often the app reports it.
 
 ## Timing, and what runs it
 

@@ -4,7 +4,7 @@
 this file, this file is right. Supersedes the former `new.md` and the progress
 tables that used to live in the README.
 
-Last verified: 2026-09-24 (testing version stable 1); 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
+Last verified: 2026-09-25 (App Kit only, payment reliability); 2026-09-24 (testing version stable 1); 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
 
 ---
 
@@ -28,6 +28,49 @@ and other public testnets. Do not read "live" below as "in production" — it me
 | **Partial** | Implemented but a known step is blocked, paused, or unverified |
 | **Stub** | Route or UI exists, does nothing real |
 | **Not built** | Referenced somewhere but absent from the code |
+
+---
+
+## App Kit only, and payment reliability — 2026-09-25
+
+From hands-on testing on 2026-09-24/25. Each cause below was confirmed
+against Arc Testnet itself, not inferred from the code. Server 450 tests,
+Flutter 69 tests, typecheck and analyze clean. Branch
+`fix/app-kit-only-and-payment-reliability`. The APK
+`evabob-testing-app-kit-only.apk` at the repo root is signed with the testers'
+key (`1ae17ab3…`), so it installs over the current app. Not yet run on a phone.
+
+### Swaps and bridges: Circle App Kit only
+
+| Area | What changed |
+|------|--------------|
+| Swap | App Kit is the only rail. The app used to fall back to Synthra whenever App Kit's swap had not finished reporting, even after its PIN — so one conversion asked for a second PIN and swapped twice (seen on chain: 2 USDC swapped at 23:43 and again at 23:44 UTC). |
+| Swap quotes | From App Kit's own `estimateSwap` (`POST /v1/app-kit/swap/quote`), priced with the server's adapter — no PIN, nothing moves. Checked live for USDC↔EURC, USDC→cirBTC and a pasted token address. The "decimal places" box on Convert is gone; App Kit knows each token's decimals. |
+| Swap jobs | A token address is passed to App Kit as typed (upper-casing turned `0x` into `0X`). A swap job with no answer after 13 minutes stops waiting and the chain decides whether it landed, instead of staying "running" until a restart. A swap is never shown as on hold. |
+| Bridge | App Kit only. If App Kit cannot start a bridge, the app says so — no PIN was asked and nothing moved. Arc, Base Sepolia and Ethereum Sepolia are all App Kit chains, so no route was lost. |
+| Legacy rails | `APP_KIT_KEEP_LEGACY` now defaults to `false`. With it off, `/v1/cctp` and `/v1/gateway` are not mounted, and `/v1/circle/swap` and `/v1/circle/cctp/burn` answer 410 `LEGACY_RAIL_RETIRED` before any PIN, so an older APK cannot run a second swap or burn. `/v1/circle/cctp/finish` stays, to finish burns already made. |
+
+### Payments
+
+| Area | Cause | What changed |
+|------|-------|--------------|
+| Sends stuck "pending" | Both ₦1,000 sends to @maxxi landed on chain, but a send becomes a receipt only when the app reports its hash once, right after the PIN. That call failed and nothing retried. | Opening Activity now checks the chain for stale pending sends (`services/sendReconcile.ts`): a transfer found is confirmed through the usual verification and the payee's receipt is written; a draft with no transfer after an hour is marked as not gone through. A pending send reads "Confirming", not "Waiting for X to join". |
+| Receipt sender | The inbound scan stored the payer's raw wallet address as the receipt's Sender. | Evabob payers are named by @handle, and rows already saved are shown with the handle. |
+| "Has not finished signing up" on an invoice | @ekuma's handle resolves on chain. The hold (#8) had already been paid to @ekuma on 24 Sep 10:05 UTC, but the server's record still said pending; the contract answers "not claimable" for a paid hold, and the server read that as "no wallet". | Before a release, and when a hold is opened, the chain decides: a hold already paid out is marked paid, not paid again. A registered recipient whose identity link is missing is relinked, and the message no longer says they have not signed up. |
+| Money locked twice | Every hold was created twice on chain (#7/#8, #9/#10, #11/#12). After the PIN, a lock whose hash was slow was reported as "Didn't land. Nothing left your wallet", with Try again. | The app waits longer for the hash, then says "Still confirming — check Activity before trying again". The server records each on-chain hold once. |
+| "The network is busy right now" | Every chain call went through one rate-limited public Arc RPC, with nothing behind it. | Calls retry and fail over to QuickNode, Blockdaemon and dRPC (`ARC_RPC_FALLBACK_URLS`). |
+
+The duplicate holds are not lost. #7 (12 USDC, from @maxxi), #9 and #10
+(2 USDC each) and #11 and #12 (3.597 USDC each) are untracked, so nobody can
+release them, and the refund sweep returns each to its payer when it expires
+(30 Sep – 1 Oct).
+
+### App
+
+| Area | What changed |
+|------|--------------|
+| Home | Request on the left, Send on the right. |
+| Send | Amounts are typed with the phone's number keyboard; the in-app keypad is gone. |
 
 ---
 
@@ -243,10 +286,10 @@ and offers all four bridge routes.
 | Flow | State | Detail |
 |------|-------|--------|
 | Circle UCW onboarding + PIN challenges | **Works** | SCA wallets on `ARC-TESTNET`, `ETH-SEPOLIA`, `BASE-SEPOLIA` — three chains, not six. Multi-challenge runner verifies COMPLETE and retries only still-PENDING ids. |
-| App Kit send / swap / deposit / spend / compose | **Works** | Ops (server-signed) and UCW (PIN relay) paths, jobs persisted with expiry/recover. |
+| App Kit send / swap / deposit / spend / compose | **Works** | Ops (server-signed) and UCW (PIN relay) paths, jobs persisted with expiry/recover. Since 2026-09-25 App Kit is the only swap and bridge rail; quotes come from App Kit `estimateSwap`. |
 | Bridge (App Kit → CCTP) | **Partial** | Burn + attestation work. **Mint on Base Sepolia is blocked on ops-wallet ETH for gas.** This flow was re-declared "working" four times during August; treat any single success as anecdotal until it runs repeatedly. |
 | Gateway unified balance (GA) | **Built — 2026-09-18; live run remains** | Top-up and Pay work from the GA screen (Home ⋯ menu, behind `FEATURE_GATEWAY`). Money in flight is now tracked (`services/gatewayTracker.ts`): a payment whose destination mint did not land in the request is recorded with its attestation and minted by the ops wallet while the attestation is valid (~10 min), otherwise its status is read from Circle; the person is told when it arrives or that it did not go through. A top-up's activity row is written only once it is signed and flips to "arrived" when Gateway credits it (seconds on Arc, ~40 min Base Sepolia, hours Ethereum Sepolia), with an alert. Fixed on the way: every successful GA payment used to overwrite the payer's email with `<id>@evabob.app` and their name with their id; and a cancelled top-up used to leave a "Gateway deposit" row. Not yet exercised end to end on testnet. The GA delegate that signs burn intents is the ops key — a separate delegate key would narrow what a leaked ops key could reach. |
-| Swap via Synthra | **Partial** | Real quotes and on-chain swap when `SYNTHRA_API_KEY` is set. Without it, `/v1/circle/swap` returns 503 and quote endpoints fall back to hardcoded approximate FX that is **not a market price**. |
+| Swap via Synthra | **Retired 2026-09-25** | No longer used by the app. `/v1/circle/swap` answers 410 unless `APP_KIT_KEEP_LEGACY=true`. `/v1/synthra/quote` remains for older app versions only. |
 | `POST /v1/transfers/send` and `/v1/exchange` | **Retired** | Return 410 so an old client cannot fabricate completed payment or swap history. |
 | Chat invoice pay (100% / 50+50 / 100% escrow) | **Works** | Direct portions require verified ERC-20 receipts; held portions require a `TransferCreated` event from the deployed escrow contract. |
 

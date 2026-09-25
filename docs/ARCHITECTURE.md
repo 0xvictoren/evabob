@@ -20,7 +20,7 @@ notification is a stub.
 | **EUR** | **EURC** `0x89B50855…` | Euro leg; not “native EUR” |
 | **Money movement** | **Circle App Kit** (`@circle-fin/app-kit`) | **Send**, **Bridge** (CCTP), **Swap**, **Unified Balance** (Gateway) |
 | **Unified USDC** | **App Kit Unified Balance** (Gateway under the hood) | Deposit / spend single chain-agnostic USDC |
-| **Bridge** | **App Kit Bridge** → CCTP V2 | USDC cross-chain; legacy `/v1/cctp` kept behind flag |
+| **Bridge** | **App Kit Bridge** → CCTP V2 | USDC cross-chain; the only bridge rail (legacy `/v1/cctp` off unless `APP_KIT_KEEP_LEGACY=true`) |
 | **Wallets** | **Dynamic** + **Circle UCW** + App Kit adapters | User PIN (UCW); ops via Circle Wallets / viem |
 | **Agent spend** | **Circle agent / nanopayments (x402)** | API wallet, limits, deposit/withdraw |
 
@@ -33,7 +33,7 @@ notification is a stub.
    - **EURC / non-Gateway assets**: hold on **embedded / Circle wallet** on Arc.
 4. **Fund**: App Kit `unifiedBalance.deposit` (or legacy Gateway) → single chain-agnostic USDC balance.
 5. **Send**: App Kit `send` (same-chain) or UCW transfer / **PaymentEscrow** for unregistered email/phone.
-6. **Swap / Bridge**: App Kit `swap` (USDC↔EURC on Arc) and `bridge` (CCTP). Compose: spend → swap → bridge.
+6. **Swap / Bridge**: App Kit only — `swap` (USDC, EURC, cirBTC or a token address on Arc, quoted by `estimateSwap`) and `bridge` (CCTP). No fallback rail. Compose: spend → swap → bridge.
 7. **Chat**: Flutter ↔ Pusher; money commands (`@. send`, `@. buy`, `@. bridge`) call App Kit / UCW.
 8. **Agent payments**: backend creates spend-limited API wallet; agent uses nanopayment auth against dedicated funds.
 
