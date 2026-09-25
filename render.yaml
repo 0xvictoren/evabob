@@ -110,7 +110,7 @@ services:
       - key: APP_KIT_ADAPTER
         value: circle-wallets
       - key: APP_KIT_KEEP_LEGACY
-        value: "true"
+        value: "false"
       - key: APP_KIT_DC_WALLET
         sync: false
       - key: KIT_KEY

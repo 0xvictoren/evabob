@@ -1,6 +1,7 @@
 import {
   createPublicClient,
   createWalletClient,
+  fallback,
   http,
   type Address,
   type Hex,
@@ -21,10 +22,25 @@ export const arcTestnet = {
   },
 } as const;
 
+/**
+ * The configured Arc RPC, then the fallbacks. A rate-limited or slow endpoint
+ * moves the call to the next one instead of failing it; each is retried
+ * briefly first. Writes are safe to fail over: a signed transaction has one
+ * hash whichever node relays it.
+ */
+export function arcTransport() {
+  const urls = [
+    config.arc.rpcUrl,
+    ...config.arc.rpcFallbackUrls.filter((u) => u !== config.arc.rpcUrl),
+  ];
+  const one = (url: string) => http(url, { retryCount: 2, retryDelay: 250, timeout: 12_000 });
+  return urls.length === 1 ? one(urls[0]!) : fallback(urls.map(one));
+}
+
 export function getPublicClient() {
   return createPublicClient({
     chain: arcTestnet,
-    transport: http(config.arc.rpcUrl),
+    transport: arcTransport(),
   });
 }
 
@@ -51,7 +67,7 @@ export function getWalletClient() {
   return createWalletClient({
     account: getDeployerAccount(),
     chain: arcTestnet,
-    transport: http(config.arc.rpcUrl),
+    transport: arcTransport(),
   });
 }
 
@@ -76,7 +92,7 @@ export function getIdentityLinkerWalletClient() {
   return createWalletClient({
     account: getIdentityLinkerAccount(),
     chain: arcTestnet,
-    transport: http(config.arc.rpcUrl),
+    transport: arcTransport(),
   });
 }
 
@@ -107,7 +123,7 @@ export function getEscrowAttestorWalletClient() {
   return createWalletClient({
     account: getEscrowAttestorAccount(),
     chain: arcTestnet,
-    transport: http(config.arc.rpcUrl),
+    transport: arcTransport(),
   });
 }
 

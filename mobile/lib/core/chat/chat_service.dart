@@ -1212,7 +1212,11 @@ class ChatService extends ChangeNotifier {
       if (held['ok'] != true) {
         return {
           'ok': false,
-          'error': held['error']?.toString() ?? 'Could not hold that payment',
+          // PIN done, lock not yet visible: paying again would hold it twice.
+          if (held['pending'] == true) 'pending': true,
+          'error': held['pending'] == true
+              ? 'Your PIN went through and the money is being set aside. Check Activity in a minute — do not pay again.'
+              : held['error']?.toString() ?? 'Could not hold that payment',
         };
       }
 

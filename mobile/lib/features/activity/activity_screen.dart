@@ -146,10 +146,19 @@ class _ActivityScreenState extends State<ActivityScreen> {
     if (e.resumable) return 'On hold · tap to continue';
     if (e.didNotLand) return "Didn't land";
     if (e.isPending) {
-      final who = ActivityFilter.personOf(e).split(' ').first.replaceFirst('@', '');
-      return e.kind == 'send' || e.kind == 'escrow'
-          ? 'Waiting for $who to join'
-          : 'On the way';
+      // Only money held for someone without an account waits for them to
+      // join. A plain send to an Evabob user that is still being confirmed,
+      // or a hold for work or a cooling-off window, says what it really is.
+      if (e.mode == 'escrow') {
+        final d = e.description.split(' · ').first.trim();
+        if (d.startsWith('Waiting for them to join')) {
+          final who =
+              ActivityFilter.personOf(e).split(' ').first.replaceFirst('@', '');
+          return 'Waiting for $who to join';
+        }
+        return d.isEmpty ? 'Held' : d;
+      }
+      return e.kind == 'send' ? 'Confirming' : 'On the way';
     }
     if (e.kind == 'send') return 'You sent';
     if (e.kind == 'receive') return 'Sent to you';

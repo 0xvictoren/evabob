@@ -335,7 +335,9 @@ async function recordInboundTransfers(input: {
       token: t.token,
       amountToken: t.amount,
       counterparty: who.label,
-      sender: t.from,
+      // The receipt's Sender row: an Evabob payer by their @handle, anyone
+      // else by the address the money came from.
+      sender: who.userId ? who.label : t.from,
       receiver: address,
       txHash: t.txHash,
       logIndex: t.logIndex,

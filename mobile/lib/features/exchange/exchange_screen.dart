@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
@@ -19,7 +18,7 @@ import 'package:evabob_mobile/core/widgets/top_snack.dart';
 import 'package:evabob_mobile/core/utils/amount_input.dart';
 import '../../core/widgets/done_receipt.dart';
 
-/// Buy / swap on Arc: USDC · EURC · cirBTC · custom CA via Synthra + UCW PIN.
+/// Buy / swap on Arc: USDC · EURC · cirBTC · custom CA via Circle App Kit + UCW PIN.
 /// Simple amount field + % chips (no calculator — calculator is send-only).
 class ExchangeScreen extends StatefulWidget {
   const ExchangeScreen({super.key, this.onBack, this.title = 'Convert'});
@@ -37,8 +36,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
   String _toPreset = 'EURC';
   final _fromCa = TextEditingController();
   final _toCa = TextEditingController();
-  final _fromDec = TextEditingController(text: '18');
-  final _toDec = TextEditingController(text: '18');
   final _amountCtrl = TextEditingController();
   double _swapTurns = 0;
   bool _busy = false;
@@ -73,18 +70,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
     if (t == 'USDC') return wallet.usdcWallet;
     // Custom CA: show 0 until we track holdings (still allow sell if user has it)
     return 0;
-  }
-
-  int? _decFrom() {
-    if (_fromPreset == 'CUSTOM') return int.tryParse(_fromDec.text);
-    if (_fromPreset == 'CIRBTC') return 8;
-    return 6;
-  }
-
-  int? _decTo() {
-    if (_toPreset == 'CUSTOM') return int.tryParse(_toDec.text);
-    if (_toPreset == 'CIRBTC') return 8;
-    return 6;
   }
 
   /// An amount of one side's token: its symbol when it has one, otherwise
@@ -161,8 +146,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         from: from,
         to: to,
         amountIn: amount,
-        fromDecimals: _decFrom(),
-        toDecimals: _decTo(),
       );
       final out = (q['amountOut'] as num?)?.toDouble();
       if (!mounted) return;
@@ -259,8 +242,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
           from: from,
           to: to,
           amountIn: amountIn,
-          fromDecimals: _decFrom(),
-          toDecimals: _decTo(),
         );
         if (!mounted) return;
         final out = (q['amountOut'] as num?)?.toDouble();
@@ -304,8 +285,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         from: from,
         to: to,
         amountIn: amountIn,
-        fromDecimals: _decFrom(),
-        toDecimals: _decTo(),
       );
       if (!mounted) return;
       if (res['ok'] == true) {
@@ -376,7 +355,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
     required String preset,
     required ValueChanged<String> onPreset,
     required TextEditingController ca,
-    required TextEditingController dec,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -432,18 +410,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
             style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
             onChanged: (_) => _refreshQuote(),
           ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: dec,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              labelText: 'Decimal places (usually 18)',
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
-            onChanged: (_) => _refreshQuote(),
-          ),
         ],
       ],
     );
@@ -453,8 +419,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
   void dispose() {
     _fromCa.dispose();
     _toCa.dispose();
-    _fromDec.dispose();
-    _toDec.dispose();
     _amountCtrl.dispose();
     super.dispose();
   }
@@ -533,7 +497,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                             _refreshQuote();
                           },
                           ca: _fromCa,
-                          dec: _fromDec,
                         ),
                         const SizedBox(height: 10),
                         TextField(
@@ -623,13 +586,10 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                           setState(() {
                             final fp = _fromPreset;
                             final fc = _fromCa.text;
-                            final fd = _fromDec.text;
                             _fromPreset = _toPreset;
                             _toPreset = fp;
                             _fromCa.text = _toCa.text;
                             _toCa.text = fc;
-                            _fromDec.text = _toDec.text;
-                            _toDec.text = fd;
                             _swapTurns += 1;
                             _selectedPct = null;
                             _quotedOut = null;
@@ -671,7 +631,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                             _refreshQuote();
                           },
                           ca: _toCa,
-                          dec: _toDec,
+
                         ),
                         const SizedBox(height: 10),
                         Text(

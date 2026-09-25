@@ -29,6 +29,7 @@ import {
   appKitSend,
   appKitSpend,
   appKitSwap,
+  estimateAppKitSwap,
   getAppKitJob,
   isJobLive,
   jobStage,
@@ -554,6 +555,33 @@ appKitRoutes.post("/ucw/send", async (c) => {
       { error: clientError(e, "ucw send failed") },
       400,
     );
+  }
+});
+
+/** The rate a swap would get now, priced by App Kit — the route it then takes. */
+appKitRoutes.post("/swap/quote", async (c) => {
+  try {
+    const body = z
+      .object({
+        from: z.string().min(1),
+        to: z.string().min(1),
+        amountIn: z.number().positive(),
+        chain: z.string().optional().default("Arc_Testnet"),
+      })
+      .parse(await c.req.json());
+    if (body.from.toLowerCase() === body.to.toLowerCase()) {
+      return c.json({ error: "from and to must differ" }, 400);
+    }
+    return c.json(
+      await estimateAppKitSwap({
+        tokenIn: body.from,
+        tokenOut: body.to,
+        amountIn: body.amountIn,
+        chain: body.chain,
+      }),
+    );
+  } catch (e) {
+    return c.json({ error: clientError(e, "No rate for that swap right now") }, 400);
   }
 });
 

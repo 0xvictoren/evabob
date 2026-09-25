@@ -531,33 +531,50 @@ export async function createSynthraSwapChallenges(input: {
   /** Platform fee leg, batched with the swap so both land or neither does. */
   feeCall?: WalletCall | null;
 }) {
+  const nativeValue =
+    input.swapValue && input.swapValue !== "0" ? input.swapValue : undefined;
+  // An ERC-20 swap goes in ONE wallet batch — approve, swap and the fee — so
+  // it takes one PIN and none of it lands without the rest. It used to be two
+  // challenges created together: two PINs, and the swap challenge was built
+  // before its approval existed, which left it stuck pending.
+  if (!nativeValue) {
+    const batch = await createWalletBatchChallenge({
+      userToken: input.userToken,
+      walletId: input.walletId,
+      calls: [
+        { to: input.approveTo as Address, data: input.approveData },
+        { to: input.swapTo as Address, data: input.swapData },
+        ...(input.feeCall ? [input.feeCall] : []),
+      ],
+    });
+    return {
+      appId: circleAppId(),
+      challenges: [
+        {
+          step: "swap",
+          challengeId: batch.challengeId,
+          description: "Approve and swap on Arc",
+        },
+      ].filter((c) => c.challengeId),
+      singlePinHint: true,
+      feeBatched: Boolean(input.feeCall),
+    };
+  }
+  // A native-value swap cannot ride in executeBatch through Circle's
+  // contract-execution amount field, so it keeps its separate approval.
   const approve = await createCalldataChallenge({
     userToken: input.userToken,
     walletId: input.walletId,
     contractAddress: input.approveTo,
     callData: input.approveData,
   });
-  const nativeValue =
-    input.swapValue && input.swapValue !== "0" ? input.swapValue : undefined;
-  // A native-value swap cannot ride in executeBatch through Circle's
-  // contract-execution amount field, so only ERC-20 swaps are batched.
-  const swap =
-    input.feeCall && !nativeValue
-      ? await createWalletBatchChallenge({
-          userToken: input.userToken,
-          walletId: input.walletId,
-          calls: [
-            { to: input.swapTo as Address, data: input.swapData },
-            input.feeCall,
-          ],
-        })
-      : await createCalldataChallenge({
-          userToken: input.userToken,
-          walletId: input.walletId,
-          contractAddress: input.swapTo,
-          callData: input.swapData,
-          amount: nativeValue,
-        });
+  const swap = await createCalldataChallenge({
+    userToken: input.userToken,
+    walletId: input.walletId,
+    contractAddress: input.swapTo,
+    callData: input.swapData,
+    amount: nativeValue,
+  });
   return {
     appId: circleAppId(),
     challenges: [
@@ -573,8 +590,7 @@ export async function createSynthraSwapChallenges(input: {
       },
     ].filter((c) => c.challengeId),
     singlePinHint: true,
-    /** True when the platform fee rides in the swap's batch. */
-    feeBatched: Boolean(input.feeCall && !nativeValue),
+    feeBatched: false,
   };
 }
 

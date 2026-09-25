@@ -1105,6 +1105,14 @@ api.post("/escrow/protected/record", async (c) => {
       }
     }
 
+    // Recording the same hold twice made two records for one transfer; paying
+    // out one left the other offering "Pay now" on money already gone.
+    const { findTrackedByTransferId } = await import("../services/escrow-jobs.js");
+    const already = findTrackedByTransferId(onChain.transferId);
+    if (already) {
+      return c.json({ ...already, transferId: onChain.transferId, emailed: false }, 200);
+    }
+
     const { quotePlatformFee } = await import("../services/platformFee.js");
     const record = trackProtectedEscrow({
       onChainTransferId: onChain.transferId,
@@ -1252,13 +1260,16 @@ api.get("/escrow/held", async (c) => {
 });
 
 api.get("/escrow/held/:transferId", async (c) => {
-  const { holdFor, runDueHeldPaymentWork, viewFor } = await import(
+  const { holdFor, runDueHeldPaymentWork, syncWithChain, viewFor } = await import(
     "../services/heldPayments.js"
   );
   return heldAction(c, async (uid) => {
     await runDueHeldPaymentWork({ onlyUserId: uid }).catch(() => undefined);
     const { record, role } = holdFor(c.req.param("transferId"), uid);
-    return { hold: viewFor(record, role) };
+    // Show what the contract says, not a record that fell behind it: a hold
+    // already paid out must not offer "Pay now" again.
+    const current = await syncWithChain(record).catch(() => null);
+    return { hold: viewFor(current ?? record, role) };
   });
 });
 
@@ -3032,8 +3043,17 @@ api.post("/synthra/bridge/quote", async (c) => {
 
 // ─── Activity ──────────────────────────────────────────────────────────────
 
-api.get("/activity", (c) => {
-  const items = store.listActivity(userId(c), Number(c.req.query("limit") || 50));
+api.get("/activity", async (c) => {
+  const uid = userId(c);
+  // Sends that landed but were never confirmed are finished from the chain
+  // here. Bounded, so a slow RPC delays this list by seconds at most; what
+  // does not finish now is picked up on the next open.
+  const { reconcilePendingSends } = await import("../services/sendReconcile.js");
+  await Promise.race([
+    reconcilePendingSends(uid).catch(() => 0),
+    new Promise((r) => setTimeout(r, 4_000)),
+  ]);
+  const items = store.listActivity(uid, Number(c.req.query("limit") || 50));
   return c.json({ items: withPeople(items) });
 });
 
@@ -3071,7 +3091,15 @@ function withPeople<T extends { kind: string; counterparty?: string; receiver?: 
     if (!["send", "receive", "escrow"].includes(row.kind)) return row;
     const person = personFor(row.counterparty) ??
       personFor(row.kind === "receive" ? row.sender : row.receiver);
-    return person ? { ...row, person } : row;
+    // Receipts written before the inbound scan named Evabob payers carry the
+    // payer's raw wallet address. Show their @handle instead.
+    let sender = row.sender;
+    if (row.kind === "receive" && sender && /^0x[a-fA-F0-9]{40}$/.test(sender)) {
+      const payer = store.findUserByRecipient(sender);
+      if (payer?.handle) sender = `@${payer.handle.toLowerCase()}`;
+    }
+    const out = sender !== row.sender ? { ...row, sender } : row;
+    return person ? { ...out, person } : out;
   });
 }
 
@@ -3335,8 +3363,8 @@ api.post("/chat/threads/:id/request", async (c) => {
  *
  * Preferred client flows:
  * - User send: POST /v1/circle/send OR /v1/app-kit/ucw/send → PIN → confirmed
- * - Buy/swap:  POST /v1/app-kit/ucw/swap (or legacy /v1/circle/swap)
- * - Bridge:    POST /v1/app-kit/ucw/bridge (or legacy /v1/circle/cctp/burn)
+ * - Buy/swap:  POST /v1/app-kit/ucw/swap
+ * - Bridge:    POST /v1/app-kit/ucw/bridge
  * - Compose:   POST /v1/app-kit/ucw/compose (spend → swap → bridge)
  */
 api.post("/chat/threads/:id/send-command", async (c) => {

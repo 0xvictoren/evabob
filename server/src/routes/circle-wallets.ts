@@ -899,8 +899,26 @@ circleWallets.post("/gateway/pay", async (c) => {
   }
 });
 
+/**
+ * The pre-App Kit rails, kept only while APP_KIT_KEEP_LEGACY=true. Refusing
+ * here happens before any PIN is asked, so an older app that still falls back
+ * to these cannot run a second swap or burn next to App Kit's.
+ */
+function legacyRailRetired(c: Context) {
+  if (config.appKit.keepLegacyRoutes) return null;
+  return c.json(
+    {
+      error: "This app version is out of date. Update Evabob to convert or move money.",
+      code: "LEGACY_RAIL_RETIRED",
+    },
+    410,
+  );
+}
+
 /** CCTP burn — user-signed (bridge USDC off Arc). Default: approve only first. */
 circleWallets.post("/cctp/burn", async (c) => {
+  const retired = legacyRailRetired(c);
+  if (retired) return retired;
   const body = z
     .object({
       userToken: z.string().min(10),
@@ -978,6 +996,8 @@ circleWallets.post("/cctp/burn", async (c) => {
  * Prevents PENDING race when both challenges were created up front.
  */
 circleWallets.post("/cctp/burn/continue", async (c) => {
+  const retired = legacyRailRetired(c);
+  if (retired) return retired;
   const body = z
     .object({
       userToken: z.string().min(10),
@@ -1533,6 +1553,8 @@ circleWallets.post("/groups/pots/:id/contribute", async (c) => {
 });
 
 circleWallets.post("/swap", async (c) => {
+  const retired = legacyRailRetired(c);
+  if (retired) return retired;
   const body = z
     .object({
       userToken: z.string().min(10),

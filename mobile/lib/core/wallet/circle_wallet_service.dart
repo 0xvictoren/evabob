@@ -1342,23 +1342,6 @@ class CircleWalletService extends ChangeNotifier {
     }
   }
 
-  /// CCTP burn via UCW only (no destination mint). Prefer [bridge] for e2e.
-  Future<bool> cctpBurn({
-    required BuildContext context,
-    required double amountUsdc,
-    required int destinationDomain,
-    required String mintRecipient,
-  }) async {
-    final res = await bridge(
-      context: context,
-      amountUsdc: amountUsdc,
-      destinationDomain: destinationDomain,
-      mintRecipient: mintRecipient,
-      burnOnly: true,
-    );
-    return res['ok'] == true || res['stage'] == 'burned';
-  }
-
   String get _pendingJobsPrefKey => 'evabob_pending_appkit_jobs_$_userId';
 
   Future<void> refreshOpenJobs() async {
@@ -1831,7 +1814,7 @@ class CircleWalletService extends ChangeNotifier {
     }
   }
 
-  /// App Kit swap (USDC ↔ EURC on Arc) — preferred over Synthra when available.
+  /// App Kit swap on Arc: USDC, EURC, cirBTC or a token address.
   Future<Map<String, dynamic>> appKitSwap({
     required BuildContext context,
     required String tokenIn,
@@ -1909,157 +1892,28 @@ class CircleWalletService extends ChangeNotifier {
     );
   }
 
-  /// On-chain buy/swap via App Kit first, Synthra fallback (USDC ↔ EURC).
+  /// Converts on Arc through Circle App Kit — the only swap rail.
+  ///
+  /// [from] and [to] are symbols (USDC, EURC, CIRBTC) or 0x token addresses.
+  /// There is deliberately no second rail to fall back to: a fallback after
+  /// App Kit had started asked for another PIN and swapped the money twice.
   Future<Map<String, dynamic>> swap({
     required BuildContext context,
     required String from,
     required String to,
     required double amountIn,
-    int slippageBps = 50,
-    int? fromDecimals,
-    int? toDecimals,
-    bool preferAppKit = true,
   }) async {
-    if (preferAppKit &&
-        !RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(from) &&
-        !RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(to)) {
-      final kit = await appKitSwap(
-        context: context,
-        tokenIn: from.toUpperCase(),
-        tokenOut: to.toUpperCase(),
-        amountIn: amountIn,
-      );
-      if (kit['ok'] == true) return kit;
-      // Fall through to Synthra if App Kit unavailable
-      debugPrint('appKit swap fallback → synthra: ${kit['error']}');
-    }
-    if (!context.mounted) {
-      return {'ok': false, 'error': 'Cancelled'};
-    }
     if (from.toLowerCase() == to.toLowerCase()) {
       return {'ok': false, 'error': 'Spend and receive tokens must differ'};
     }
-    if (!await ensureReady(context)) {
-      return {'ok': false, 'error': 'Wallet not ready'};
-    }
-    // Always refresh Circle session — tokens expire and break PIN / txs.
-    await refreshSessionOnly();
-    final decimals = fromDecimals ??
-        (from.toUpperCase() == 'CIRBTC'
-            ? 8
-            : RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(from)
-                ? 18
-                : 6);
-    try {
-      status = 'Building swap…';
-      notifyListeners();
-      final res = await _api.post('/v1/circle/swap', body: {
-        'userToken': userToken,
-        'walletId': walletId,
-        'from': from,
-        'to': to,
-        'amountIn': double.parse(amountIn.toStringAsFixed(decimals)),
-        'recipient': address,
-        'slippageBps': slippageBps,
-        if (fromDecimals != null) 'fromDecimals': fromDecimals,
-        if (toDecimals != null) 'toDecimals': toDecimals,
-        'userId': _userId,
-      });
-      if (!context.mounted) return {'ok': false, 'error': 'Cancelled'};
-      final challengeIds = _challengeIdsFrom(res);
-      if (challengeIds.isEmpty) {
-        final err = res['error']?.toString() ??
-            res['hint']?.toString() ??
-            'No swap challenges returned';
-        status = err;
-        notifyListeners();
-        return {...res, 'ok': false, 'error': err};
-      }
-      status = challengeIds.length > 1
-          ? 'Confirm approve + swap PIN…'
-          : 'Confirm swap PIN…';
-      notifyListeners();
-      final pinOk = await executeChallengeResponse(
-        context,
-        res,
-        title: 'Confirm swap',
-      );
-      final activityId = res['activityId']?.toString();
-      if (!pinOk) {
-        await _confirmActivity(activityId: activityId, ok: false);
-        status = 'Swap cancelled — no funds moved';
-        notifyListeners();
-        return {
-          ...res,
-          'ok': false,
-          'error': 'PIN cancelled — no funds moved',
-        };
-      }
-
-      // Verify Circle challenge COMPLETE + real tx hash before receipt.
-      status = 'Confirming on-chain swap…';
-      notifyListeners();
-      final verified = await verifyChallengesAndHash(
-        challengeIds: challengeIds,
-        resolveTxHash: true,
-      );
-      if (verified['ok'] != true) {
-        await _confirmActivity(activityId: activityId, ok: false);
-        final err = verified['error']?.toString() ??
-            'Swap PIN UI finished but on-chain step did not complete';
-        status = err;
-        notifyListeners();
-        return {'ok': false, 'error': err, 'stage': 'verify'};
-      }
-
-      final txHash = verified['txHash']?.toString();
-      if (txHash == null || !txHash.startsWith('0x')) {
-        // Challenges COMPLETE but hash lag — still better than fake ucw: receipt
-        await _confirmActivity(
-          activityId: activityId,
-          ok: true,
-          txHash: txHash,
-          requireTxHash: true,
-        );
-        status = 'Swap submitted — waiting for explorer hash';
-        notifyListeners();
-        return {
-          ...res,
-          'ok': false,
-          'error':
-              'Swap challenges completed but tx hash not ready yet. Check wallet balance shortly; no fake receipt created.',
-          'pendingOnchain': true,
-        };
-      }
-
-      await _confirmActivity(
-        activityId: activityId,
-        ok: true,
-        txHash: txHash,
-      );
-      status = 'Swap confirmed on-chain';
-      notifyListeners();
-      return {
-        ...res,
-        'ok': true,
-        'txHash': txHash,
-      };
-    } catch (e) {
-      debugPrint('circle swap: $e');
-      status = 'Swap failed';
-      notifyListeners();
-      final msg =
-          e.toString().replaceFirst(RegExp(r'^ApiException\(\d+\):\s*'), '');
-      if (msg.toLowerCase().contains('usertoken') &&
-          msg.toLowerCase().contains('expir')) {
-        await refreshSessionOnly();
-        return {
-          'ok': false,
-          'error': 'Your session ended. Start again from Move money.',
-        };
-      }
-      return {'ok': false, 'error': msg};
-    }
+    String token(String t) =>
+        RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(t) ? t : t.toUpperCase();
+    return appKitSwap(
+      context: context,
+      tokenIn: token(from),
+      tokenOut: token(to),
+      amountIn: amountIn,
+    );
   }
 
   /// Map CCTP domain → App Kit chain (product-supported only).
@@ -2076,18 +1930,16 @@ class CircleWalletService extends ChangeNotifier {
     }
   }
 
-  /// End-to-end bridge: prefer App Kit UCW (Forwarder mint); legacy CCTP fallback.
+  /// End-to-end bridge through App Kit (CCTP under the hood, Forwarder mint).
   ///
   /// [sourceDomain] CCTP domain of the burn chain (26 Arc, 6 Base, 0 Eth).
   /// [onStage] reports UI progress: `pin`, `resolving`, `attesting`, `minted`, etc.
-  /// Set [burnOnly] true to skip destination mint (legacy path only).
   Future<Map<String, dynamic>> bridge({
     required BuildContext context,
     required double amountUsdc,
     required int destinationDomain,
     required String mintRecipient,
     int sourceDomain = 26,
-    bool burnOnly = false,
     String token = 'USDC',
     void Function(String stage, String label)? onStage,
   }) async {
@@ -2124,7 +1976,7 @@ class CircleWalletService extends ChangeNotifier {
     // App Kit path (product chains only) — supports bidirectional routes.
     final fromChain = appKitChainForDomain(sourceDomain) ?? 'Arc_Testnet';
     final toChain = appKitChainForDomain(destinationDomain);
-    if (!burnOnly && toChain != null) {
+    if (toChain != null) {
       stage('pin', 'Confirm bridge with PIN…');
       final kit = await appKitBridge(
         context: context,
@@ -2161,336 +2013,27 @@ class CircleWalletService extends ChangeNotifier {
           'toChain': toChain,
         };
       }
-      debugPrint('appKit bridge fallback → legacy CCTP: ${kit['error']}');
-      // Legacy CCTP burn contracts on this app are Arc-only USDC.
-      if (sourceDomain != 26 || token.toUpperCase() != 'USDC') {
-        return {
-          'ok': false,
-          'error': kit['error']?.toString() ??
-              'Bridge $token $fromChain → $toChain failed',
-          'stage': 'error',
-          'fromChain': fromChain,
-          'toChain': toChain,
-        };
-      }
-      stage('pin', 'Retrying bridge…');
-    }
-
-    stage('pin', 'Confirm bridge with PIN…');
-    Map<String, dynamic> burnRes;
-    try {
-      burnRes = await _api.post('/v1/circle/cctp/burn', body: {
-        'userToken': userToken,
-        'walletId': walletId,
-        'amountUsdc': amountUsdc,
-        'destinationDomain': destinationDomain,
-        'mintRecipient': mintRecipient,
-        'userId': _userId,
-      });
-    } catch (e) {
-      debugPrint('circle cctp burn: $e');
-      final msg =
-          e.toString().replaceFirst(RegExp(r'^ApiException\(\d+\):\s*'), '');
-      if (msg.toLowerCase().contains('usertoken') ||
-          msg.toLowerCase().contains('expired')) {
-        await refreshSessionOnly();
-        return {
-          'ok': false,
-          'error': 'Your session ended. Start again from Move money.',
-          'stage': 'session',
-        };
-      }
-      return {'ok': false, 'error': msg, 'stage': 'burn_request'};
-    }
-    if (!context.mounted) {
-      return {'ok': false, 'error': 'Cancelled', 'stage': 'unmounted'};
-    }
-
-    final challenges = _parseChallenges(burnRes['challenges']);
-    final challengeIds = _challengeIdsFrom(burnRes);
-    if (challengeIds.isEmpty) {
-      return {
-        ...burnRes,
-        'ok': false,
-        'error': burnRes['error']?.toString() ?? 'No burn challenges returned',
-        'stage': 'burn_request',
-      };
-    }
-
-    final activityId = burnRes['activityId']?.toString();
-
-    // Prefer explicit burnChallengeId; fall back to depositForBurn step.
-    String? burnChallengeId = burnRes['burnChallengeId']?.toString();
-    if (burnChallengeId == null || burnChallengeId.isEmpty) {
-      for (final ch in challenges) {
-        if (ch['step']?.toString() == 'depositForBurn') {
-          burnChallengeId = ch['challengeId']?.toString();
-          break;
-        }
-      }
-      if ((burnChallengeId == null || burnChallengeId.isEmpty) &&
-          challengeIds.isNotEmpty) {
-        burnChallengeId = challengeIds.last;
-      }
-    }
-
-    // Sequential: approve COMPLETE → create burn challenge → burn COMPLETE.
-    // Avoids PENDING race when both challenges were created up front.
-    String? knownBurnHash;
-    final sequential = burnRes['sequential'] == true ||
-        burnRes['step']?.toString() == 'approve' ||
-        (challenges.length == 1 &&
-            challenges.first['step']?.toString() == 'approve');
-    final intentId = burnRes['intentId']?.toString() ?? activityId;
-
-    Future<Map<String, dynamic>> runStep(
-      Map<String, dynamic> ch, {
-      required bool resolveTx,
-    }) async {
-      final id = ch['challengeId']?.toString();
-      if (id == null || id.isEmpty) {
-        return {'ok': false, 'error': 'Could not start that. Try again.'};
-      }
-      final step = ch['step']?.toString() ?? 'burn';
-      final label = step == 'approve' ? 'Approving…' : 'Confirm burn on Arc…';
-      stage('pin', label);
-      final result = await executeChallengeAndVerify(
-        context,
-        id,
-        title: 'Confirm bridge — $label',
-        resolveTxHash: resolveTx,
-        // The burn needs the longest window: PIN → Circle finalize → Arc block.
-        timeoutMs: resolveTx ? 240000 : 120000,
-      );
-      if (result['ok'] == true) {
-        stage('resolving', '$label ✓');
-        return result;
-      }
-
-      final cancelled = result['stage'] == 'cancelled';
-      final dead = result['dead'] == true;
-      final settled = result['settled'] == true;
-
-      // The challenge record lags the chain. If Circle already has a
-      // transaction for this step, the step happened — carry on and let
-      // /cctp/finish resolve the hash. Only a real cancel, or a FAILED /
-      // EXPIRED challenge, means nothing moved.
-      if (settled && !cancelled && !dead) {
-        stage('resolving', '$label ✓ (confirming on Arc…)');
-        return {...result, 'ok': true, 'unconfirmed': true};
-      }
-
-      final err = result['error']?.toString() ?? 'Step "$step" failed';
-      stage(cancelled ? 'cancelled' : 'error', err);
-      // Only discard the activity when we are sure no funds moved. Discarding
-      // on an inconclusive burn is what lost the receipt for burnt USDC.
-      if (cancelled || dead || step == 'approve') {
-        await _confirmActivity(activityId: activityId, ok: false);
-      }
-      return {
-        ...result,
-        'ok': false,
-        'error': err,
-        'stage': cancelled
-            ? 'cancelled'
-            : dead
-                ? 'challenge_failed'
-                : 'resolve_burn',
-        'failedStep': step,
-        'activityId': activityId,
-      };
-    }
-
-    if (sequential) {
-      // 1) Approve
-      final approveCh = challenges.firstWhere(
-        (c) => c['step']?.toString() == 'approve',
-        orElse: () => challenges.isNotEmpty ? challenges.first : {},
-      );
-      final approveResult = await runStep(approveCh, resolveTx: false);
-      if (approveResult['ok'] != true) return approveResult;
-      if (!context.mounted) {
-        return {'ok': false, 'error': 'Cancelled', 'stage': 'unmounted'};
-      }
-
-      // 2) Create burn challenge only after approve COMPLETE
-      stage('pin', 'Preparing burn…');
-      Map<String, dynamic> burnStepRes;
-      try {
-        burnStepRes = await _api.post('/v1/circle/cctp/burn/continue', body: {
-          'userToken': userToken,
-          'walletId': walletId,
-          'intentId': intentId,
-          if (activityId != null) 'activityId': activityId,
-          'amountUsdc': amountUsdc,
-          'destinationDomain': destinationDomain,
-          'mintRecipient': mintRecipient,
-          'userId': _userId,
-        });
-      } catch (e) {
-        await _confirmActivity(activityId: activityId, ok: false);
-        return {
-          'ok': false,
-          'error': e.toString(),
-          'stage': 'burn_continue',
-          'activityId': activityId,
-        };
-      }
-      final burnChallenges = _parseChallenges(burnStepRes['challenges']);
-      burnChallengeId = burnStepRes['burnChallengeId']?.toString() ??
-          (burnChallenges.isNotEmpty
-              ? burnChallenges.first['challengeId']?.toString()
-              : null);
-      if (burnChallengeId == null || burnChallengeId.isEmpty) {
-        await _confirmActivity(activityId: activityId, ok: false);
-        return {
-          'ok': false,
-          'error': burnStepRes['error']?.toString() ??
-              'No burn challenge after approve',
-          'stage': 'burn_continue',
-          'activityId': activityId,
-        };
-      }
-      final burnResult = await runStep(
-        {
-          'step': 'depositForBurn',
-          'challengeId': burnChallengeId,
-        },
-        resolveTx: true,
-      );
-      // A burn that we cannot confirm is NOT a burn that did not happen.
-      // Unless the user cancelled or Circle failed the challenge, fall through
-      // to /cctp/finish — it re-resolves the hash from burnChallengeId and
-      // then drives attestation + mint. Returning here was the reason
-      // attestation never started after a successful PIN burn.
-      if (burnResult['ok'] != true &&
-          (burnResult['stage'] == 'cancelled' ||
-              burnResult['stage'] == 'challenge_failed')) {
-        return burnResult;
-      }
-      knownBurnHash = burnResult['txHash']?.toString();
-    } else {
-      // Legacy path: both challenges already present
-      for (final ch in challenges) {
-        final id = ch['challengeId']?.toString();
-        if (id == null || id.isEmpty) continue;
-        final result = await runStep(
-          ch,
-          resolveTx: id == burnChallengeId,
-        );
-        final isBurn = id == burnChallengeId;
-        if (result['ok'] != true) {
-          // Same rule as the sequential path: only a cancel or a dead
-          // challenge stops the pipeline once the burn has been attempted.
-          if (!isBurn ||
-              result['stage'] == 'cancelled' ||
-              result['stage'] == 'challenge_failed') {
-            return result;
-          }
-        }
-        if (isBurn) {
-          knownBurnHash = result['txHash']?.toString();
-        }
-      }
-    }
-
-    stage(
-      burnOnly ? 'resolving' : 'attesting',
-      burnOnly
-          ? 'Confirming burn on Arc…'
-          : 'Burn confirmed · waiting for Circle fast attestation & mint…',
-    );
-
-    try {
-      // Re-refresh token before long finish call (resolve + Iris can take >1 min).
-      await refreshSessionOnly();
-      final finish = await _api.post(
-        '/v1/circle/cctp/finish',
-        body: {
-          'userToken': userToken,
-          if (knownBurnHash != null && knownBurnHash.startsWith('0x'))
-            'burnTxHash': knownBurnHash
-          else if (burnChallengeId != null)
-            'burnChallengeId': burnChallengeId,
-          'destinationDomain': destinationDomain,
-          'sourceDomain': burnRes['sourceDomain'] ?? 26,
-          if (activityId != null) 'activityId': activityId,
-          'userId': _userId,
-          'burnOnly': burnOnly,
-          'timeoutMs': 180000,
-        },
-        // Must exceed the server's burn-hash resolve window (180s) or the
-        // client aborts a finish that was about to succeed.
-        timeout: const Duration(seconds: 240),
-      );
-
-      final ok = finish['ok'] == true;
-      final stageName =
-          finish['stage']?.toString() ?? (ok ? 'minted' : 'error');
-      if (ok && stageName == 'minted') {
-        stage('minted', 'Bridge complete · minted on destination');
-      } else if (ok && stageName == 'burned') {
-        stage('burned', 'Burn complete on Arc');
-      } else if (stageName == 'attesting') {
-        stage(
-          'attesting',
-          finish['error']?.toString() ??
-              'Burned — attestation still pending, retry later',
-        );
-      } else if (stageName == 'mint_failed') {
-        stage(
-          'mint_failed',
-          finish['error']?.toString() ??
-              'It left, but has not landed yet. Your money is safe.',
-        );
-      } else if (!ok) {
-        stage('error', finish['error']?.toString() ?? 'Bridge finish failed');
-      }
-
-      return {
-        ...finish,
-        'ok': ok,
-        'activityId': activityId,
-        'burnChallengeId': burnChallengeId,
-      };
-    } catch (e) {
-      debugPrint('circle cctp finish: $e');
-      // PIN may have burned on-chain; leave activity for finish endpoint retry.
-      // Do not force-confirm here — that overwrites failed/pending hash state.
-      status = 'Burn may have succeeded — mint incomplete';
-      notifyListeners();
+      // App Kit could not start the move, so no PIN was asked and nothing
+      // moved. There is no second rail to try: every bridge goes through
+      // App Kit, and a burn half-started elsewhere is how money got stranded.
       return {
         'ok': false,
-        'error': e.toString(),
-        'stage': 'finish_error',
-        'activityId': activityId,
-        'burnChallengeId': burnChallengeId,
-        'partialBurn': true,
+        'error': kit['error']?.toString() ??
+            'Could not start moving your money. Nothing left your wallet — try again.',
+        'stage': 'error',
+        'fromChain': fromChain,
+        'toChain': toChain,
       };
     }
-  }
 
-  /// After burn: poll Iris + mint on destination (ops path via API).
-  Future<Map<String, dynamic>> completeCctpMint({
-    required String burnTxHash,
-    required int destinationDomain,
-    String? activityId,
-  }) async {
-    try {
-      final res = await _api.post(
-        '/v1/cctp/complete',
-        body: {
-          'burnTxHash': burnTxHash,
-          'destinationDomain': destinationDomain,
-          if (activityId != null) 'activityId': activityId,
-        },
-        timeout: const Duration(seconds: 150),
-      );
-      return {...res, 'ok': res['ok'] == true};
-    } catch (e) {
-      debugPrint('completeCctpMint: $e');
-      return {'ok': false, 'error': e.toString()};
-    }
+    // Every network the app offers is an App Kit chain; anything else has no
+    // route to it.
+    return {
+      'ok': false,
+      'error': 'Moving money to that network is not available.',
+      'stage': 'validation',
+      'fromChain': fromChain,
+    };
   }
 
   /// Retry finish when burn tx is already known (attestation was pending).
@@ -2666,11 +2209,19 @@ class CircleWalletService extends ChangeNotifier {
 
       status = 'Locking the funds…';
       notifyListeners();
-      final verified = await verifyChallengesAndHash(
-        challengeIds: [createChallengeId],
-        resolveTxHash: true,
-      );
-      final createTx = verified['txHash']?.toString();
+      // The PIN went through, so the lock is on its way. Wait for its hash
+      // rather than giving up after one try: reporting failure here made
+      // people press Try again and lock the same money a second time.
+      String? createTx;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        final verified = await verifyChallengesAndHash(
+          challengeIds: [createChallengeId],
+          resolveTxHash: true,
+        );
+        createTx = verified['txHash']?.toString();
+        if (createTx != null && createTx.isNotEmpty) break;
+        if (verified['dead'] == true) break;
+      }
       if (createTx == null || createTx.isEmpty) {
         // The money may well be locked; we just cannot prove which transfer it
         // is yet. Say so rather than reporting either success or failure.

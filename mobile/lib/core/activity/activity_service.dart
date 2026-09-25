@@ -101,7 +101,11 @@ class ActivityEntry {
   /// Payments this person made can be shared as a public link.
   bool get shareable =>
       (kind == 'send' || kind == 'withdraw' || kind == 'bridge') && !didNotLand;
-  bool get resumable => isPending && jobId != null && jobId!.isNotEmpty;
+  /// Only a bridge is ever held for the person to continue: its money can be
+  /// between chains. A swap or send moves in one transaction — it has landed
+  /// or it has not — so it reads as on the way, never as on hold.
+  bool get resumable =>
+      kind == 'bridge' && isPending && jobId != null && jobId!.isNotEmpty;
 
   /// Inflow when amountUsdc > 0; for non-USDC (e.g. cirBTC swap) use token sign.
   bool get positive {

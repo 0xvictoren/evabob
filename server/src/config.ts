@@ -176,8 +176,13 @@ export const config = {
     feeRecipient: platformFee.recipient,
     /** Fee in basis points (100 = 1%). 0 disables custom fees. */
     feeBps: platformFee.bps,
-    /** Keep legacy /v1/cctp, /v1/gateway, /v1/synthra routes mounted. */
-    keepLegacyRoutes: req("APP_KIT_KEEP_LEGACY", "true") !== "false",
+    /**
+     * Keep the pre-App Kit rails: /v1/cctp, /v1/gateway, the Synthra swap and
+     * the direct CCTP burn. Off by default — swaps and bridges go through App
+     * Kit only. Finishing a burn already made (/v1/circle/cctp/finish) stays
+     * available either way.
+     */
+    keepLegacyRoutes: req("APP_KIT_KEEP_LEGACY", "false") === "true",
   },
 
   /**
@@ -240,6 +245,18 @@ export const config = {
 
   arc: {
     rpcUrl: req("ARC_RPC_URL", "https://rpc.testnet.arc.network"),
+    /**
+     * Tried in order when ARC_RPC_URL is busy or down. The public endpoint
+     * rate-limits, and with nothing behind it every chain read failed as
+     * "The network is busy right now". Comma-separated; empty disables.
+     */
+    rpcFallbackUrls: (
+      process.env.ARC_RPC_FALLBACK_URLS ??
+      "https://rpc.quicknode.testnet.arc.network,https://rpc.blockdaemon.testnet.arc.network,https://arc-testnet.drpc.org"
+    )
+      .split(",")
+      .map((u) => u.trim())
+      .filter((u) => /^https:\/\//.test(u)),
     chainId: Number(process.env.ARC_CHAIN_ID || 5042002),
     usdc: "0x3600000000000000000000000000000000000000" as const,
     eurc: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" as const,

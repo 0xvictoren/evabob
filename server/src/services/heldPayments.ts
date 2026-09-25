@@ -348,16 +348,82 @@ function requirePending(record: ProtectedEscrowRecord) {
   }
 }
 
+/**
+ * Brings a tracked hold in line with the contract when the contract has
+ * already settled it. Local records can fall behind — a write lost to a
+ * restart, a release recorded by another instance — and then every action
+ * on the hold fails with a reason that is not true. The chain decides.
+ * Returns the updated record, or null when the hold is still pending.
+ */
+export async function syncWithChain(
+  record: ProtectedEscrowRecord,
+): Promise<ProtectedEscrowRecord | null> {
+  if (record.status !== "pending" || !record.onChainTransferId) return null;
+  const onChain = await readTransfer(record.onChainTransferId);
+  if (onChain.status === "Claimed") {
+    return updateTracked(record.id, {
+      status: "claimed",
+      settledAt: record.settledAt ?? new Date().toISOString(),
+      lastAutoError: undefined,
+      ...(record.review?.status === "under_review"
+        ? { review: { ...record.review, status: "released_to_worker", decidedAt: new Date().toISOString() } }
+        : {}),
+    }) ?? null;
+  }
+  if (onChain.status === "Refunded") {
+    return updateTracked(record.id, {
+      status: "refunded",
+      settledAt: record.settledAt ?? new Date().toISOString(),
+      lastAutoError: undefined,
+    }) ?? null;
+  }
+  return null;
+}
+
+/** Links an existing user's handle or email in the registries. True if it ran. */
+async function relinkRecipient(record: ProtectedEscrowRecord): Promise<boolean> {
+  const { kind, normalized } = escrowRecipientKey(record.recipientId);
+  const user = store.findUserByRecipient(kind === "handle" ? `@${normalized}` : normalized);
+  if (!user?.evmAddress || !/^0x[a-fA-F0-9]{40}$/.test(user.evmAddress)) return false;
+  try {
+    const { adminLinkIdentity } = await import("./identity.js");
+    await adminLinkIdentity({
+      account: user.evmAddress as `0x${string}`,
+      kind,
+      identifier: normalized,
+    });
+    return true;
+  } catch (e) {
+    console.warn("[held] recipient relink failed:", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
 /** Releases a hold to its recipient, whoever the registry says that is now. */
 async function releaseToRecipient(
   record: ProtectedEscrowRecord,
   settledBy: NonNullable<ProtectedEscrowRecord["settledBy"]>,
 ): Promise<ProtectedEscrowRecord> {
   const transferId = record.onChainTransferId!;
-  const target = await readClaimTarget(transferId);
+  let target = await readClaimTarget(transferId);
+  if (!target.claimable || !target.account) {
+    // The contract answers "not claimable" for a hold that is no longer
+    // pending as well as for a recipient it cannot resolve. Tell them apart
+    // before blaming the recipient: a hold already paid out is done.
+    const settled = await syncWithChain(record);
+    if (settled?.status === "claimed") return settled;
+    if (settled?.status === "refunded") {
+      throw new HeldPaymentError("This payment has already gone back to the payer", 409);
+    }
+    // An Evabob user whose identity link has not reached the escrow's
+    // registry yet: link it now rather than making them wait for a sign-in.
+    if (await relinkRecipient(record)) target = await readClaimTarget(transferId);
+  }
   if (!target.claimable || !target.account) {
     throw new HeldPaymentError(
-      `${record.recipientId} has not finished signing up yet, so there is no wallet to pay. It will go through once they do.`,
+      store.findUserByRecipient(record.recipientId)?.evmAddress
+        ? `@${record.recipientId.replace(/^@/, "")}'s wallet is still being connected. Nothing was sent — try again in a minute.`
+        : `${record.recipientId} has not finished signing up yet, so there is no wallet to pay. It will go through once they do.`,
       409,
     );
   }

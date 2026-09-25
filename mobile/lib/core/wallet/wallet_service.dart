@@ -577,21 +577,17 @@ class WalletService extends ChangeNotifier {
     return res;
   }
 
-  /// Live quote from Synthra (or FX fallback when API key missing).
+  /// Live quote from App Kit — the same route the swap then takes.
   /// [from]/[to] may be symbols or 0x contract addresses.
   Future<Map<String, dynamic>> quoteExchange({
     required String from,
     required String to,
     required double amountIn,
-    int? fromDecimals,
-    int? toDecimals,
   }) async {
-    return _api.post('/v1/synthra/quote', body: {
+    return _api.post('/v1/app-kit/swap/quote', body: {
       'from': from,
       'to': to,
       'amountIn': amountIn,
-      if (fromDecimals != null) 'fromDecimals': fromDecimals,
-      if (toDecimals != null) 'toDecimals': toDecimals,
     });
   }
 
@@ -607,51 +603,6 @@ class WalletService extends ChangeNotifier {
       'fromChain': fromChain,
       'toChain': toChain,
       'token': token,
-    });
-  }
-
-  /// Synthra CCTP bridge quote (optional; product burn still uses Circle CCTP).
-  Future<Map<String, dynamic>> quoteBridge({
-    required double amountUsdc,
-    required int destinationDomain,
-    required String mintRecipient,
-    int? destinationChainId,
-  }) async {
-    return _api.post('/v1/synthra/bridge/quote', body: {
-      'amountUsdc': amountUsdc,
-      'destinationDomain': destinationDomain,
-      'mintRecipient': mintRecipient,
-      if (destinationChainId != null) 'destinationChainId': destinationChainId,
-    });
-  }
-
-  Future<Map<String, dynamic>> exchange({
-    required String from,
-    required String to,
-    required double amountIn,
-    required double amountOut,
-  }) async {
-    final res = await _api.post('/v1/exchange', body: {
-      'from': from,
-      'to': to,
-      'amountIn': amountIn,
-      'amountOut': amountOut,
-      'useSynthra': true,
-    });
-    await refreshBalances(addressOverride: address);
-    return res;
-  }
-
-  /// Bridge plan helper (CCTP burn is executed via CircleWalletService).
-  Future<Map<String, dynamic>> bridgeQuote({
-    required double amountUsdc,
-    required int destinationDomain,
-    required String mintRecipient,
-  }) async {
-    return _api.post('/v1/synthra/bridge/quote', body: {
-      'amountUsdc': amountUsdc,
-      'destinationDomain': destinationDomain,
-      'mintRecipient': mintRecipient,
     });
   }
 

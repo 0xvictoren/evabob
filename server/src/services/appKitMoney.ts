@@ -813,6 +813,52 @@ export async function appKitBridge(input: {
   };
 }
 
+/**
+ * A swap token as App Kit takes it: symbols upper-cased (App Kit resolves
+ * "CIRBTC" as well as "cirBTC"), token addresses exactly as given —
+ * upper-casing an address turns its "0x" into "0X" and breaks it.
+ */
+export function appKitSwapToken(token: string | undefined, fallback: string): string {
+  const t = (token || fallback).trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(t) ? t : t.toUpperCase();
+}
+
+/**
+ * What a swap would return right now, from App Kit itself — the same route
+ * the swap then takes. Priced with the server's own adapter, so it needs no
+ * PIN and moves nothing.
+ */
+export async function estimateAppKitSwap(input: {
+  tokenIn?: string;
+  tokenOut?: string;
+  amountIn: string | number;
+  chain?: string;
+}) {
+  const kit = getAppKit();
+  const amountIn = amountStr(input.amountIn);
+  const tokenIn = appKitSwapToken(input.tokenIn, "USDC");
+  const tokenOut = appKitSwapToken(input.tokenOut, "EURC");
+  const from = await opsFrom({ mode: "viem-ops", chain: input.chain || "Arc_Testnet" });
+  const estimate = await kit.estimateSwap({
+    from: from.context as never,
+    tokenIn: tokenIn as never,
+    tokenOut: tokenOut as never,
+    amountIn,
+    config: withSwapConfig() as never,
+  });
+  const out = Number(estimate.estimatedOutput?.amount);
+  return {
+    source: "app-kit",
+    from: tokenIn,
+    to: tokenOut,
+    amountIn: Number(amountIn),
+    amountOut: Number.isFinite(out) ? out : null,
+    tokenOut: estimate.estimatedOutput?.token ?? tokenOut,
+    minimumOut: estimate.stopLimit?.amount ?? null,
+    fees: estimate.fees ?? [],
+  };
+}
+
 export async function appKitSwap(input: {
   userId: string;
   fromAddress?: string;
@@ -824,8 +870,8 @@ export async function appKitSwap(input: {
 }) {
   const kit = getAppKit();
   const amountIn = amountStr(input.amountIn);
-  const tokenIn = (input.tokenIn || "USDC").toUpperCase();
-  const tokenOut = (input.tokenOut || "EURC").toUpperCase();
+  const tokenIn = appKitSwapToken(input.tokenIn, "USDC");
+  const tokenOut = appKitSwapToken(input.tokenOut, "EURC");
   const from = await opsFrom({
     mode: input.mode,
     address: input.fromAddress,
@@ -1354,7 +1400,10 @@ function startJob(
         if (activityId) {
           store.updateActivity(activityId, {
             status: "pending",
-            description: "On hold · tap Continue to finish",
+            // Only a bridge is held for the person to continue. Anything
+            // else moved in one transaction and is only being confirmed.
+            description:
+              op === "bridge" ? "On hold · tap Continue to finish" : "On the way · confirming",
           });
         }
       } else if (decision.outcome === "succeeded") {
@@ -2413,6 +2462,17 @@ export async function quoteAppKitBridge(input: {
   };
 }
 
+/** Circle's PIN challenge lasts 10 minutes; allow for that plus the swap. */
+const UCW_SWAP_TIMEOUT_MS = 13 * 60 * 1000;
+
+function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, expired]).finally(() => clearTimeout(timer));
+}
+
 export function startUcwSwapJob(input: {
   userId: string;
   userToken: string;
@@ -2425,8 +2485,8 @@ export function startUcwSwapJob(input: {
 }) {
   const chain = resolveAppKitChain(input.chain || "Arc_Testnet");
   const amountIn = amountStr(input.amountIn);
-  const tokenIn = (input.tokenIn || "USDC").toUpperCase();
-  const tokenOut = (input.tokenOut || "EURC").toUpperCase();
+  const tokenIn = appKitSwapToken(input.tokenIn, "USDC");
+  const tokenOut = appKitSwapToken(input.tokenOut, "EURC");
   return startJob(
     input.userId,
     "swap",
@@ -2439,13 +2499,21 @@ export function startUcwSwapJob(input: {
         chains: [chain],
         jobId,
       });
-      const result = await kit.swap({
-        from: { adapter, chain } as never,
-        tokenIn: tokenIn as never,
-        tokenOut: tokenOut as never,
-        amountIn,
-        config: withSwapConfig() as never,
-      });
+      // A swap is one transaction; if App Kit has not reported it well past
+      // the PIN window, stop waiting. The runner's failure path then asks
+      // the chain whether the money moved, and closes the job either way
+      // instead of leaving it "running" until the server restarts.
+      const result = await withTimeout(
+        kit.swap({
+          from: { adapter, chain } as never,
+          tokenIn: tokenIn as never,
+          tokenOut: tokenOut as never,
+          amountIn,
+          config: withSwapConfig() as never,
+        }),
+        UCW_SWAP_TIMEOUT_MS,
+        "The swap took too long to confirm",
+      );
       return serializeAppKitResult(result);
     },
     {

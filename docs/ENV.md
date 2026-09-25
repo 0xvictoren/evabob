@@ -123,7 +123,7 @@ CI runs without a `.env`.
 | `KIT_KEY` / `CIRCLE_KIT_KEY` | Optional Circle Console kit key for Swap (avoids rate limits) |
 | `APP_KIT_ADAPTER` | `circle-wallets` (default) or `viem-ops` (server `PRIVATE_KEY`) |
 | `APP_KIT_DC_WALLET` / `CIRCLE_DC_WALLET` | Default developer-controlled wallet `0x…` (used when `fromAddress` omitted) |
-| `APP_KIT_KEEP_LEGACY` | Keep `/v1/cctp` + `/v1/gateway` mounted (default `true`) |
+| `APP_KIT_KEEP_LEGACY` | Keep the pre-App Kit rails — `/v1/cctp`, `/v1/gateway`, the Synthra swap (`/v1/circle/swap`) and direct CCTP burns (`/v1/circle/cctp/burn`). Default `false`: swaps and bridges use App Kit only. `/v1/circle/cctp/finish` always stays, to finish burns already made |
 
 ## Platform fee
 

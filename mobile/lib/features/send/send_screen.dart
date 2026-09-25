@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -27,7 +28,7 @@ import '../../core/widgets/glass.dart';
 import '../../core/widgets/platform_fee_note.dart';
 import '../activity/receipt_sheet.dart';
 import '../held/held_payment_screen.dart';
-import 'amount_keypad.dart';
+import 'send_action_button.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
 /// Send flow: amount in real tokens (USDC / EURC), plus token toggle.
@@ -55,7 +56,10 @@ class _SendScreenState extends State<SendScreen> {
   final _to = TextEditingController();
   final _memo = TextEditingController();
 
-  /// Settlement token on Arc: USDC or EURC (keypad = token amount).
+  /// The amount as typed on the phone's number keyboard.
+  final _amount = TextEditingController();
+
+  /// Settlement token on Arc: USDC or EURC (the amount field = token amount).
   String _token = 'USDC';
 
   /// The contact behind the name in the To field, when one was picked.
@@ -90,6 +94,7 @@ class _SendScreenState extends State<SendScreen> {
   void dispose() {
     _to.dispose();
     _memo.dispose();
+    _amount.dispose();
     super.dispose();
   }
 
@@ -121,7 +126,7 @@ class _SendScreenState extends State<SendScreen> {
     }
   }
 
-  /// Dollars are typed in the person's main currency: ₦2,000 on the keypad
+  /// Dollars are typed in the person's main currency: ₦2,000 in the amount
   /// sends the dollar equivalent. Euros are a balance of their own and are
   /// typed as euros.
   bool _typesInNaira(FxService fx) => _token == 'USDC' && fx.isNaira;
@@ -133,10 +138,59 @@ class _SendScreenState extends State<SendScreen> {
   }
 
   /// The figure on the amount card: a currency symbol, not a ticker.
-  String _primaryLabel(FxService fx) {
+  /// Puts an amount in the field, as a chip or "All of it" does.
+  void _setAmount(String text) {
+    _amount.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _onAmountTyped(text);
+  }
+
+  void _onAmountTyped(String text) {
+    final v = double.tryParse(text);
+    setState(() {
+      _calc = text.isEmpty || v == null
+          ? CalcState.empty
+          : CalcState(expression: text, display: text, value: v);
+    });
+  }
+
+  /// The amount, typed with the phone's number keyboard: a currency sign and
+  /// digits with at most two decimals.
+  Widget _amountField(FxService fx, bool tooMuch) {
     final sign = _token == 'EURC' ? '€' : (_typesInNaira(fx) ? '₦' : r'$');
-    final v = _calc.value ?? 0;
-    return v > 0 ? '$sign${_calc.display}' : '${sign}0';
+    final style = EvabobTheme.amountDisplay.copyWith(
+      color: tooMuch ? EvabobColors.alert : null,
+    );
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(sign, style: style),
+        IntrinsicWidth(
+          child: TextField(
+            controller: _amount,
+            onChanged: _onAmountTyped,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            textInputAction: TextInputAction.done,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+            ],
+            style: style,
+            cursorColor: EvabobColors.blue,
+            decoration: InputDecoration(
+              hintText: '0',
+              hintStyle: style.copyWith(color: EvabobColors.inkTertiary),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   String _secondaryLabel(FxService fx) {
@@ -151,7 +205,7 @@ class _SendScreenState extends State<SendScreen> {
     return '≈ ${fx.secondary(_tokenAmount(fx))}';
   }
 
-  /// Quick amounts in whatever the keypad is typing.
+  /// Quick amounts in whatever the amount is typed in.
   List<String> _quickAmounts(FxService fx) => _typesInNaira(fx)
       ? const ['1000', '5000', '10000']
       : const ['20', '50', '100'];
@@ -399,6 +453,10 @@ class _SendScreenState extends State<SendScreen> {
       memo: _memo.text.trim().isEmpty ? null : _memo.text.trim(),
     );
     if (!mounted) return;
+    if (held['pending'] == true) {
+      await _showHoldStillConfirming();
+      return;
+    }
     if (held['ok'] != true) {
       await _showSendOutcome(
         title: "Didn't land",
@@ -425,6 +483,15 @@ class _SendScreenState extends State<SendScreen> {
     }
     if (mounted) widget.onBack?.call();
   }
+
+  /// The PIN went through but the lock has not shown on chain yet. The money
+  /// has most likely left, so this must not invite a second try.
+  Future<void> _showHoldStillConfirming() => _showSendOutcome(
+        title: 'Still confirming',
+        message:
+            'Your PIN went through and the money is being set aside. Check Activity in a minute before trying again, so it is not held twice.',
+        icon: Icons.schedule_rounded,
+      );
 
   Future<void> _pickCurrency() async {
     final selected = await showModalBottomSheet<String>(
@@ -469,6 +536,7 @@ class _SendScreenState extends State<SendScreen> {
       setState(() {
         _token = selected;
         _calc = CalcState.empty;
+        _amount.clear();
       });
     }
   }
@@ -494,8 +562,7 @@ class _SendScreenState extends State<SendScreen> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      // Tapping anywhere that is not a text field — the amount included —
-      // closes the keyboard so the amount keypad is there to use.
+      // Tapping anywhere that is not a text field closes the keyboard.
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
@@ -691,12 +758,7 @@ class _SendScreenState extends State<SendScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              _primaryLabel(fx),
-                              style: EvabobTheme.amountDisplay.copyWith(
-                                color: tooMuch ? EvabobColors.alert : null,
-                              ),
-                            ),
+                            _amountField(fx, tooMuch),
                             const SizedBox(height: 2),
                             if (tooMuch)
                               Padding(
@@ -771,7 +833,7 @@ class _SendScreenState extends State<SendScreen> {
                                       ((available / (1 + feeBps / 10000)) * 100)
                                               .floorToDouble() /
                                           100;
-                                  // Shown in what the keypad types, rounded
+                                  // Shown in what the amount is typed in, rounded
                                   // down so it never exceeds the balance.
                                   final typed = _token == 'USDC'
                                       ? (fx.fromUsd(maxVal) * 100)
@@ -781,21 +843,9 @@ class _SendScreenState extends State<SendScreen> {
                                   final s = typed == typed.roundToDouble()
                                       ? typed.toStringAsFixed(0)
                                       : typed.toStringAsFixed(2);
-                                  setState(() {
-                                    _calc = CalcState(
-                                      expression: s,
-                                      display: s,
-                                      value: typed,
-                                    );
-                                  });
+                                  _setAmount(s);
                                 } else {
-                                  setState(() {
-                                    _calc = CalcState(
-                                      expression: q,
-                                      display: q,
-                                      value: double.parse(q),
-                                    );
-                                  });
+                                  _setAmount(q);
                                 }
                               },
                               child: Glass(
@@ -914,11 +964,7 @@ class _SendScreenState extends State<SendScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    AmountKeypad(
-                      onKey: (k) {
-                        FocusManager.instance.primaryFocus?.unfocus();
-                        setState(() => _calc = applyKey(_calc, k));
-                      },
+                    SendActionButton(
                       canSend: canSend,
                       sendLabel: widget.isFund
                           ? (amount > 0
@@ -929,6 +975,7 @@ class _SendScreenState extends State<SendScreen> {
                               : 'Enter amount'),
                       onSend: canSend
                           ? () async {
+                              FocusManager.instance.primaryFocus?.unfocus();
                               final circle =
                                   context.read<CircleWalletService>();
                               final activity = context.read<ActivityService>();
@@ -1007,6 +1054,8 @@ class _SendScreenState extends State<SendScreen> {
                                         );
                                         widget.onBack?.call();
                                       }
+                                    } else if (held['pending'] == true) {
+                                      await _showHoldStillConfirming();
                                     } else {
                                       await _showSendOutcome(
                                         title: "Didn't land",

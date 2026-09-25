@@ -25,14 +25,15 @@ class HomeActionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        if (showSend) ...[
+        // Request on the left, Send on the right: the thumb that pays sits
+        // on the side most people reach first.
+        if (showRequest) ...[
           Expanded(
             child: _ActionPill(
-              label: '↗  Send',
-              foreground: EvabobColors.ink,
-              background: EvabobColors.white,
-              shadow: Shadows.card,
-              onTap: onSend,
+              label: '↙  Request',
+              foreground: EvabobColors.white,
+              background: EvabobColors.white.withValues(alpha: .18),
+              onTap: onRequest,
             ),
           ),
           const SizedBox(width: 13),
@@ -63,14 +64,15 @@ class HomeActionRow extends StatelessWidget {
             ),
           ),
         ),
-        if (showRequest) ...[
+        if (showSend) ...[
           const SizedBox(width: 13),
           Expanded(
             child: _ActionPill(
-              label: '↙  Request',
-              foreground: EvabobColors.white,
-              background: EvabobColors.white.withValues(alpha: .18),
-              onTap: onRequest,
+              label: '↗  Send',
+              foreground: EvabobColors.ink,
+              background: EvabobColors.white,
+              shadow: Shadows.card,
+              onTap: onSend,
             ),
           ),
         ],
