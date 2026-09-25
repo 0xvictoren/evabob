@@ -69,7 +69,7 @@ import {
   readTxTimestampMs,
 } from "./cctp.js";
 import { alertUser } from "./notifyUser.js";
-import { platformFeeEnabled } from "./platformFee.js";
+import { platformFeeEnabled, setUsdPerCirbtc } from "./platformFee.js";
 
 // ─── Job store (UCW challenge relay for long-running kit ops) ──────────────
 
@@ -441,8 +441,8 @@ function withBridgeConfig(amount: string) {
   };
 }
 
-function withSwapConfig() {
-  const customFee = buildSwapFeeConfig();
+function withSwapConfig(tokenIn = "USDC", amountIn?: string | number) {
+  const customFee = buildSwapFeeConfig(tokenIn, amountIn);
   return {
     ...(config.appKit.kitKey ? { kitKey: config.appKit.kitKey } : {}),
     ...(customFee ? { customFee } : {}),
@@ -815,6 +815,24 @@ export async function appKitBridge(input: {
   };
 }
 
+let cirbtcPriceAt = 0;
+
+/**
+ * Refreshes the dollar price of cirBTC from App Kit, at most hourly. The flat
+ * fee on a cirBTC transaction is $0.02 worth at this price. Never throws: a
+ * failed read keeps the last price.
+ */
+export async function refreshCirbtcPrice(now = Date.now()): Promise<boolean> {
+  if (now - cirbtcPriceAt < 60 * 60 * 1000) return false;
+  cirbtcPriceAt = now;
+  try {
+    await estimateAppKitSwap({ tokenIn: "USDC", tokenOut: "CIRBTC", amountIn: 10 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A swap token as App Kit takes it: symbols upper-cased (App Kit resolves
  * "CIRBTC" as well as "cirBTC"), token addresses exactly as given —
@@ -846,9 +864,16 @@ export async function estimateAppKitSwap(input: {
     tokenIn: tokenIn as never,
     tokenOut: tokenOut as never,
     amountIn,
-    config: withSwapConfig() as never,
+    config: withSwapConfig(tokenIn, amountIn) as never,
   });
   const out = Number(estimate.estimatedOutput?.amount);
+  // Every dollar↔cirBTC quote also updates the price the flat fee on cirBTC
+  // is worked out from.
+  const inNum = Number(amountIn);
+  if (Number.isFinite(out) && out > 0 && inNum > 0) {
+    if (tokenIn === "USDC" && tokenOut === "CIRBTC") setUsdPerCirbtc(inNum / out);
+    if (tokenIn === "CIRBTC" && tokenOut === "USDC") setUsdPerCirbtc(out / inNum);
+  }
   return {
     source: "app-kit",
     from: tokenIn,
@@ -885,7 +910,7 @@ export async function appKitSwap(input: {
     tokenIn: tokenIn as never,
     tokenOut: tokenOut as never,
     amountIn,
-    config: withSwapConfig() as never,
+    config: withSwapConfig(tokenIn, amountIn) as never,
   });
 
   const serialized = serializeAppKitResult(result);
@@ -2521,7 +2546,7 @@ export function startUcwSwapJob(input: {
         tokenIn: tokenIn as never,
         tokenOut: tokenOut as never,
         amountIn,
-        config: withSwapConfig() as never,
+        config: withSwapConfig(tokenIn, amountIn) as never,
       });
       return serializeAppKitResult(result);
     },
@@ -2691,7 +2716,7 @@ export function startUcwComposeJob(input: {
         tokenIn: tokenIn as never,
         tokenOut: tokenOut as never,
         amountIn,
-        config: withSwapConfig() as never,
+        config: withSwapConfig(tokenIn, amountIn) as never,
       });
       steps.push({ step: "swap", result: serializeAppKitResult(swapResult) });
       workingAmount = amountIn;

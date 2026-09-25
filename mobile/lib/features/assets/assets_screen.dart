@@ -197,10 +197,12 @@ class _AssetsScreenState extends State<AssetsScreen> {
                 rows: [
                   _CurrencyData('USDC', 'Dollars'),
                   _CurrencyData('EURC', 'Euros'),
+                  _CurrencyData('CIRBTC', 'Bitcoin'),
                 ],
                 amounts: [
                   formatTokenAmount(wallet.totalUsdc),
                   formatTokenAmount(wallet.eurcWallet, 'EURC'),
+                  formatTokenAmount(wallet.cirbtcWallet, 'CIRBTC'),
                 ],
                 children: const [],
               ),

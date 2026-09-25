@@ -1,31 +1,24 @@
 import Flutter
 import UIKit
 
+/// Hides the app behind a plain cover in the app switcher, where its last
+/// screen would otherwise be left on show.
+///
+/// Screenshots, screen recording and mirroring are allowed, as on Android:
+/// people share receipts and show the app in presentations. (The cover used
+/// to go up whenever the screen was captured, which blanked the app when it
+/// was mirrored to a projector.)
 class SceneDelegate: FlutterSceneDelegate {
     private var privacyCover: UIView?
-    private var observingCapture = false
 
     override func sceneDidBecomeActive(_ scene: UIScene) {
         super.sceneDidBecomeActive(scene)
-        if !observingCapture {
-            observingCapture = true
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(captureStateChanged),
-                name: UIScreen.capturedDidChangeNotification,
-                object: nil
-            )
-        }
-        setPrivacyCover(visible: UIScreen.main.isCaptured)
+        setPrivacyCover(visible: false)
     }
 
     override func sceneWillResignActive(_ scene: UIScene) {
         setPrivacyCover(visible: true)
         super.sceneWillResignActive(scene)
-    }
-
-    @objc private func captureStateChanged() {
-        setPrivacyCover(visible: UIScreen.main.isCaptured)
     }
 
     private func setPrivacyCover(visible: Bool) {

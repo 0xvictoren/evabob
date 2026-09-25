@@ -36,19 +36,29 @@ const HTTP_INCIDENT_SESSION_CUTOFF = "2026-09-21T10:11:00Z";
  * environment keeps charging after the rename. An unset or malformed address
  * turns the fee off everywhere — never send fees to an empty or wrong address.
  */
-function resolvePlatformFee(): { recipient: `0x${string}` | ""; bps: number } {
+function resolvePlatformFee(): {
+  recipient: `0x${string}` | "";
+  bps: number;
+  flatUsd: number;
+} {
   const recipient = req("PLATFORM_FEE_ADDRESS") || req("APP_KIT_FEE_RECIPIENT");
   const rawBps = req("PLATFORM_FEE_BPS") || req("APP_KIT_FEE_BPS") || "5";
   const bps = Number(rawBps);
-  if (!recipient) return { recipient: "", bps: 0 };
+  // A flat fee of about this many dollars per transaction, in the token spent.
+  // When set (the default, $0.02) it replaces the percentage.
+  const flatUsd = Number(req("PLATFORM_FEE_FLAT_USD", "0.02"));
+  if (!recipient) return { recipient: "", bps: 0, flatUsd: 0 };
   if (!/^0x[a-fA-F0-9]{40}$/.test(recipient)) {
     console.warn("!! PLATFORM_FEE_ADDRESS is not a 0x address — platform fee disabled.");
-    return { recipient: "", bps: 0 };
+    return { recipient: "", bps: 0, flatUsd: 0 };
   }
   if (!Number.isInteger(bps) || bps < 0 || bps > 10_000) {
     throw new Error("PLATFORM_FEE_BPS must be a whole number of basis points (0-10000)");
   }
-  return { recipient: recipient as `0x${string}`, bps };
+  if (!Number.isFinite(flatUsd) || flatUsd < 0 || flatUsd > 5) {
+    throw new Error("PLATFORM_FEE_FLAT_USD must be a dollar amount between 0 and 5");
+  }
+  return { recipient: recipient as `0x${string}`, bps, flatUsd };
 }
 
 const platformFee = resolvePlatformFee();

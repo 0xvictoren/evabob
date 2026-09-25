@@ -220,7 +220,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
         amount: amt,
         action: 'Top up',
         landedLabel: 'Arrives in your Gateway Account',
-        warning: features.platformFeeBps > 0
+        warning: features.platformFeeOn
             ? 'The money stays yours the whole time. You will be asked to '
                 'confirm once.'
             : 'The money stays yours the whole time. You will be asked to '

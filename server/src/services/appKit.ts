@@ -16,6 +16,7 @@ import { createCircleWalletsAdapter } from "@circle-fin/adapter-circle-wallets";
 import { createViemAdapterFromPrivateKey } from "@circle-fin/adapter-viem-v2";
 import { createPublicClient, createWalletClient, formatUnits, http, parseUnits } from "viem";
 import { arcTransport } from "./arc-wallet.js";
+import { currentUsdPerCirbtc, quotePlatformFee } from "./platformFee.js";
 import { config } from "../config.js";
 
 /** Product-supported App Kit chains only. */
@@ -307,31 +308,58 @@ export function buildBridgeFee(amountHuman: string):
       recipientAddress: string;
     }
   | undefined {
-  if (!config.appKit.feeRecipient || config.appKit.feeBps <= 0) {
-    return undefined;
-  }
+  if (!config.appKit.feeRecipient) return undefined;
   const amt = Number(amountHuman);
   if (!Number.isFinite(amt) || amt <= 0) return undefined;
-  // No minimum fee: an amount too small to produce a whole USDC micro-unit
-  // of fee is charged nothing, rather than rounded up.
-  const units = (parseUnits(amt.toFixed(6), 6) * BigInt(config.appKit.feeBps)) / 10_000n;
-  if (units <= 0n) return undefined;
+  // Bridges move USDC: the same fee as every other USDC payment (flat, or
+  // the percentage when no flat fee is set). No minimum.
+  const quote = quotePlatformFee(amt, 6);
+  if (quote.feeUnits <= 0n) return undefined;
   return {
-    value: formatUnits(units, 6),
+    value: formatUnits(quote.feeUnits, 6),
     recipientAddress: config.appKit.feeRecipient,
   };
 }
 
-/** Swap-style custom fee (basis points). */
-export function buildSwapFeeConfig():
+/**
+ * The whole-basis-point rate closest to the flat fee on this swap.
+ *
+ * App Kit takes a swap fee only as whole basis points per transaction (an
+ * absolute amount is refused), so the flat ~$0.02 becomes a rate for the
+ * amount: exactly $0.02 on a $2 swap, about $0.02 on most. At least 1 bp, so
+ * swaps above ~$200 pay a little more; at most 10%, so a swap of a few cents
+ * is not eaten by the fee.
+ */
+export function flatFeeSwapBps(amountUsd: number, flatUsd: number): number {
+  if (!(amountUsd > 0) || !(flatUsd > 0)) return 0;
+  const bps = Math.round((flatUsd / amountUsd) * 10_000);
+  return Math.min(1_000, Math.max(1, bps));
+}
+
+/**
+ * Swap custom fee: the flat fee expressed as a rate for this amount, or, with
+ * no flat fee set, the percentage. A pasted token address has no known price,
+ * so it is charged no flat fee.
+ */
+export function buildSwapFeeConfig(tokenIn = "USDC", amountIn?: string | number):
   | {
       percentageBps: number;
       recipientAddress: string;
     }
   | undefined {
-  if (!config.appKit.feeRecipient || config.appKit.feeBps <= 0) {
-    return undefined;
+  if (!config.appKit.feeRecipient) return undefined;
+  const flat = config.platformFee.flatUsd ?? 0;
+  if (flat > 0) {
+    const symbol = tokenIn.toUpperCase();
+    if (!["USDC", "EURC", "CIRBTC"].includes(symbol)) return undefined;
+    const amount = Number(amountIn);
+    // Dollars and euros count about one for one; cirBTC at its App Kit price.
+    const amountUsd = symbol === "CIRBTC" ? amount * currentUsdPerCirbtc() : amount;
+    const bps = flatFeeSwapBps(amountUsd, flat);
+    if (bps <= 0) return undefined;
+    return { percentageBps: bps, recipientAddress: config.appKit.feeRecipient };
   }
+  if (config.appKit.feeBps <= 0) return undefined;
   return {
     percentageBps: config.appKit.feeBps,
     recipientAddress: config.appKit.feeRecipient,

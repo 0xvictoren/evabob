@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'web_page_screen.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -112,31 +113,13 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _showTerms(BuildContext context) {
-    return _showProfileSheet(
-      context,
-      icon: Icons.description_outlined,
-      title: 'Terms',
-      body:
-          'Use Evabob only for money you are allowed to move. Blockchain payments can be final. Review the person, network, token and amount before confirming. Full terms: https://evabob.app/terms',
-      footnote:
-          'Evabob never asks for your PIN, API key, recovery phrase, or private key.',
-      primaryLabel: 'Done',
-    );
-  }
+  /// Terms and Privacy are the published pages on evabob.xyz, opened inside
+  /// the app.
+  Future<void> _showTerms(BuildContext context) =>
+      WebPageScreen.open(context, 'Terms', WebPageScreen.termsUrl);
 
-  Future<void> _showPrivacy(BuildContext context) {
-    return _showProfileSheet(
-      context,
-      icon: Icons.privacy_tip_outlined,
-      title: 'Privacy',
-      body:
-          'Evabob processes account, wallet, payment, chat, contact, photo and notification data only to provide and protect the features you use. Blockchain records cannot usually be erased. Full notice: https://evabob.app/privacy',
-      footnote:
-          'Private photos require sign-in. Lock-screen notifications hide names, amounts and messages.',
-      primaryLabel: 'Done',
-    );
-  }
+  Future<void> _showPrivacy(BuildContext context) =>
+      WebPageScreen.open(context, 'Privacy', WebPageScreen.privacyUrl);
 
   Future<void> _exportAccount(BuildContext context) async {
     try {

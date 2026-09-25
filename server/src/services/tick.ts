@@ -45,6 +45,8 @@ export async function runTickWork() {
     // payouts to people paid by agents, money paid to named agents.
     // Agent top-ups that did not finish in their request, or failed.
     agentFunding: await step(async () => (await import("./agentFunding.js")).reconcileAgentFunding()),
+    // The price the flat fee on cirBTC is charged at (hourly).
+    cirbtcPrice: await step(async () => (await import("./appKitMoney.js")).refreshCirbtcPrice()),
     agentTasks: await step(() => tasks.runAgentTaskWork()),
     bookings: await step(() => ({ expired: paywalls.expireBookings() })),
     payouts: await step(() => paywalls.runPaywallPayouts()),

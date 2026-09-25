@@ -23,6 +23,7 @@ class AssetThumbnail extends StatelessWidget {
     if (key.contains('ethereum') || key == 'eth') return 'eth';
     if (key.contains('base')) return 'base';
     if (key.contains('arc')) return 'arc';
+    if (key.contains('btc')) return 'cirbtc';
     if (key.contains('eur')) return 'eurc';
     return 'usdc';
   }
@@ -37,12 +38,18 @@ class AssetThumbnail extends StatelessWidget {
         return 'Arc';
       case 'eurc':
         return 'Euros';
+      case 'cirbtc':
+        return 'Bitcoin';
       default:
         return 'Dollars';
     }
   }
 
-  static String symbol(String value) => _key(value) == 'eurc' ? '€' : r'$';
+  static String symbol(String value) => switch (_key(value)) {
+        'eurc' => '€',
+        'cirbtc' => '₿',
+        _ => r'$',
+      };
 
   @override
   Widget build(BuildContext context) {

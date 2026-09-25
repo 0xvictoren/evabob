@@ -295,7 +295,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
         if (!mounted) return;
         // Figma "Convert · Done": what arrived, from what, at what rate.
         final out = _quotedOut;
-        final fee = context.read<AppFeatures>().platformFeeFor(amountIn);
+        final fee = _feeFor(amountIn);
         await DoneReceiptScreen.open(
           context,
           title: 'Converted',
@@ -309,10 +309,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                   '${_amountIn(1, _fromPreset, _fromCa)}'),
             (
               'Fee',
-              fee > 0
-                  ? formatTokenAmount(
-                      fee, _fromPreset == 'EURC' ? 'EURC' : 'USDC')
-                  : 'Free'
+              fee > 0 ? formatTokenAmount(fee, _feeToken) : 'Free'
             ),
             ('Done at', DoneReceiptScreen.when(DateTime.now())),
           ],
@@ -374,13 +371,13 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                 value: p,
                 child: Row(
                   children: [
-                    if (p == 'USDC' || p == 'EURC') ...[
+                    if (p == 'USDC' || p == 'EURC' || p == 'CIRBTC') ...[
                       AssetThumbnail(asset: p, size: 24),
                       const SizedBox(width: 10),
                     ] else ...[
                       const SizedBox.square(
                         dimension: 24,
-                        child: Icon(Icons.currency_bitcoin, size: 20),
+                        child: Icon(Icons.toll_outlined, size: 20),
                       ),
                       const SizedBox(width: 10),
                     ],
@@ -429,10 +426,19 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
   static int _dp(String preset) => preset == 'CIRBTC' ? 6 : 2;
 
   /// The fee, and nothing about where the rate comes from.
-  String _feeLine(double amount) {
-    final fee = context.read<AppFeatures>().platformFeeFor(amount);
-    return 'Evabob fee ${formatTokenAmount(fee, _fromPreset == 'EURC' ? 'EURC' : 'USDC')}';
-  }
+  String _feeLine(double amount) =>
+      'Evabob fee ${formatTokenAmount(_feeFor(amount), _feeToken)}';
+
+  /// The fee is charged in what is being spent: dollars, euros or bitcoin.
+  String get _feeToken => switch (_fromPreset) {
+        'EURC' => 'EURC',
+        'CIRBTC' => 'CIRBTC',
+        _ => 'USDC',
+      };
+
+  double _feeFor(double amount) => context
+      .read<AppFeatures>()
+      .platformFeeFor(amount, decimals: _fromPreset == 'CIRBTC' ? 8 : 6);
 
   /// Provider names are not for people.
   static String _plain(String text) =>

@@ -30,17 +30,14 @@ class PlatformFeeNote extends StatelessWidget {
     final features = context.watch<AppFeatures>();
     final fee = features.platformFeeFor(amount, decimals: decimals);
     if (fee <= 0) return const SizedBox.shrink();
-    final percent = (features.platformFeeBps / 100)
-        .toStringAsFixed(2)
-        .replaceFirst(RegExp(r'0+$'), '')
-        .replaceFirst(RegExp(r'\.$'), '');
+    final rate = features.platformFeeRateNote;
     return Padding(
       padding: padding,
       child: Row(
         children: [
           Expanded(
             child: Text(
-              'Evabob fee ($percent%)',
+              rate.isEmpty ? 'Evabob fee' : 'Evabob fee ($rate)',
               style: Type.label.copyWith(color: EvabobColors.inkMuted),
             ),
           ),

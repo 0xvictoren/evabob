@@ -118,6 +118,8 @@ services:
         sync: false
       - key: PLATFORM_FEE_BPS
         value: "5"
+      - key: PLATFORM_FEE_FLAT_USD
+        value: "0.02"
       - key: FEATURE_DIRECT_SEND
         value: "true"
       - key: FEATURE_PROTECTED_SEND

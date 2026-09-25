@@ -54,3 +54,23 @@ test("wallet batch wraps payment and fee in executeBatch", () => {
   assert.equal((feeLeg.args[0] as string).toLowerCase(), FEE);
   assert.equal(feeLeg.args[1], 5_000n);
 });
+
+const flat = { recipient: FEE, bps: 5, flatUsd: 0.02 } as const;
+
+test("flat fee: $0.02 on any USDC amount, replacing the percentage", () => {
+  assert.equal(quotePlatformFee(1, 6, flat).fee, "0.02");
+  assert.equal(quotePlatformFee(1000, 6, flat).fee, "0.02");
+  assert.equal(quotePlatformFee(1000, 6, flat).totalUnits, 1_000_020_000n);
+});
+
+test("flat fee on cirBTC is $0.02 worth of bitcoin at the current price", async () => {
+  const { setUsdPerCirbtc } = await import("./platformFee.js");
+  setUsdPerCirbtc(100_000);
+  // $0.02 / $100,000 = 0.0000002 BTC = 20 base units (8 decimals)
+  assert.equal(quotePlatformFee(0.001, 8, flat).feeUnits, 20n);
+  setUsdPerCirbtc(95_000);
+});
+
+test("flat fee is off without a recipient", () => {
+  assert.equal(quotePlatformFee(5, 6, { ...flat, recipient: "" }).feeUnits, 0n);
+});

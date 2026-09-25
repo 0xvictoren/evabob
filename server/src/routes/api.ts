@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { config } from "../config.js";
 import { readTokenBalances } from "../services/arc-balances.js";
+import { quotePlatformFee } from "../services/platformFee.js";
 import { circleHealth } from "../services/circle.js";
 import { circleMarketplaceHealth } from "../services/circle-x402.js";
 import {
@@ -408,8 +409,16 @@ api.get("/config/public", async (c) => {
     environment: config.deploymentEnv,
     /** Shown on review screens before the PIN; added on top, gas excluded. */
     platformFee: {
-      enabled: Boolean(config.platformFee.recipient) && config.platformFee.bps > 0,
+      enabled:
+        Boolean(config.platformFee.recipient) &&
+        ((config.platformFee.flatUsd ?? 0) > 0 || config.platformFee.bps > 0),
       bps: config.platformFee.recipient ? config.platformFee.bps : 0,
+      /** Flat fee per transaction in dollars; when above 0 it replaces bps. */
+      flatUsd: config.platformFee.recipient ? (config.platformFee.flatUsd ?? 0) : 0,
+      /** The same flat fee in cirBTC at the current price. */
+      flatCirbtc: config.platformFee.recipient
+        ? Number(quotePlatformFee(1, 8).fee)
+        : 0,
     },
     features: {
       ...config.features,

@@ -371,10 +371,13 @@ class _FeeLines extends StatelessWidget {
     // rate, which the conversion screen already shows.
     final showLanded = review.feeOnTop || feeFrom != null;
     final landed = feeFrom == null ? review.landed : review.landed - fee;
-    final percent = (features.platformFeeBps / 100)
-        .toStringAsFixed(2)
-        .replaceFirst(RegExp(r'0+$'), '')
-        .replaceFirst(RegExp(r'\.$'), '');
+    // "0.05%" for a percentage fee; nothing for the flat fee, whose amount
+    // is on the same line.
+    final rate = features.platformFeeRateNote;
+    String feeLabel(String? extra) {
+      final parts = [if (rate.isNotEmpty) rate, if (extra != null) extra];
+      return parts.isEmpty ? 'Evabob fee' : 'Evabob fee (${parts.join(', ')})';
+    }
 
     Widget line(String label, String value, {bool strong = false}) {
       return Padding(
@@ -405,10 +408,10 @@ class _FeeLines extends StatelessWidget {
           if (fee > 0)
             line(
               feeFrom != null
-                  ? 'Evabob fee ($percent%, from $feeFrom)'
+                  ? feeLabel('from $feeFrom')
                   : review.feeOnTop
-                      ? 'Evabob fee ($percent%)'
-                      : 'Evabob fee ($percent%, taken from the conversion)',
+                      ? feeLabel(null)
+                      : feeLabel('taken from the conversion'),
               formatMoney(fee, review.token),
             ),
           if (review.feeOnTop && feeFrom == null && fee > 0)

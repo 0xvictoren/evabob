@@ -4,7 +4,7 @@
 this file, this file is right. Supersedes the former `new.md` and the progress
 tables that used to live in the README.
 
-Last verified: 2026-09-25 (testing feedback, second pass; App Kit only, payment reliability); 2026-09-24 (testing version stable 1); 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
+Last verified: 2026-09-25 (cirBTC, flat fee, web terms; testing feedback, second pass; App Kit only, payment reliability); 2026-09-24 (testing version stable 1); 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
 
 ---
 
@@ -28,6 +28,20 @@ and other public testnets. Do not read "live" below as "in production" — it me
 | **Partial** | Implemented but a known step is blocked, paused, or unverified |
 | **Stub** | Route or UI exists, does nothing real |
 | **Not built** | Referenced somewhere but absent from the code |
+
+---
+
+## cirBTC, flat fee, web terms — 2026-09-25
+
+Server 456 tests, Flutter 69 tests, typecheck and analyze clean. Not yet run
+on a phone; the iOS change is unverified (no Mac build here).
+
+| Area | What changed |
+|------|--------------|
+| cirBTC | Converts to and from dollars and euros through App Kit (quotes checked live). Shown only in the wallet: a "Bitcoin" line under Currencies on Assets, like Euros, never added to the dollar total. Uses the new `cirbtc.png` icon everywhere assets are shown. |
+| Platform fee | A flat ~$0.02 per transaction replaces 0.05%: 0.02 USDC, 0.02 EURC, or $0.02 of cirBTC at App Kit's price (refreshed hourly). `PLATFORM_FEE_FLAT_USD`. App Kit takes a swap fee only as whole basis points, so a swap pays the nearest whole-bp rate — exactly $0.02 at $2, a little more above ~$200. Money circles and group pots keep their contract-fixed 0.05%. |
+| Terms and Privacy | Profile opens https://www.evabob.xyz/terms.html and https://www.evabob.xyz/privacy.html inside the app (the existing WebView; only evabob.xyz pages load). |
+| iOS | Screen recording and mirroring no longer blank the app (the capture cover is gone), matching Android's allowed screenshots. The app-switcher cover stays. |
 
 ---
 

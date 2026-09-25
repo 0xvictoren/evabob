@@ -205,7 +205,10 @@ function personFor(raw: string, ownerId: string): { recipient: string; userId: s
 }
 
 export function feeFor(amountUsdc: number): number {
-  const bps = config.platformFee.recipient ? config.platformFee.bps : 0;
+  if (!config.platformFee.recipient) return 0;
+  const flat = config.platformFee.flatUsd ?? 0;
+  if (flat > 0) return amountUsdc > 0 ? flat : 0;
+  const bps = config.platformFee.bps;
   return Math.floor(amountUsdc * 1e6 * bps / 10_000) / 1e6;
 }
 

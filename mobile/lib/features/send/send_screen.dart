@@ -365,7 +365,7 @@ class _SendScreenState extends State<SendScreen> {
     AppFeatures features,
     double amount,
   ) {
-    final withFee = amount * (1 + features.platformFeeBps / 10000);
+    final withFee = amount + features.platformFeeFor(amount);
     if (_token == 'EURC') {
       return wallet.eurcWallet >= withFee &&
           wallet.usdcWallet >= _arcUsdcGasReserve;
@@ -826,13 +826,16 @@ class _SendScreenState extends State<SendScreen> {
                                   // The Evabob fee is added on top, so "all of
                                   // it" is the largest amount that still leaves
                                   // room for its fee — rounded down, never up.
-                                  final feeBps = context
-                                      .read<AppFeatures>()
-                                      .platformFeeBps;
-                                  final maxVal =
-                                      ((available / (1 + feeBps / 10000)) * 100)
-                                              .floorToDouble() /
-                                          100;
+                                  final features =
+                                      context.read<AppFeatures>();
+                                  final flatFee = features.platformFeeFlatUsd;
+                                  final feeBps = features.platformFeeBps;
+                                  final afterFee = flatFee > 0
+                                      ? available - flatFee
+                                      : available / (1 + feeBps / 10000);
+                                  final maxVal = afterFee <= 0
+                                      ? 0.0
+                                      : (afterFee * 100).floorToDouble() / 100;
                                   // Shown in what the amount is typed in, rounded
                                   // down so it never exceeds the balance.
                                   final typed = _token == 'USDC'

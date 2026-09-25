@@ -133,14 +133,18 @@ CI runs without a `.env`.
 
 ## Platform fee
 
-Evabob charges 0.05% on top of every send, protected send, request payment,
-bridge, convert, GA top-up, GA payment and agent-wallet funding. Gas is not
-included. There is no minimum: a fee that rounds below one token unit is zero.
+Evabob charges a flat fee of about $0.02 on top of every send, protected send,
+request payment, bridge, convert, Gateway Account top-up and payment, and
+agent-wallet funding. It is charged in the token being spent: 0.02 USDC, 0.02
+EURC, or $0.02 worth of cirBTC at App Kit's current price (refreshed hourly).
+Gas is not included. Money circles and group pots are the exception: their
+0.05% is fixed in the deployed contracts.
 
 | Variable | Purpose |
 |----------|---------|
 | `PLATFORM_FEE_ADDRESS` | `0x…` wallet that receives the fee. Empty or malformed turns the fee off everywhere |
-| `PLATFORM_FEE_BPS` | Basis points, default `5` (0.05%) |
+| `PLATFORM_FEE_FLAT_USD` | Flat fee per transaction in dollars, default `0.02`. Set `0` to charge the percentage below instead |
+| `PLATFORM_FEE_BPS` | Basis points, default `5` (0.05%) — used only when the flat fee is `0` |
 
 `APP_KIT_FEE_RECIPIENT` / `APP_KIT_FEE_BPS` are still read as a fallback when
 the `PLATFORM_FEE_*` names are unset.

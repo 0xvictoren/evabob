@@ -1,6 +1,9 @@
 /**
- * Evabob platform fee — 0.05% (5 bps) on every money-moving action, gas
- * excluded, added on top of the amount the person typed.
+ * Evabob platform fee — a flat ~$0.02 on every money-moving action (set by
+ * PLATFORM_FEE_FLAT_USD), charged in the token being spent: 0.02 USDC, 0.02
+ * EURC, or $0.02 worth of cirBTC. Gas excluded, added on top of the amount
+ * the person typed. With the flat fee set to 0 it falls back to the older
+ * percentage (PLATFORM_FEE_BPS).
  *
  * Collected inside the same Circle approval as the payment itself: Evabob
  * wallets are Circle smart contract accounts, so the payment call and the fee
@@ -46,7 +49,24 @@ export const SCA_EXECUTE_BATCH_ABI = [
 export type PlatformFeeSettings = {
   recipient: Address | "";
   bps: number;
+  /** Flat fee in dollars; when above 0 it replaces [bps]. */
+  flatUsd?: number;
 };
+
+/**
+ * Dollars per cirBTC, for charging the flat fee on cirBTC. Refreshed from
+ * App Kit's own swap price (refreshCirbtcPrice in appKitMoney.ts); this is
+ * only the starting value until the first refresh.
+ */
+let usdPerCirbtc = 95_000;
+
+export function setUsdPerCirbtc(value: number): void {
+  if (Number.isFinite(value) && value > 0) usdPerCirbtc = value;
+}
+
+export function currentUsdPerCirbtc(): number {
+  return usdPerCirbtc;
+}
 
 export function platformFeeSettings(): PlatformFeeSettings {
   return config.platformFee;
@@ -55,7 +75,7 @@ export function platformFeeSettings(): PlatformFeeSettings {
 export function platformFeeEnabled(
   settings: PlatformFeeSettings = platformFeeSettings(),
 ): boolean {
-  return Boolean(settings.recipient) && settings.bps > 0;
+  return Boolean(settings.recipient) && ((settings.flatUsd ?? 0) > 0 || settings.bps > 0);
 }
 
 /** Human amount → base units without float drift (0.1 + 0.2 style). */
@@ -72,8 +92,18 @@ export function toUnits(amount: number | string, decimals = 6): bigint {
 export function feeUnitsFor(
   amountUnits: bigint,
   settings: PlatformFeeSettings = platformFeeSettings(),
+  /** 6 for USDC and EURC, 8 for cirBTC. */
+  decimals = 6,
 ): bigint {
   if (!platformFeeEnabled(settings) || amountUnits <= 0n) return 0n;
+  const flat = settings.flatUsd ?? 0;
+  if (flat > 0) {
+    // cirBTC is the only 8-decimal token: its fee is $flat worth of bitcoin.
+    // USDC and EURC are charged the same number of units (EURC a little
+    // more in dollars, hence "about $0.02").
+    const human = decimals === 8 ? flat / usdPerCirbtc : flat;
+    return toUnits(human, decimals);
+  }
   return (amountUnits * BigInt(settings.bps)) / 10_000n;
 }
 
@@ -95,7 +125,7 @@ export function quotePlatformFee(
   settings: PlatformFeeSettings = platformFeeSettings(),
 ): PlatformFeeQuote {
   const amountUnits = toUnits(amount, decimals);
-  const feeUnits = feeUnitsFor(amountUnits, settings);
+  const feeUnits = feeUnitsFor(amountUnits, settings, decimals);
   return {
     feeUnits,
     fee: formatUnits(feeUnits, decimals),

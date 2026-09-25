@@ -623,8 +623,9 @@ class _NewPaywallSheetState extends State<_NewPaywallSheet> {
                 ],
                 const SizedBox(height: Space.sm),
                 Text(
-                  'Payouts reach your balance in batches, less the 0.05% '
-                  'Evabob fee and the network cost of sending them.',
+                  'Payouts reach your balance in batches, less the Evabob '
+                  r'fee (about $0.02 a payout) and the network cost of '
+                  'sending them.',
                   style: Type.caption.copyWith(color: EvabobColors.navyMuted),
                 ),
                 if (_error != null) ...[
