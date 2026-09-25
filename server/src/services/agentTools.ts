@@ -190,7 +190,7 @@ export const READ_TOOLS: Record<string, ReadTool> = {
           gaPending,
           note:
             ga === 0 && wallet.length > 0
-              ? "Their GA is empty, but the wallet amounts above are real and spendable. Do not tell them they have nothing."
+              ? "Their Gateway Account is empty, but the wallet amounts above are real and spendable. Do not tell them they have nothing."
               : undefined,
         },
       };

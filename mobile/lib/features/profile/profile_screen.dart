@@ -804,7 +804,7 @@ class ProfileScreen extends StatelessWidget {
                 // _tile(
                 //   Icons.account_balance_wallet_outlined,
                 //   'Payment methods',
-                //   'Top up and pay from your GA',
+                //   'Top up and pay from your Gateway Account',
                 //   () {
                 //     Navigator.of(context).push(
                 //       MaterialPageRoute(

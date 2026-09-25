@@ -12,7 +12,7 @@ import '../../core/widgets/glass.dart';
 import '../held/held_payment_screen.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
 
-/// Work from agents: tasks software will pay a person for, with the money
+/// Work for agents: tasks software will pay a person for, with the money
 /// set aside before anyone starts.
 class AgentTasksScreen extends StatefulWidget {
   const AgentTasksScreen({super.key});
@@ -64,7 +64,7 @@ class _AgentTasksScreenState extends State<AgentTasksScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: Space.page),
               child: EvabobPageHeader(
-                title: 'Work from agents',
+                title: 'Work for agents',
                 onBack: () => Navigator.of(context).maybePop(),
               ),
             ),

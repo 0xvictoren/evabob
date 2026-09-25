@@ -39,7 +39,7 @@ export async function planGatewayPayment(input: {
 }
 
 /**
- * Sends a planned GA payment and records it. When [activityId] is given (a
+ * Sends a planned Gateway Account payment and records it. When [activityId] is given (a
  * scheduled payment) that row is updated instead of a new one being added.
  */
 export async function sendGatewayPayment(input: {
@@ -76,7 +76,7 @@ export async function sendGatewayPayment(input: {
   // noticed while it can still be acted on.
   alertUser(input.userId, {
     kind: "ga_payment_sent",
-    title: "Paid from your GA",
+    title: "Paid from your Gateway Account",
     body: `${input.amountUsdc} USDC to ${to}. Not you? Sign out of Evabob on other devices and tell us now.`,
     amountUsdc: input.amountUsdc,
     token: "USDC",
@@ -92,7 +92,7 @@ export async function sendGatewayPayment(input: {
       : store.addActivity({
           userId: input.userId,
           kind: "withdraw",
-          title: "Paid from your GA",
+          title: "Paid from your Gateway Account",
           description,
           amountUsdc: -input.amountUsdc,
           token: "USDC",
@@ -144,7 +144,7 @@ export async function sendGatewayPayment(input: {
     store.addActivity({
       userId: input.userId,
       kind: "withdraw",
-      title: "Paid from your GA",
+      title: "Paid from your Gateway Account",
       description,
       amountUsdc: -input.amountUsdc,
       txHash: result.mintTx || result.transferId,

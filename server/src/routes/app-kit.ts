@@ -521,6 +521,25 @@ appKitRoutes.post("/jobs/:id/signature", async (c) => {
   return c.json({ ok: true, jobId, challengeId: body.challengeId });
 });
 
+/**
+ * Refuses, before any PIN, a transaction the wallet cannot cover. Null when
+ * there is enough, or when the balance could not be read.
+ */
+async function shortOf(
+  c: Context,
+  input: {
+    address?: string;
+    chain?: string | number;
+    token?: string;
+    amount: number;
+    withFee?: boolean;
+  },
+) {
+  const { balanceShortfall } = await import("../services/balanceGuard.js");
+  const short = await balanceShortfall({ userId: userId(c), ...input });
+  return short ? c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400) : null;
+}
+
 appKitRoutes.post("/ucw/send", async (c) => {
   const body = ucwBase
     .extend({
@@ -536,6 +555,13 @@ appKitRoutes.post("/ucw/send", async (c) => {
     token: body.token,
   });
   if (familyDenied) return familyDenied;
+  const sendShort = await shortOf(c, {
+    address: body.walletAddress,
+    chain: body.chain,
+    token: body.token,
+    amount: Number(body.amount),
+  });
+  if (sendShort) return sendShort;
   try {
     const job = startUcwSendJob({
       userId: userId(c),
@@ -572,14 +598,34 @@ appKitRoutes.post("/swap/quote", async (c) => {
     if (body.from.toLowerCase() === body.to.toLowerCase()) {
       return c.json({ error: "from and to must differ" }, 400);
     }
-    return c.json(
-      await estimateAppKitSwap({
-        tokenIn: body.from,
-        tokenOut: body.to,
+    try {
+      return c.json(
+        await estimateAppKitSwap({
+          tokenIn: body.from,
+          tokenOut: body.to,
+          amountIn: body.amountIn,
+          chain: body.chain,
+        }),
+      );
+    } catch (appKitError) {
+      // App Kit had no rate: price it with Synthra, which is also the swap
+      // the app falls back to when App Kit cannot start one.
+      const { synthraQuote, synthraConfigured } = await import("../services/synthra.js");
+      if (!synthraConfigured()) throw appKitError;
+      const res = await synthraQuote({
+        fromToken: body.from,
+        toToken: body.to,
         amountIn: body.amountIn,
-        chain: body.chain,
-      }),
-    );
+      });
+      if (!res.ok || !(Number(res.amountOut) > 0)) throw appKitError;
+      return c.json({
+        source: "synthra",
+        from: body.from,
+        to: body.to,
+        amountIn: body.amountIn,
+        amountOut: Number(res.amountOut),
+      });
+    }
   } catch (e) {
     return c.json({ error: clientError(e, "No rate for that swap right now") }, 400);
   }
@@ -624,6 +670,13 @@ appKitRoutes.post("/ucw/bridge", async (c) => {
         token: z.string().optional().default("USDC"),
       })
       .parse(await c.req.json());
+    const bridgeShort = await shortOf(c, {
+      address: body.walletAddress,
+      chain: body.fromChain,
+      token: "USDC",
+      amount: Number(body.amount),
+    });
+    if (bridgeShort) return bridgeShort;
     void warnIfRelayUnfunded(body.toChain);
     const job = startUcwBridgeJob({
       userId: userId(c),
@@ -658,6 +711,13 @@ appKitRoutes.post("/ucw/swap", async (c) => {
       chain: z.string().optional().default("Arc_Testnet"),
     })
     .parse(await c.req.json());
+  const swapShort = await shortOf(c, {
+    address: body.walletAddress,
+    chain: body.chain,
+    token: body.tokenIn,
+    amount: Number(body.amountIn),
+  });
+  if (swapShort) return swapShort;
   try {
     const job = startUcwSwapJob({
       userId: userId(c),
@@ -686,6 +746,14 @@ appKitRoutes.post("/ucw/deposit", async (c) => {
       chain: z.string().optional().default("Arc_Testnet"),
     })
     .parse(await c.req.json());
+  const depositShort = await shortOf(c, {
+    address: body.walletAddress,
+    chain: body.chain,
+    token: "USDC",
+    amount: Number(body.amount),
+    withFee: false,
+  });
+  if (depositShort) return depositShort;
   try {
     const job = startUcwDepositJob({
       userId: userId(c),

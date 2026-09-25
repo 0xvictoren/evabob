@@ -171,6 +171,8 @@ class MoneyAlerts {
 
   void _show(Map<String, dynamic> alert) {
     _events.add(alert);
+    // A balance nudge refreshes what is on screen; it is not news to show.
+    if (alert['kind'] == 'balance_changed') return;
     // Never expose names, amounts or message text on the lock screen.
     const title = 'Evabob';
     const body = 'You have a new private update.';

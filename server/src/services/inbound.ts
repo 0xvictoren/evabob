@@ -300,7 +300,7 @@ async function recordInboundTransfers(input: {
     // A transfer from the user's own wallet is their own send looping back,
     // not money arriving.
     if (t.from.toLowerCase() === address.toLowerCase()) continue;
-    // Their own bridge, GA payment or released hold, already recorded.
+    // Their own bridge, Gateway Account payment or released hold, already recorded.
     if (store.hasActivityWithTx(input.userId, t.txHash)) continue;
     // Paid by another Evabob user: their verified send already wrote this
     // receipt, memo and all.

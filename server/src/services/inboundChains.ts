@@ -112,7 +112,7 @@ async function syncNetwork(
       const logIndex = Number(log.logIndex);
       if (store.hasInboundActivity(log.transactionHash, logIndex)) continue;
       // The wallet's own money coming back is not income: its own send, or a
-      // bridge / GA payment landing that the app already recorded.
+      // bridge / Gateway Account payment landing that the app already recorded.
       if (log.args.from.toLowerCase() === input.address.toLowerCase()) continue;
       if (store.hasActivityWithTx(input.userId, log.transactionHash)) continue;
       const amount = Number(formatUnits(log.args.value, token.decimals));

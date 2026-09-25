@@ -36,7 +36,7 @@ describe("GA payment PIN gate", () => {
   it("names the payment on the PIN screen", () => {
     assert.equal(
       pinMessageFor(payment),
-      "Evabob: pay 5 USDC from your GA to 0xbbbb…bbbb",
+      "Evabob: pay 5 USDC from your Gateway Account to 0xbbbb…bbbb",
     );
   });
 

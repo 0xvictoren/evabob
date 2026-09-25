@@ -71,11 +71,11 @@ Common log: `querySrv ECONNREFUSED` or `tlsv1 alert internal error (SSL alert 80
 
 Until Atlas TLS succeeds, the JSON fallback is available only for development.
 
-## Synthra (retired rail)
+## Synthra (swap fallback)
 
-Not used by the app since 2026-09-25: swaps and their quotes go through Circle
-App Kit (`POST /v1/app-kit/ucw/swap`, `POST /v1/app-kit/swap/quote`). The
-routes below answer only while `APP_KIT_KEEP_LEGACY=true`.
+Swaps go through Circle App Kit first (`POST /v1/app-kit/ucw/swap`). Synthra
+(`POST /v1/circle/swap`) runs only when App Kit's attempt ended before any PIN,
+and prices a quote App Kit cannot (`POST /v1/app-kit/swap/quote`).
 
 | Variable | Purpose |
 |----------|---------|
@@ -128,7 +128,8 @@ CI runs without a `.env`.
 | `APP_KIT_ADAPTER` | `circle-wallets` (default) or `viem-ops` (server `PRIVATE_KEY`) |
 | `APP_KIT_DC_WALLET` / `CIRCLE_DC_WALLET` | Default developer-controlled wallet `0x…` (used when `fromAddress` omitted) |
 | `ARC_RPC_FALLBACK_URLS` | Comma-separated Arc RPCs tried after `ARC_RPC_URL` when it is busy or down. Default: QuickNode, Blockdaemon and dRPC testnet endpoints; empty disables |
-| `APP_KIT_KEEP_LEGACY` | Keep the pre-App Kit rails — `/v1/cctp`, `/v1/gateway`, the Synthra swap (`/v1/circle/swap`) and direct CCTP burns (`/v1/circle/cctp/burn`). Default `false`: swaps and bridges use App Kit only. `/v1/circle/cctp/finish` always stays, to finish burns already made |
+| `ARC_APP_KIT_RPC_URL` | The single Arc RPC App Kit's user-wallet adapter uses (it takes one URL per chain). Default QuickNode's testnet endpoint — kept off the public RPC, whose rate limit failed quotes and simulations |
+| `APP_KIT_KEEP_LEGACY` | Keep the pre-App Kit bridge rails — `/v1/cctp`, `/v1/gateway` and direct CCTP burns (`/v1/circle/cctp/burn`). Default `false`: bridges use App Kit only. `/v1/circle/cctp/finish` always stays, to finish burns already made |
 
 ## Platform fee
 

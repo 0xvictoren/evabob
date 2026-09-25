@@ -225,15 +225,15 @@ class _HeldPaymentScreenState extends State<HeldPaymentScreen> {
   Future<void> _giveBack(HeldPayment h) async {
     final ok = await confirmAction(
       context,
-      title: 'Give the money back?',
+      title: 'Return the money?',
       message: '${formatMoney(h.amountUsdc)} goes back to ${h.counterparty} '
           'straight away. This settles it.',
-      confirmLabel: 'Give it back',
+      confirmLabel: 'Return it',
       destructive: true,
     );
     if (!ok || !mounted) return;
     await _run(
-        () => _api.giveBack(h.transferId), 'Given back to ${h.counterparty}');
+        () => _api.giveBack(h.transferId), 'Returned to ${h.counterparty}');
   }
 
   // ─── View ─────────────────────────────────────────────────────────────
@@ -412,7 +412,7 @@ class _HeldPaymentScreenState extends State<HeldPaymentScreen> {
         );
     return [
       if (h.can('mark_delivered'))
-        primary('Mark as delivered', () => _markDelivered(h)),
+        primary('Delivered', () => _markDelivered(h)),
       if (h.can('respond')) primary('Add your side', () => _respond(h)),
       if (h.can('confirm')) primary('Pay now', () => _confirm(h)),
       if (h.can('cancel'))
@@ -423,7 +423,7 @@ class _HeldPaymentScreenState extends State<HeldPaymentScreen> {
       if (h.can('cancel_with_reason'))
         secondary('Something is wrong', () => _cancelWithReason(h)),
       if (h.can('give_back'))
-        secondary('Give the money back', () => _giveBack(h)),
+        secondary('Return the money', () => _giveBack(h)),
     ];
   }
 

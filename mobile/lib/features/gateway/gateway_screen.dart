@@ -219,7 +219,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
         payee: _sourceChainName,
         amount: amt,
         action: 'Top up',
-        landedLabel: 'Arrives in your GA',
+        landedLabel: 'Arrives in your Gateway Account',
         warning: features.platformFeeBps > 0
             ? 'The money stays yours the whole time. You will be asked to '
                 'confirm once.'
@@ -251,7 +251,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
         // Saying "topped up" while the balance has not moved is what made a
         // working deposit look broken, so each outcome gets its own message.
         final message = switch (watch) {
-          DepositWatch.credited => 'Added ${formatTokenAmount(amt)} to your GA',
+          DepositWatch.credited => 'Added ${formatTokenAmount(amt)} to your Gateway Account',
           DepositWatch.pending =>
             'On its way · ${formatTokenAmount(wallet.gatewayPendingUsdc)} arriving',
           DepositWatch.stillSettling =>
@@ -321,7 +321,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
         context,
         SnackBar(
           content: Text(
-            'Your GA has ${formatTokenAmount(spendable)} ready — you need '
+            'Your Gateway Account has ${formatTokenAmount(spendable)} ready — you need '
             '${formatTokenAmount(need)} including the Evabob fee. Money still '
             'arriving cannot be spent yet.',
           ),
@@ -383,7 +383,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
         SnackBar(
           content: Text(
             ok
-                ? 'Paid ${formatTokenAmount(amt)} from your GA'
+                ? 'Paid ${formatTokenAmount(amt)} from your Gateway Account'
                 : inTransit
                     ? (err ??
                         'Sent — it is on its way. No need to send it again.')
@@ -600,7 +600,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Text(
-                      'Top up your GA',
+                      'Top up your Gateway Account',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
                         color: EvabobColors.navy,
@@ -656,7 +656,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Text(
-                      'Pay from your GA',
+                      'Pay from your Gateway Account',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
                         color: EvabobColors.navy,

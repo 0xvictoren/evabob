@@ -177,10 +177,10 @@ export const config = {
     /** Fee in basis points (100 = 1%). 0 disables custom fees. */
     feeBps: platformFee.bps,
     /**
-     * Keep the pre-App Kit rails: /v1/cctp, /v1/gateway, the Synthra swap and
-     * the direct CCTP burn. Off by default — swaps and bridges go through App
-     * Kit only. Finishing a burn already made (/v1/circle/cctp/finish) stays
-     * available either way.
+     * Keep the pre-App Kit bridge rails: /v1/cctp, /v1/gateway and the direct
+     * CCTP burn. Off by default — bridges go through App Kit only. The Synthra
+     * swap is not affected (it is the swap fallback), and finishing a burn
+     * already made (/v1/circle/cctp/finish) stays available either way.
      */
     keepLegacyRoutes: req("APP_KIT_KEEP_LEGACY", "false") === "true",
   },
@@ -232,8 +232,8 @@ export const config = {
      */
     agentBatchSend: envFlag("FEATURE_AGENT_BATCH_SEND", false),
     /**
-     * Ask for the person's PIN on every GA payment (services/gatewayPinGate.ts).
-     * Off until tested on a device: GA payments are otherwise signed by the
+     * Ask for the person's PIN on every Gateway Account payment (services/gatewayPinGate.ts).
+     * Off until tested on a device: Gateway Account payments are otherwise signed by the
      * server as the person's Gateway delegate with no PIN per payment.
      */
     gatewayPayPin: envFlag("GATEWAY_PAY_REQUIRE_PIN", false),
@@ -257,6 +257,15 @@ export const config = {
       .split(",")
       .map((u) => u.trim())
       .filter((u) => /^https:\/\//.test(u)),
+    /**
+     * The one Arc RPC App Kit's user-wallet adapter may use (it takes a single
+     * URL per chain). Kept off the public endpoint, which this server already
+     * loads with inbound scans: its rate limit surfaced in the app as
+     * "Simulation failed on Arc Testnet: Request exceeds defined limit."
+     */
+    appKitRpcUrl:
+      process.env.ARC_APP_KIT_RPC_URL?.trim() ||
+      "https://rpc.quicknode.testnet.arc.network",
     chainId: Number(process.env.ARC_CHAIN_ID || 5042002),
     usdc: "0x3600000000000000000000000000000000000000" as const,
     eurc: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" as const,

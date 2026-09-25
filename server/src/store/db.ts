@@ -1071,7 +1071,7 @@ export const store = {
 
   /**
    * True when this person's activity already has a row for this transaction
-   * — their own bridge landing, a GA payment minting, a hold released to
+   * — their own bridge landing, a Gateway Account payment minting, a hold released to
    * them. The chain scan must not record those again as money from outside.
    */
   hasActivityWithTx(userId: string, txHash: string): boolean {

@@ -552,6 +552,7 @@ if (claims.environment_id !== config.dynamic.environmentId) return null;
 4. **Adopt data lifecycle primitives.** Every personal-data record needs owner/subjects, purpose, processor, creation time, retention class, deletion status, and legal-hold state. Backups and Mongo snapshot generations need bounded expiry. Public capabilities need revoke/rotate/expire.
 5. **Use a secrets manager/HSM boundary.** Move Circle entity secrets, API keys, Mongo/SMTP/Pusher secrets, and hot Arc signers out of local `.env` in hosted environments. Keep the admin in a monitored multisig; use narrowly funded hot roles, rotation drills, and on-chain alerts.
 6. **Protect screen and background state.** Add Android `FLAG_SECURE`/appropriate iOS capture handling for PIN, wallet, chat, evidence, and recovery screens; redact the app-switcher snapshot. Explicitly configure Android backup/data-extraction rules and verify secure-storage behavior during backup/restore.
+   *Update 25 Sep 2026:* `FLAG_SECURE` was removed app-wide at the product owner's request, so receipts can be shared and the app shown in presentations. The PIN itself is entered in Circle's own screen. Screen capture is therefore an accepted risk for now; revisit before real money.
 
 ### Missing privacy/security controls
 

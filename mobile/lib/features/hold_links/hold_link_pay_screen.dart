@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/activity/activity_service.dart';
 import '../../core/api/api_client.dart';
+import '../../core/auth/evabob_auth.dart';
 import '../../core/held/hold_links_api.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
@@ -133,9 +134,20 @@ class _HoldLinkPayScreenState extends State<HoldLinkPayScreen> {
     }
   }
 
+  /// The seller opening their own link: it is theirs to share, not to pay.
+  bool _isOwnLink(PublicHoldLink l) {
+    final mine = context.read<EvabobAuth>().user?.handle;
+    String bare(String? h) =>
+        (h ?? '').trim().replaceFirst(RegExp(r'^@'), '').toLowerCase();
+    return mine != null &&
+        bare(mine).isNotEmpty &&
+        bare(mine) == bare(l.sellerHandle);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = _link;
+    final own = l != null && _isOwnLink(l);
     return Scaffold(
       backgroundColor: EvabobColors.pageBg,
       body: SafeArea(
@@ -268,23 +280,32 @@ class _HoldLinkPayScreenState extends State<HoldLinkPayScreen> {
                           ),
                         ),
                         const SizedBox(height: Space.lg),
-                        SizedBox(
-                          height: 54,
-                          child: FilledButton(
-                            onPressed:
-                                !l.active || _paying ? null : () => _pay(l),
-                            child: _paying
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  )
-                                : Text(l.active
-                                    ? 'Pay ${formatMoney(l.amount)}'
-                                    : 'No longer for sale'),
+                        if (own)
+                          Text(
+                            'This is your link. Share it with a buyer — you are '
+                            'told when they pay and the money is set aside.',
+                            textAlign: TextAlign.center,
+                            style: Type.body
+                                .copyWith(color: EvabobColors.navyMuted),
+                          )
+                        else
+                          SizedBox(
+                            height: 54,
+                            child: FilledButton(
+                              onPressed:
+                                  !l.active || _paying ? null : () => _pay(l),
+                              child: _paying
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    )
+                                  : Text(l.active
+                                      ? 'Pay ${formatMoney(l.amount)}'
+                                      : 'No longer for sale'),
+                            ),
                           ),
-                        ),
                       ],
                     ),
             ),

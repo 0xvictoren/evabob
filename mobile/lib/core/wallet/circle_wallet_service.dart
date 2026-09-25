@@ -893,10 +893,20 @@ class CircleWalletService extends ChangeNotifier {
     }
   }
 
-  /// Plays the money-out sound for a payment that went through.
+  /// Told of every payment that went through, so the balance on screen can
+  /// drop at once instead of after the next server read. Set in main.dart.
+  void Function(String token, double amount)? onSpent;
+
+  /// Plays the money-out sound for a payment that went through, and takes it
+  /// off the balance on screen.
   Map<String, dynamic> _outIfOk(Map<String, dynamic> result) {
     if (result['ok'] == true) {
       MoneySounds.instance.playOut(key: result['txHash']?.toString());
+      final amount = (result['amount'] as num?)?.toDouble() ??
+          (result['amountUsdc'] as num?)?.toDouble() ??
+          0;
+      final fee = double.tryParse(result['platformFee']?.toString() ?? '') ?? 0;
+      onSpent?.call(result['token']?.toString() ?? 'USDC', amount + fee);
     }
     return result;
   }
@@ -1740,7 +1750,13 @@ class CircleWalletService extends ChangeNotifier {
         status = err;
         notifyListeners();
         await _forgetJob(jobId);
-        return {'ok': false, 'error': err, 'jobId': jobId};
+        // Failed before any PIN: nothing was signed, so nothing moved.
+        return {
+          'ok': false,
+          'error': err,
+          'jobId': jobId,
+          'noPinEntered': !pinEntered,
+        };
       }
       await Future<void>.delayed(const Duration(milliseconds: 800));
     }
@@ -1892,28 +1908,189 @@ class CircleWalletService extends ChangeNotifier {
     );
   }
 
-  /// Converts on Arc through Circle App Kit — the only swap rail.
+  /// Converts on Arc: Circle App Kit first, Synthra when App Kit could not
+  /// run the swap at all.
   ///
   /// [from] and [to] are symbols (USDC, EURC, CIRBTC) or 0x token addresses.
-  /// There is deliberately no second rail to fall back to: a fallback after
-  /// App Kit had started asked for another PIN and swapped the money twice.
+  /// Synthra is used only when App Kit's attempt ended before any PIN was
+  /// entered. Falling back after a PIN once swapped the money twice.
   Future<Map<String, dynamic>> swap({
     required BuildContext context,
     required String from,
     required String to,
     required double amountIn,
+    int slippageBps = 50,
+    int? fromDecimals,
+    int? toDecimals,
   }) async {
     if (from.toLowerCase() == to.toLowerCase()) {
       return {'ok': false, 'error': 'Spend and receive tokens must differ'};
     }
     String token(String t) =>
         RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(t) ? t : t.toUpperCase();
-    return appKitSwap(
+    final kit = await appKitSwap(
       context: context,
       tokenIn: token(from),
       tokenOut: token(to),
       amountIn: amountIn,
     );
+    if (kit['ok'] == true) return kit;
+    final nothingSigned = (kit['jobId']?.toString() ?? '').isEmpty ||
+        kit['noPinEntered'] == true;
+    if (!nothingSigned) return kit;
+    // Too little money is the same answer on any rail.
+    if ((kit['error']?.toString() ?? '').startsWith('Not enough money')) {
+      return kit;
+    }
+    debugPrint('appKit swap did not start → synthra: ${kit['error']}');
+    if (!context.mounted) return kit;
+    return _synthraSwap(
+      context: context,
+      from: from,
+      to: to,
+      amountIn: amountIn,
+      slippageBps: slippageBps,
+      fromDecimals: fromDecimals,
+      toDecimals: toDecimals,
+    );
+  }
+
+  Future<Map<String, dynamic>> _synthraSwap({
+    required BuildContext context,
+    required String from,
+    required String to,
+    required double amountIn,
+    int slippageBps = 50,
+    int? fromDecimals,
+    int? toDecimals,
+  }) async {
+    if (!context.mounted) {
+      return {'ok': false, 'error': 'Cancelled'};
+    }
+    if (from.toLowerCase() == to.toLowerCase()) {
+      return {'ok': false, 'error': 'Spend and receive tokens must differ'};
+    }
+    if (!await ensureReady(context)) {
+      return {'ok': false, 'error': 'Wallet not ready'};
+    }
+    // Always refresh Circle session — tokens expire and break PIN / txs.
+    await refreshSessionOnly();
+    final decimals = fromDecimals ??
+        (from.toUpperCase() == 'CIRBTC'
+            ? 8
+            : RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(from)
+                ? 18
+                : 6);
+    try {
+      status = 'Building swap…';
+      notifyListeners();
+      final res = await _api.post('/v1/circle/swap', body: {
+        'userToken': userToken,
+        'walletId': walletId,
+        'from': from,
+        'to': to,
+        'amountIn': double.parse(amountIn.toStringAsFixed(decimals)),
+        'recipient': address,
+        'slippageBps': slippageBps,
+        if (fromDecimals != null) 'fromDecimals': fromDecimals,
+        if (toDecimals != null) 'toDecimals': toDecimals,
+        'userId': _userId,
+      });
+      if (!context.mounted) return {'ok': false, 'error': 'Cancelled'};
+      final challengeIds = _challengeIdsFrom(res);
+      if (challengeIds.isEmpty) {
+        final err = res['error']?.toString() ??
+            res['hint']?.toString() ??
+            'No swap challenges returned';
+        status = err;
+        notifyListeners();
+        return {...res, 'ok': false, 'error': err};
+      }
+      status = challengeIds.length > 1
+          ? 'Confirm approve + swap PIN…'
+          : 'Confirm swap PIN…';
+      notifyListeners();
+      final pinOk = await executeChallengeResponse(
+        context,
+        res,
+        title: 'Confirm swap',
+      );
+      final activityId = res['activityId']?.toString();
+      if (!pinOk) {
+        await _confirmActivity(activityId: activityId, ok: false);
+        status = 'Swap cancelled — no funds moved';
+        notifyListeners();
+        return {
+          ...res,
+          'ok': false,
+          'error': 'PIN cancelled — no funds moved',
+        };
+      }
+
+      // Verify Circle challenge COMPLETE + real tx hash before receipt.
+      status = 'Confirming on-chain swap…';
+      notifyListeners();
+      final verified = await verifyChallengesAndHash(
+        challengeIds: challengeIds,
+        resolveTxHash: true,
+      );
+      if (verified['ok'] != true) {
+        await _confirmActivity(activityId: activityId, ok: false);
+        final err = verified['error']?.toString() ??
+            'Swap PIN UI finished but on-chain step did not complete';
+        status = err;
+        notifyListeners();
+        return {'ok': false, 'error': err, 'stage': 'verify'};
+      }
+
+      final txHash = verified['txHash']?.toString();
+      if (txHash == null || !txHash.startsWith('0x')) {
+        // Challenges COMPLETE but hash lag — still better than fake ucw: receipt
+        await _confirmActivity(
+          activityId: activityId,
+          ok: true,
+          txHash: txHash,
+          requireTxHash: true,
+        );
+        status = 'Swap submitted — waiting for explorer hash';
+        notifyListeners();
+        return {
+          ...res,
+          'ok': false,
+          'error':
+              'Swap challenges completed but tx hash not ready yet. Check wallet balance shortly; no fake receipt created.',
+          'pendingOnchain': true,
+        };
+      }
+
+      await _confirmActivity(
+        activityId: activityId,
+        ok: true,
+        txHash: txHash,
+      );
+      status = 'Swap confirmed on-chain';
+      notifyListeners();
+      return {
+        ...res,
+        'ok': true,
+        'txHash': txHash,
+      };
+    } catch (e) {
+      debugPrint('circle swap: $e');
+      status = 'Swap failed';
+      notifyListeners();
+      final msg =
+          e.toString().replaceFirst(RegExp(r'^ApiException\(\d+\):\s*'), '');
+      if (msg.toLowerCase().contains('usertoken') &&
+          msg.toLowerCase().contains('expir')) {
+        await refreshSessionOnly();
+        return {
+          'ok': false,
+          'error': 'Your session ended. Start again from Move money.',
+        };
+      }
+      return {'ok': false, 'error': msg};
+    }
   }
 
   /// Map CCTP domain → App Kit chain (product-supported only).

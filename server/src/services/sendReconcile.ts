@@ -20,7 +20,11 @@ import { parseAbiItem, parseUnits, type Address, type Hex } from "viem";
 import { config } from "../config.js";
 import { store, type ActivityItem } from "../store/db.js";
 import { getPublicClient } from "./arc-wallet.js";
-import { confirmPaymentActivity, recordPeerReceipt } from "./confirm-payment.js";
+import {
+  confirmPaymentActivity,
+  confirmSwapActivity,
+  recordPeerReceipt,
+} from "./confirm-payment.js";
 
 const TRANSFER = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 value)",
@@ -46,11 +50,21 @@ function tokenAsset(token: string | undefined) {
   return null;
 }
 
+/** A Synthra conversion: spent from the wallet into a router, one transaction. */
+function isSwap(a: ActivityItem): boolean {
+  return a.kind === "exchange" && a.mode === "synthra";
+}
+
 function isStaleDraft(a: ActivityItem, now: number): boolean {
-  if (a.kind !== "send" || a.status !== "pending" || a.settlementVerified) return false;
-  if (a.mode !== "direct" && a.mode !== "direct_user") return false;
-  if (a.batchId) return false;
-  if (!a.counterparty || !/^0x[a-fA-F0-9]{40}$/.test(a.counterparty)) return false;
+  if (a.status !== "pending" || a.settlementVerified) return false;
+  if (isSwap(a)) {
+    // A swap's receiver is a router, so only the spend is searched for.
+  } else {
+    if (a.kind !== "send") return false;
+    if (a.mode !== "direct" && a.mode !== "direct_user") return false;
+    if (a.batchId) return false;
+    if (!a.counterparty || !/^0x[a-fA-F0-9]{40}$/.test(a.counterparty)) return false;
+  }
   const age = now - Date.parse(a.createdAt);
   return age >= MIN_AGE_MS && age <= MAX_AGE_MS;
 }
@@ -118,7 +132,9 @@ export async function reconcilePendingSends(userId: string, now = Date.now()): P
       const logs = await client.getLogs({
         address: asset.address,
         event: TRANSFER,
-        args: { from: sender as Address, to: row.counterparty as Address },
+        args: isSwap(row)
+          ? { from: sender as Address }
+          : { from: sender as Address, to: row.counterparty as Address },
         fromBlock,
         toBlock,
       });
@@ -156,6 +172,14 @@ export async function reconcilePendingSends(userId: string, now = Date.now()): P
 }
 
 async function confirmWith(userId: string, row: ActivityItem, hash: string): Promise<boolean> {
+  if (isSwap(row)) {
+    try {
+      await confirmSwapActivity(userId, row.id, hash);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   try {
     const out = await confirmPaymentActivity(userId, row.id, hash as Hex);
     if (out.newlyVerified) recordPeerReceipt(out.row, hash);

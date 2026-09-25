@@ -14,7 +14,8 @@
 import { AppKit } from "@circle-fin/app-kit";
 import { createCircleWalletsAdapter } from "@circle-fin/adapter-circle-wallets";
 import { createViemAdapterFromPrivateKey } from "@circle-fin/adapter-viem-v2";
-import { formatUnits, parseUnits } from "viem";
+import { createPublicClient, createWalletClient, formatUnits, http, parseUnits } from "viem";
+import { arcTransport } from "./arc-wallet.js";
 import { config } from "../config.js";
 
 /** Product-supported App Kit chains only. */
@@ -182,7 +183,23 @@ export function getViemOpsAdapter() {
       ? config.arc.privateKey
       : `0x${config.arc.privateKey}`;
     viemAdapterSingleton = withPatientConfirmations(
-      createViemAdapterFromPrivateKey({ privateKey: pk as `0x${string}` }),
+      createViemAdapterFromPrivateKey({
+        privateKey: pk as `0x${string}`,
+        // Arc goes through the same retrying fallback as the rest of the
+        // server rather than App Kit's default public RPC, whose rate limit
+        // failed quotes and simulations.
+        getPublicClient: ({ chain }) =>
+          createPublicClient({
+            chain,
+            transport: chain.id === config.arc.chainId ? arcTransport() : http(),
+          }) as never,
+        getWalletClient: ({ chain, account }) =>
+          createWalletClient({
+            chain,
+            account,
+            transport: chain.id === config.arc.chainId ? arcTransport() : http(),
+          }) as never,
+      }),
     );
   }
   return viemAdapterSingleton;

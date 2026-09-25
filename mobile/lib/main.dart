@@ -107,16 +107,35 @@ class EvabobServices {
     // Someone changed their name, handle or picture: receipts show the new
     // one at once, not after the next reload.
     final activity = ActivityService(api, fx);
+    final wallet = WalletService(api, auth);
+    // Any money event — a silent balance nudge, money in, a hold or Gateway
+    // Account change — reads the balance and activity again at once, so the
+    // figures on screen move when the money does.
     moneyAlerts.events.listen((alert) {
-      if (alert['kind'] == 'profile_updated') activity.refresh();
+      final kind = alert['kind']?.toString() ?? '';
+      if (kind == 'profile_updated') {
+        activity.refresh();
+        return;
+      }
+      final movesMoney = kind == 'balance_changed' ||
+          kind.startsWith('money_') ||
+          kind.startsWith('hold_') ||
+          kind.startsWith('ga_') ||
+          kind == 'bridge_arrived' ||
+          kind == 'paywall_sale' ||
+          kind == 'request_update' ||
+          kind == 'group_update';
+      if (!movesMoney) return;
+      unawaited(wallet.refreshBalances(force: true, silent: true));
+      unawaited(activity.refresh());
     });
     return EvabobServices(
       api: api,
       fx: fx,
       auth: auth,
       chat: chat,
-      wallet: WalletService(api, auth),
-      circle: CircleWalletService(api, auth),
+      wallet: wallet,
+      circle: CircleWalletService(api, auth)..onSpent = wallet.applySpend,
       activity: activity,
       agents: agents,
       contacts: ContactsService(api),

@@ -122,6 +122,22 @@ class WalletService extends ChangeNotifier {
   bool loading = false;
   List<DepositChain> depositChains = [];
 
+  /// Takes a payment that just went through off the balance on screen at
+  /// once. The next read from the server replaces it with the real figure.
+  void applySpend(String token, double amount) {
+    if (!(amount > 0)) return;
+    switch (token.toUpperCase()) {
+      case 'EURC':
+        eurcWallet = (eurcWallet - amount).clamp(0, double.infinity);
+      case 'CIRBTC':
+        cirbtcWallet = (cirbtcWallet - amount).clamp(0, double.infinity);
+      default:
+        usdcWallet = (usdcWallet - amount).clamp(0, double.infinity);
+        totalUsdc = (totalUsdc - amount).clamp(0, double.infinity);
+    }
+    notifyListeners();
+  }
+
   /// Per-domain Gateway USDC (unified balance breakdown).
   List<GatewayChainBalance> gatewayBalances = [];
 

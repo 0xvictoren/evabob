@@ -700,7 +700,7 @@ export async function createGatewayDepositChallenges(input: {
         {
           step: "deposit",
           challengeId: batch.challengeId,
-          description: `Add USDC to your GA on ${chainName}`,
+          description: `Add USDC to your Gateway Account on ${chainName}`,
         },
       ].filter((c) => c.challengeId),
       singlePinHint: true,

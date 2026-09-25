@@ -33,7 +33,7 @@ notification is a stub.
    - **EURC / non-Gateway assets**: hold on **embedded / Circle wallet** on Arc.
 4. **Fund**: App Kit `unifiedBalance.deposit` (or legacy Gateway) → single chain-agnostic USDC balance.
 5. **Send**: App Kit `send` (same-chain) or UCW transfer / **PaymentEscrow** for unregistered email/phone.
-6. **Swap / Bridge**: App Kit only — `swap` (USDC, EURC, cirBTC or a token address on Arc, quoted by `estimateSwap`) and `bridge` (CCTP). No fallback rail. Compose: spend → swap → bridge.
+6. **Swap / Bridge**: App Kit `swap` (USDC, EURC, cirBTC or a token address on Arc, quoted by `estimateSwap`), with Synthra only when App Kit's attempt ended before any PIN; `bridge` (CCTP) through App Kit only. Compose: spend → swap → bridge.
 7. **Chat**: Flutter ↔ Pusher; money commands (`@. send`, `@. buy`, `@. bridge`) call App Kit / UCW.
 8. **Agent payments**: backend creates spend-limited API wallet; agent uses nanopayment auth against dedicated funds.
 

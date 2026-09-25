@@ -9,6 +9,8 @@
 
 > **Update, 24 September 2026:** fixes for most of these findings, the agent API bug (F-01) and permanent @handles are described in [`SECURITY_UPDATES.md`](./SECURITY_UPDATES.md). This report is kept as written, as the record of what was found.
 
+> **Update, 25 September 2026:** UX-06 — screenshots are now allowed everywhere (`FLAG_SECURE` removed). UX-03 in part — "Your GA" is now "Gateway Account" throughout. The Home menu was reordered by the product owner (Request, Sell with a link, Circles and collections, Get paid by agents, Work for agents, Convert, Gateway Account, Move money, Agent wallets). See `docs/STATUS.md`.
+
 ---
 
 ## Contents

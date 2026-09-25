@@ -104,7 +104,13 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final all = await HeldPaymentsApi(context.read<ApiClient>()).list();
       if (!mounted) return;
-      setState(() => _held = all.where((h) => !h.stage.settled).toList());
+      final open = all.where((h) => !h.stage.settled).toList();
+      // Money set aside for this person, waiting for them to act, comes first.
+      bool waitingOnMe(HeldPayment h) =>
+          !h.isPayer && h.stage == HeldStage.waitingForDelivery;
+      open.sort((a, b) =>
+          (waitingOnMe(b) ? 1 : 0).compareTo(waitingOnMe(a) ? 1 : 0));
+      setState(() => _held = open);
     } catch (_) {
       // Keeps what it showed; the next refresh tries again.
     }
@@ -527,7 +533,7 @@ class _HeroIcon extends StatelessWidget {
   }
 }
 
-/// "Your money": every bridge or GA top-up that has not finished, each with
+/// "Your money": every bridge or Gateway Account top-up that has not finished, each with
 /// where it stands and a tap to continue. "All clear" only when none are.
 class _MoneyCard extends StatelessWidget {
   const _MoneyCard({
@@ -549,7 +555,7 @@ class _MoneyCard extends StatelessWidget {
   /// Held payments not yet settled, either side of them.
   final List<HeldPayment> held;
 
-  /// GA payments on their way, or waiting for an approval to be final.
+  /// Gateway Account payments on their way, or waiting for an approval to be final.
   final List<ActivityEntry> gaInFlight;
   final ValueChanged<HeldPayment> onOpenHeld;
   final ValueChanged<ActivityEntry> onOpenActivity;
@@ -560,7 +566,7 @@ class _MoneyCard extends StatelessWidget {
     if (h.isJob) {
       return h.isPayer
           ? 'Held for ${h.counterparty} · $amount'
-          : 'Set aside for you · $amount';
+          : '${h.counterparty} set aside $amount for you';
     }
     return 'Waiting for ${h.counterparty} · $amount';
   }
@@ -573,7 +579,9 @@ class _MoneyCard extends StatelessWidget {
             ? 'Going now · tap to see'
             : 'Goes in ${left.inMinutes + 1} min · you can still cancel';
       case HeldStage.waitingForDelivery:
-        return h.isPayer ? 'Until they deliver' : 'Mark it delivered when done';
+        return h.isPayer
+            ? 'Until they deliver'
+            : 'The money is there · tap for Delivered or Return the money';
       case HeldStage.delivered:
         return h.isPayer
             ? 'Delivered · confirm or it pays itself'
@@ -609,7 +617,7 @@ class _MoneyCard extends StatelessWidget {
         return 'Moving $amount · ${_network(meta['fromChain']?.toString())}'
             ' → ${_network(meta['toChain']?.toString())}';
       case 'deposit':
-        return 'Adding $amount to your GA';
+        return 'Adding $amount to your Gateway Account';
       case 'swap':
         return 'Converting $amount';
       case 'send':
@@ -764,7 +772,7 @@ class _MoneyCard extends StatelessWidget {
         ),
       if (pendingTopUp > 0)
         row(
-          title: 'Adding ${formatMoney(pendingTopUp)} to your GA',
+          title: 'Adding ${formatMoney(pendingTopUp)} to your Gateway Account',
           subtitle: 'Confirming on the network',
           icon: Icons.account_balance_wallet_outlined,
         ),
@@ -779,7 +787,7 @@ class _MoneyCard extends StatelessWidget {
         ),
       for (final e in gaInFlight.take(limit))
         row(
-          title: 'Paying ${formatMoney(e.displayAmount)} from your GA',
+          title: 'Paying ${formatMoney(e.displayAmount)} from your Gateway Account',
           subtitle: e.mode == 'gateway_pay_scheduled'
               ? 'Goes by itself once your approval is confirmed'
               : 'On its way',

@@ -245,6 +245,8 @@ function finishJobActivity(
   txHash?: string,
   description?: string,
 ) {
+  // Whatever the outcome, the balance on screen should be read again now.
+  void import("./notifyUser.js").then((m) => m.signalBalanceChanged(job.userId));
   const activityId = job.meta?.activityId;
   if (!activityId) return;
   store.updateActivity(activityId, {
@@ -632,7 +634,7 @@ async function ucwAdapter(input: UcwAdapterInput) {
     tokens: PRODUCT_USDC_TOKENS,
     // Official sepolia.base.org 503s gas/simulation. PublicNode is healthy.
     rpcUrls: {
-      5042002: config.arc.rpcUrl,
+      5042002: config.arc.appKitRpcUrl,
       84532:
         process.env.BASE_SEPOLIA_RPC_URL?.trim() ||
         "https://base-sepolia-rpc.publicnode.com",
@@ -1348,7 +1350,18 @@ function startJob(
           );
         }
       }
-      const result = await runner(id);
+      // App Kit has been seen to land a swap or top-up and never return,
+      // leaving the job "running" — shown as on its way — until a restart.
+      // Past the limit the failure path below asks the chain how it ended
+      // and closes the job either way.
+      const result =
+        op === "bridge"
+          ? await runner(id)
+          : await withTimeout(
+              runner(id),
+              SINGLE_TX_JOB_TIMEOUT_MS,
+              `The ${op} took too long to confirm`,
+            );
       if (jobs.get(id)?.meta?.abandoned) return;
       const serialized = serializeAppKitResult(result);
       const tx =
@@ -2462,8 +2475,12 @@ export async function quoteAppKitBridge(input: {
   };
 }
 
-/** Circle's PIN challenge lasts 10 minutes; allow for that plus the swap. */
-const UCW_SWAP_TIMEOUT_MS = 13 * 60 * 1000;
+/**
+ * How long a one-transaction job (swap, send, top-up, spend) may run: Circle's
+ * PIN challenge lasts 10 minutes, plus time for the transaction. Bridges are
+ * exempt — their mint legitimately takes up to ~20 minutes more.
+ */
+const SINGLE_TX_JOB_TIMEOUT_MS = 13 * 60 * 1000;
 
 function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2499,21 +2516,13 @@ export function startUcwSwapJob(input: {
         chains: [chain],
         jobId,
       });
-      // A swap is one transaction; if App Kit has not reported it well past
-      // the PIN window, stop waiting. The runner's failure path then asks
-      // the chain whether the money moved, and closes the job either way
-      // instead of leaving it "running" until the server restarts.
-      const result = await withTimeout(
-        kit.swap({
-          from: { adapter, chain } as never,
-          tokenIn: tokenIn as never,
-          tokenOut: tokenOut as never,
-          amountIn,
-          config: withSwapConfig() as never,
-        }),
-        UCW_SWAP_TIMEOUT_MS,
-        "The swap took too long to confirm",
-      );
+      const result = await kit.swap({
+        from: { adapter, chain } as never,
+        tokenIn: tokenIn as never,
+        tokenOut: tokenOut as never,
+        amountIn,
+        config: withSwapConfig() as never,
+      });
       return serializeAppKitResult(result);
     },
     {
@@ -2572,7 +2581,7 @@ export function startUcwSpendJob(input: {
   toChain?: string;
   sourceChains?: string[];
 }) {
-  assertNoUncollectableFee("GA payment", "/v1/circle/gateway/pay");
+  assertNoUncollectableFee("Gateway Account payment", "/v1/circle/gateway/pay");
   return startJob(input.userId, "spend", async (jobId) => {
     const kit = getAppKit();
     const toChain = resolveAppKitChain(input.toChain || "Arc_Testnet");
@@ -2626,7 +2635,7 @@ export function startUcwComposeJob(input: {
 }) {
   // A composed spend step carries no fee; bridge and swap steps on their own
   // routes do. Until compose collects it end to end, keep it closed.
-  if (input.spend) assertNoUncollectableFee("composed GA payment", "/v1/circle/gateway/pay");
+  if (input.spend) assertNoUncollectableFee("composed Gateway Account payment", "/v1/circle/gateway/pay");
   return startJob(input.userId, "compose", async (jobId) => {
     const kit = getAppKit();
     const chainSet = new Set<string>(["Arc_Testnet"]);

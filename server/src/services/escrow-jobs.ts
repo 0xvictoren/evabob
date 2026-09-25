@@ -144,6 +144,7 @@ export function trackProtectedEscrow(
   localEscrows.set(row.id, row);
   saveLocal();
   void mongoSaveEscrow(row);
+  void import("./notifyUser.js").then((m) => m.signalBalanceChanged(input.fromUserId));
 
   const activity = store.addActivity({
     userId: input.fromUserId,

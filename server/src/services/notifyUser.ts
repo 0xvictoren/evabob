@@ -49,16 +49,16 @@ export type UserAlert = {
     /** A bridge the person left unfinished was completed by the server. */
     | "bridge_arrived"
     /**
-     * A GA payment was just signed and sent. The server signs these as the
+     * A Gateway Account payment was just signed and sent. The server signs these as the
      * person's Gateway delegate, so this alert is how an unexpected one is
      * noticed at once.
      */
     | "ga_payment_sent"
-    /** A GA payment that was still on its way has arrived. */
+    /** A Gateway Account payment that was still on its way has arrived. */
     | "ga_payment_done"
-    /** A GA payment did not go through, or cannot be confirmed yet. */
+    /** A Gateway Account payment did not go through, or cannot be confirmed yet. */
     | "ga_payment_failed"
-    /** A GA top-up has been credited and can be spent. */
+    /** A Gateway Account top-up has been credited and can be spent. */
     | "ga_topup_arrived"
     /** An invoice is due tomorrow, today, or is overdue. */
     | "invoice_due"
@@ -102,6 +102,19 @@ export type UserAlert = {
    */
   moneyIn?: boolean;
 };
+
+/**
+ * Tells the person's open app that their balance just changed, so it reads
+ * the new figure now rather than on the next pull to refresh. Silent: no
+ * notification, no push — only the live channel.
+ */
+export function signalBalanceChanged(userId: string): void {
+  if (!userId) return;
+  void pusherTrigger(`${USER_CHANNEL_PREFIX}${userId}`, "balance", {
+    kind: "balance_changed",
+    at: new Date().toISOString(),
+  }).catch(() => undefined);
+}
 
 /**
  * Sends an alert without making the caller wait or care whether it worked.

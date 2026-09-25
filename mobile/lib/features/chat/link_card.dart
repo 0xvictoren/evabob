@@ -43,6 +43,10 @@ class LinkCard extends StatelessWidget {
         ? Map<String, dynamic>.from(meta['action'] as Map)
         : null;
     final deepLink = action?['deepLink']?.toString();
+    // Whoever shared a sell link is the seller: paying it is for the other
+    // person, so the seller sees the card without its "Pay safely" button.
+    final kind = (meta['link'] as Map?)?['kind']?.toString();
+    final showAction = !(mine && kind == 'hold');
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
@@ -88,13 +92,24 @@ class LinkCard extends StatelessWidget {
                   style: Type.caption.copyWith(color: EvabobColors.emeraldDeep),
                 ),
               ],
-              if (action != null && deepLink != null && deepLink.isNotEmpty) ...[
+              if (mine && kind == 'hold') ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Your link · they pay here, and you are told when it is set aside',
+                  style: Type.caption.copyWith(color: EvabobColors.navyMuted),
+                ),
+              ],
+              if (showAction &&
+                  action != null &&
+                  deepLink != null &&
+                  deepLink.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    onPressed: () =>
-                        context.read<AppLinkService>().open(Uri.parse(deepLink)),
+                    onPressed: () => context
+                        .read<AppLinkService>()
+                        .open(Uri.parse(deepLink)),
                     child: Text(action['label']?.toString() ?? 'Open'),
                   ),
                 ),

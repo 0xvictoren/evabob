@@ -104,7 +104,7 @@ function confirmCopy(intent: {
         " ",
       );
     case "deposit":
-      return `Move ${amt} from ${intent.chain} into your GA?`;
+      return `Move ${amt} from ${intent.chain} into your Gateway Account?`;
     case "escrow":
       return who
         ? `Hold ${amt} for ${who}${addr} until you say the work arrived?`

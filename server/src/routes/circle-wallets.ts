@@ -405,6 +405,11 @@ circleWallets.post("/send", async (c) => {
   const toLower = raw.replace(/^@/, "").toLowerCase();
   const promptSave = payee.promptSave;
 
+  {
+    const { balanceShortfall } = await import("../services/balanceGuard.js");
+    const short = await balanceShortfall({ userId: fromId, token: body.token ?? "USDC", amount: body.amountUsdc });
+    if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
+  }
   try {
       const sendToken = body.token ?? "USDC";
       const sendDecimals = tokenDecimals(sendToken);
@@ -618,6 +623,11 @@ circleWallets.post("/gateway/deposit", async (c) => {
       userId: z.string().optional(),
     })
     .parse(await c.req.json());
+  {
+    const { balanceShortfall } = await import("../services/balanceGuard.js");
+    const short = await balanceShortfall({ userId: appUserId(c), chain: body.domain ?? body.chain, token: "USDC", amount: body.amountUsdc, withFee: false });
+    if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
+  }
   try {
     const wallets = await listUserWallets(body.userToken);
     const result = await createGatewayDepositChallenges({
@@ -762,7 +772,7 @@ circleWallets.post("/gateway/pay", async (c) => {
       );
     }
 
-    // GATEWAY_PAY_REQUIRE_PIN: the server signs GA payments as the person's
+    // GATEWAY_PAY_REQUIRE_PIN: the server signs Gateway Account payments as the person's
     // delegate, so with the switch on nothing is sent or scheduled until the
     // person confirms this payment with their PIN. The app runs the returned
     // challenge and reports it through /verify-challenges, which releases it.
@@ -783,7 +793,7 @@ circleWallets.post("/gateway/pay", async (c) => {
       if (!pin.challengeId) {
         return c.json(
           {
-            error: "Confirming GA payments with your PIN is not available right now. Nothing was sent.",
+            error: "Confirming Gateway Account payments with your PIN is not available right now. Nothing was sent.",
             code: "GA_PIN_UNAVAILABLE",
           },
           503,
@@ -836,7 +846,7 @@ circleWallets.post("/gateway/pay", async (c) => {
           error:
             `Your approval on ${names} is being confirmed by the network — this takes about ` +
             `${scheduled.minutes} minutes the first time. Your payment will go through by itself ` +
-            `then, and we will tell you. Nothing has left your GA yet.`,
+            `then, and we will tell you. Nothing has left your Gateway Account yet.`,
         },
         202,
       );
@@ -900,9 +910,9 @@ circleWallets.post("/gateway/pay", async (c) => {
 });
 
 /**
- * The pre-App Kit rails, kept only while APP_KIT_KEEP_LEGACY=true. Refusing
- * here happens before any PIN is asked, so an older app that still falls back
- * to these cannot run a second swap or burn next to App Kit's.
+ * The pre-App Kit bridge rail, kept only while APP_KIT_KEEP_LEGACY=true.
+ * Refusing here happens before any PIN is asked, so an older app that still
+ * falls back to it cannot run a second burn next to App Kit's.
  */
 function legacyRailRetired(c: Context) {
   if (config.appKit.keepLegacyRoutes) return null;
@@ -1338,6 +1348,11 @@ circleWallets.post("/escrow/hold", async (c) => {
       }
     }
 
+    {
+      const { balanceShortfall } = await import("../services/balanceGuard.js");
+      const short = await balanceShortfall({ userId: appUserId(c), token: "USDC", amount: body.amountUsdc });
+      if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
+    }
     const plan = planProtectedEscrow({
       recipientId: body.recipient,
       amountUsdc: body.amountUsdc,
@@ -1435,6 +1450,11 @@ circleWallets.post("/escrow/hold-milestones", async (c) => {
     }
   }
 
+  {
+    const { balanceShortfall } = await import("../services/balanceGuard.js");
+    const short = await balanceShortfall({ userId: appUserId(c), token: "USDC", amount: invoice.total });
+    if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
+  }
   const { planMilestoneHolds, EscrowError } = await import("../services/protectedEscrow.js");
   try {
     const plan = planMilestoneHolds({
@@ -1545,6 +1565,11 @@ circleWallets.post("/groups/pots/:id/contribute", async (c) => {
   const body = z
     .object({ ...walletBody, amountUsdc: z.number().positive() })
     .parse(await c.req.raw.clone().json());
+  {
+    const { balanceShortfall } = await import("../services/balanceGuard.js");
+    const short = await balanceShortfall({ userId: appUserId(c), token: "USDC", amount: body.amountUsdc, withFee: false });
+    if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
+  }
   const { contributeCalls } = await import("../services/groupMoney.js");
   return groupBatch(c, async () => ({
     calls: contributeCalls(appUserId(c), c.req.param("id"), body.amountUsdc),
@@ -1553,8 +1578,6 @@ circleWallets.post("/groups/pots/:id/contribute", async (c) => {
 });
 
 circleWallets.post("/swap", async (c) => {
-  const retired = legacyRailRetired(c);
-  if (retired) return retired;
   const body = z
     .object({
       userToken: z.string().min(10),
@@ -1576,6 +1599,11 @@ circleWallets.post("/swap", async (c) => {
 
   if (body.from.toLowerCase() === body.to.toLowerCase()) {
     return c.json({ error: "from and to must differ" }, 400);
+  }
+  {
+    const { balanceShortfall } = await import("../services/balanceGuard.js");
+    const short = await balanceShortfall({ userId: appUserId(c), address: body.recipient, token: body.from, amount: body.amountIn });
+    if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
   }
 
   try {
@@ -1716,7 +1744,7 @@ function tokenDecimals(sym: string) {
 }
 
 /**
- * Sends the GA payments whose PIN the person just confirmed. Runs after the
+ * Sends the Gateway Account payments whose PIN the person just confirmed. Runs after the
  * response: a payment is planned again (balances may have moved), then sent,
  * or scheduled when an approval is still becoming final. Each parked payment
  * is released once, so a repeated report cannot send it twice.
@@ -1763,8 +1791,8 @@ async function releaseGatewayPayments(userId: string, challengeIds: string[]) {
     } catch (error) {
       alertUser(userId, {
         kind: "ga_payment_failed",
-        title: "GA payment not sent",
-        body: `${p.amountUsdc} USDC could not be sent (${clientError(error, "it did not go through")}). Check your GA before trying again.`,
+        title: "Gateway Account payment not sent",
+        body: `${p.amountUsdc} USDC could not be sent (${clientError(error, "it did not go through")}). Check your Gateway Account before trying again.`,
         amountUsdc: p.amountUsdc,
         token: "USDC",
       });
@@ -1797,7 +1825,7 @@ circleWallets.post("/verify-challenges", async (c) => {
     timeoutMs: body.timeoutMs ?? 300_000,
   });
 
-  // A PIN that confirms a parked GA payment has no transaction of its own:
+  // A PIN that confirms a parked Gateway Account payment has no transaction of its own:
   // do not wait for a hash, and release the payment it confirmed.
   const { isParkedChallenge } = await import("../services/gatewayPinGate.js");
   const confirmsGaPayment = body.challengeIds.every(isParkedChallenge);
@@ -1857,9 +1885,17 @@ circleWallets.post("/confirm-activity", async (c) => {
     // The device cannot know whether an in-flight transaction was broadcast.
     return c.json({ ok: false, pending: true, error: "Reconcile the payment before changing its status." }, 409);
   }
-  const { confirmPaymentActivity, recordPeerReceipt } = await import(
+  const { confirmPaymentActivity, confirmSwapActivity, recordPeerReceipt } = await import(
     "../services/confirm-payment.js"
   );
+  if (row.kind === "exchange") {
+    try {
+      const swapped = await confirmSwapActivity(uid, row.id, body.txHash);
+      return c.json({ ok: true, item: swapped.row });
+    } catch {
+      return c.json({ ok: false, pending: true, error: "Conversion is not yet verified on chain." }, 409);
+    }
+  }
   let confirmation;
   try {
     confirmation = await confirmPaymentActivity(uid, row.id, body.txHash);
@@ -1963,6 +1999,15 @@ circleWallets.post("/send-batch", async (c) => {
     legs.push({ payee, amount: p.amount, quote });
   }
 
+  {
+    const { balanceShortfall } = await import("../services/balanceGuard.js");
+    const short = await balanceShortfall({
+      userId: fromId,
+      token,
+      amount: legs.reduce((sum, leg) => sum + leg.amount, 0),
+    });
+    if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
+  }
   const senderLabel = fromUser?.handle
     ? `@${fromUser.handle}`
     : fromUser?.displayName || fromUser?.email || fromUser?.evmAddress || fromId;

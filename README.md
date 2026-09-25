@@ -28,7 +28,7 @@ with Circle UCW PIN signing and chat-native money commands.
 | **Identity** | On-chain **IdentityRegistry** (hashed email / handle → wallet). Funds are received by **email, `@handle`, or a raw `0x` address** — nothing else. |
 | **Auth** | **Dynamic Labs** email OTP; every `/v1` route requires the verified JWT. |
 | **Custody** | **Circle User-Controlled Wallets** — all user spends go through PIN challenges. |
-| **Liquidity** | **Circle App Kit** only for swaps and bridges; legacy CCTP / Gateway / Synthra retired behind `APP_KIT_KEEP_LEGACY` (off). |
+| **Liquidity** | **Circle App Kit** for swaps (Synthra fallback before any PIN) and bridges; legacy CCTP / Gateway retired behind `APP_KIT_KEEP_LEGACY` (off). |
 | **Chat** | Threads + `@.` money commands; invoice pay (100% now / 50+50 / 100% escrow); **Pusher** realtime. |
 | **Agents** | Dedicated Circle-held EOA per new agent, Gateway funding, spending limits, x402 batching, withdrawal and reconciliation records. Legacy shared-custody agents require migration. |
 

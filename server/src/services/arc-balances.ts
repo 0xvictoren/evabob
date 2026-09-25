@@ -5,6 +5,7 @@ import {
   type Address,
 } from "viem";
 import { config } from "../config.js";
+import { arcTransport } from "./arc-wallet.js";
 import { readOrNull } from "../utils/read-or-null.js";
 
 const erc20BalanceOf = [
@@ -17,8 +18,10 @@ const erc20BalanceOf = [
   },
 ] as const;
 
+// The balance people see after every payment: quick to give up on a busy
+// endpoint and move to the next, rather than waiting out a rate limit.
 const client = createPublicClient({
-  transport: http(config.arc.rpcUrl, { timeout: 6_000 }),
+  transport: arcTransport({ timeoutMs: 3_000, retryCount: 1 }),
 });
 
 export async function readTokenBalances(address: string): Promise<{
@@ -245,6 +248,8 @@ function rpcUrlsFor(ch: (typeof MULTICHAIN_ASSETS)[number]): string[] {
       "https://base-sepolia.drpc.org",
       "https://sepolia.base.org",
     );
+  } else if (ch.id === "arc") {
+    extra.push(config.arc.rpcUrl, ...config.arc.rpcFallbackUrls);
   } else {
     extra.push(ch.rpcUrl);
   }

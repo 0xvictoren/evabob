@@ -1,7 +1,32 @@
 import { store, type ActivityItem } from "../store/db.js";
 import { confirmMemoOnchain, memoOnchainEnabled } from "./memo.js";
-import { verifyPaymentEvidence } from "./payment-evidence.js";
-import { alertUser } from "./notifyUser.js";
+import { verifyPaymentEvidence, verifySpendEvidence } from "./payment-evidence.js";
+import { alertUser, signalBalanceChanged } from "./notifyUser.js";
+
+/**
+ * Turns a pending conversion into a receipt once its transaction is proven:
+ * it succeeded and spent exactly the amount from this person's wallet.
+ * Conversions used to be refused here — only sends were accepted — so every
+ * Synthra swap stayed "On the way" even after it landed.
+ */
+export async function confirmSwapActivity(userId: string, activityId: string, txHash?: string) {
+  const row = store.getActivity(activityId);
+  if (!row || row.userId !== userId || row.kind !== "exchange") throw new Error("Activity not found");
+  const hash = txHash || row.txHash || "";
+  if (row.settlementVerified) return { row, newlyVerified: false };
+  const sender = store.getUser(userId)?.evmAddress || "";
+  const ok = await verifySpendEvidence({
+    txHash: hash,
+    sender,
+    token: row.token || "USDC",
+    amount: row.amountToken ?? Math.abs(row.amountUsdc),
+    notBefore: row.createdAt,
+  });
+  if (!ok) throw new Error("Conversion is not yet verified on Arc");
+  store.updateActivity(row.id, { status: "completed", txHash: hash, settlementVerified: true });
+  signalBalanceChanged(userId);
+  return { row: store.getActivity(row.id)!, newlyVerified: true };
+}
 
 export async function confirmPaymentActivity(userId: string, activityId: string, txHash?: string) {
   const row = store.getActivity(activityId);
@@ -33,6 +58,7 @@ export async function confirmPaymentActivity(userId: string, activityId: string,
     settlementVerified: true,
     ...(memoOnchain != null ? { memoOnchain } : {}),
   });
+  signalBalanceChanged(userId);
   return { row: store.getActivity(row.id)!, newlyVerified: true };
 }
 

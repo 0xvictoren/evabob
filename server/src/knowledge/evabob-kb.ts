@@ -48,7 +48,7 @@ Everything currently runs on test networks, so the balances are not real money.`
 Money arrives in one of two ways:
 
 1. Someone sends you USDC or EURC. Share your address or @handle from Receive, on Home or in Assets.
-2. You already hold USDC on another network and move it across with Top-up, which brings it into your GA — the pooled balance you spend from.
+2. You already hold USDC on another network and move it across with Top-up, which brings it into your Gateway Account — the pooled balance you spend from.
 
 If someone asks how to "buy" money into the app, the honest answer is that this version cannot do it — funds have to come from another wallet.`,
   },
@@ -277,18 +277,18 @@ Payments made in a chat show up in Activity like any other.`,
   },
   {
     id: "ga-balance",
-    title: "Your GA — the balance you pay from",
+    title: "Your Gateway Account — the balance you pay from",
     keywords: [
       "ga", "my ga", "top up ga", "unified balance", "total", "gateway",
       "balance different", "two balances", "why is my balance", "spendable",
     ],
-    body: `Your GA is the pooled balance you actually spend from. Money can sit on more than one network at once, and your GA gathers it into one place so you do not have to think about where it is before paying.
+    body: `Your Gateway Account is the pooled balance you actually spend from. Money can sit on more than one network at once, and your Gateway Account gathers it into one place so you do not have to think about where it is before paying.
 
 GA is simply what this balance is called in Evabob. Do not expand it into words or explain what the letters stand for.
 
 To add to it, use Top-up and choose which network the money is coming from. People say things like "top up my GA with 5 from Base".
 
-Home shows your GA total alongside what is on each network. If those look inconsistent, something is usually still moving between networks — pull to refresh, and check Activity for anything pending.`,
+Home shows your Gateway Account total alongside what is on each network. If those look inconsistent, something is usually still moving between networks — pull to refresh, and check Activity for anything pending.`,
   },
   {
     id: "escrow",

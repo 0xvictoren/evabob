@@ -4,7 +4,7 @@
 this file, this file is right. Supersedes the former `new.md` and the progress
 tables that used to live in the README.
 
-Last verified: 2026-09-25 (App Kit only, payment reliability); 2026-09-24 (testing version stable 1); 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
+Last verified: 2026-09-25 (testing feedback, second pass; App Kit only, payment reliability); 2026-09-24 (testing version stable 1); 2026-09-19 (testing feedback batch); 2026-09-18 ("For people" and fix-first batches); earlier sections 2026-09-13.
 
 ---
 
@@ -31,7 +31,27 @@ and other public testnets. Do not read "live" below as "in production" — it me
 
 ---
 
+## Testing feedback, second pass — 2026-09-25
+
+Server 450 tests, Flutter 69 tests, typecheck and analyze clean. Not yet run
+on a phone.
+
+| Area | What changed |
+|------|--------------|
+| Swap quote missing; bridge "Simulation failed on Arc Testnet: Request exceeds defined limit" | Both came from App Kit's adapters calling the public Arc RPC, which rate-limits this server (the message is viem's wording for JSON-RPC -32005). The user-wallet adapter now uses `ARC_APP_KIT_RPC_URL` (default QuickNode) and the ops adapter the retrying fallback transport. Quotes checked live. |
+| Synthra | Back for swaps, as the user asked. App Kit first; Synthra runs only when App Kit's attempt ended before any PIN, so a swap can never run twice. Quotes fall back to Synthra too. A Synthra swap can now be confirmed (conversions used to be refused, so they stayed "On the way") and stale ones are settled from the chain. Bridges stay App Kit only. |
+| Balance checks | Every money route checks the balance on the chain the money leaves from — amount plus the Evabob fee — before any PIN (`services/balanceGuard.ts`). |
+| Live balances | The balance drops on screen the moment a payment goes through; the server sends a silent `balance` signal when it confirms a send or swap, records a hold or finishes an App Kit job, and the app re-reads balances and activity on that and on every money alert. `/wallet/balances` answers faster: Arc reads fail over quickly instead of waiting out a rate limit, and the other networks get a 2 s grace with their last reading, like the Gateway. |
+| Gateway Account top-up stuck "on the way" | Gateway had credited it (no pending batch); the App Kit job's runner never returned, so the job stayed "running". Single-transaction jobs (swap, send, top-up, spend) now stop waiting after 13 minutes and the chain decides how they ended. Jobs stuck before this deploy close on the restart. |
+| Sell links | The seller no longer sees "Pay safely" on their own link, in chat or when opening it. When a buyer sets money aside, the seller's Home "Your money" shows it first — "The money is there" — and opens to **Delivered** or **Return the money**, as for invoices. |
+| Naming and menu | "Your GA" is "Gateway Account" everywhere people read it. Menu: Request, Sell with a link, Circles and collections, Get paid by agents, Work for agents, Convert, Gateway Account, Move money, Agent wallets. |
+| Screenshots | Allowed in the app (`FLAG_SECURE` removed), for receipts and presentations. |
+
+---
+
 ## App Kit only, and payment reliability — 2026-09-25
+
+Synthra was retired in this batch and brought back for swaps in the next one (above).
 
 From hands-on testing on 2026-09-24/25. Each cause below was confirmed
 against Arc Testnet itself, not inferred from the code. Server 450 tests,
@@ -286,10 +306,10 @@ and offers all four bridge routes.
 | Flow | State | Detail |
 |------|-------|--------|
 | Circle UCW onboarding + PIN challenges | **Works** | SCA wallets on `ARC-TESTNET`, `ETH-SEPOLIA`, `BASE-SEPOLIA` — three chains, not six. Multi-challenge runner verifies COMPLETE and retries only still-PENDING ids. |
-| App Kit send / swap / deposit / spend / compose | **Works** | Ops (server-signed) and UCW (PIN relay) paths, jobs persisted with expiry/recover. Since 2026-09-25 App Kit is the only swap and bridge rail; quotes come from App Kit `estimateSwap`. |
+| App Kit send / swap / deposit / spend / compose | **Works** | Ops (server-signed) and UCW (PIN relay) paths, jobs persisted with expiry/recover. App Kit is the first swap rail (Synthra only before any PIN) and the only bridge rail; quotes come from App Kit `estimateSwap`, then Synthra. |
 | Bridge (App Kit → CCTP) | **Partial** | Burn + attestation work. **Mint on Base Sepolia is blocked on ops-wallet ETH for gas.** This flow was re-declared "working" four times during August; treat any single success as anecdotal until it runs repeatedly. |
 | Gateway unified balance (GA) | **Built — 2026-09-18; live run remains** | Top-up and Pay work from the GA screen (Home ⋯ menu, behind `FEATURE_GATEWAY`). Money in flight is now tracked (`services/gatewayTracker.ts`): a payment whose destination mint did not land in the request is recorded with its attestation and minted by the ops wallet while the attestation is valid (~10 min), otherwise its status is read from Circle; the person is told when it arrives or that it did not go through. A top-up's activity row is written only once it is signed and flips to "arrived" when Gateway credits it (seconds on Arc, ~40 min Base Sepolia, hours Ethereum Sepolia), with an alert. Fixed on the way: every successful GA payment used to overwrite the payer's email with `<id>@evabob.app` and their name with their id; and a cancelled top-up used to leave a "Gateway deposit" row. Not yet exercised end to end on testnet. The GA delegate that signs burn intents is the ops key — a separate delegate key would narrow what a leaked ops key could reach. |
-| Swap via Synthra | **Retired 2026-09-25** | No longer used by the app. `/v1/circle/swap` answers 410 unless `APP_KIT_KEEP_LEGACY=true`. `/v1/synthra/quote` remains for older app versions only. |
+| Swap via Synthra | **Fallback** | Used when App Kit's swap ends before any PIN, and for quotes App Kit cannot price. Needs `SYNTHRA_API_KEY`. |
 | `POST /v1/transfers/send` and `/v1/exchange` | **Retired** | Return 410 so an old client cannot fabricate completed payment or swap history. |
 | Chat invoice pay (100% / 50+50 / 100% escrow) | **Works** | Direct portions require verified ERC-20 receipts; held portions require a `TransferCreated` event from the deployed escrow contract. |
 

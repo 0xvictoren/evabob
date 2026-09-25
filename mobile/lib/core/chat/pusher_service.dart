@@ -111,7 +111,9 @@ class PusherService {
             if (data is! Map) return;
             final channel = event.channelName;
             final payload = Map<String, dynamic>.from(data);
-            if (name == 'alert') {
+            // "balance" is the server's silent nudge that money moved; it
+            // travels with the alerts and is never shown as a notification.
+            if (name == 'alert' || name == 'balance') {
               _alertHandlers[channel]?.call(payload);
             } else {
               _handlers[channel]?.call(payload);

@@ -43,8 +43,12 @@ down the money is still held and can still be claimed.
    - cancel — which, after delivery, means the reconciliation form below.
 4. **Before delivery**, the payer may cancel at any time and the money comes
    straight back. The worker is told.
-5. **The worker may give the money back** at any point. That settles it,
-   including an open review.
+5. **The worker may give the money back** ("Return the money") at any
+   point. That settles it, including an open review.
+
+In the app the worker's two buttons are **Delivered** and **Return the
+money**. Money set aside for them is listed first under "Your money" on Home
+("The money is there"), and opens straight to those two choices.
 
 If a job is marked delivered close to its expiry, the hold is extended so the
 7 days can run in full before any refund could open.
@@ -65,6 +69,12 @@ unchanged, as the product owner chose on 2026-09-18: the seller marks it
 delivered, the buyer has 7 days, silence pays the seller, a cancel after
 delivery goes to review — and if nothing is marked delivered within the
 window, the hold expires and the buyer is refunded.
+
+The seller never sees a pay button on their own link: their sell-link card
+in chat shows none, and opening their own link says it is theirs to share.
+When a buyer pays, the seller gets a "New order" alert and the hold appears
+first under "Your money" on Home, where they choose **Delivered** or **Return
+the money** — exactly as for an invoice paid into a hold.
 
 A seller's track record counts their finished job holds: delivered and paid;
 not delivered in time; and refunded after a review found against them. A

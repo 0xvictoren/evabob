@@ -28,12 +28,17 @@ export const arcTestnet = {
  * briefly first. Writes are safe to fail over: a signed transaction has one
  * hash whichever node relays it.
  */
-export function arcTransport() {
+export function arcTransport(opts?: { timeoutMs?: number; retryCount?: number }) {
   const urls = [
     config.arc.rpcUrl,
     ...config.arc.rpcFallbackUrls.filter((u) => u !== config.arc.rpcUrl),
   ];
-  const one = (url: string) => http(url, { retryCount: 2, retryDelay: 250, timeout: 12_000 });
+  const one = (url: string) =>
+    http(url, {
+      retryCount: opts?.retryCount ?? 2,
+      retryDelay: 250,
+      timeout: opts?.timeoutMs ?? 12_000,
+    });
   return urls.length === 1 ? one(urls[0]!) : fallback(urls.map(one));
 }
 

@@ -1,7 +1,7 @@
 /**
- * A PIN for every GA payment (GATEWAY_PAY_REQUIRE_PIN).
+ * A PIN for every Gateway Account payment (GATEWAY_PAY_REQUIRE_PIN).
  *
- * GA payments are signed by the server as the person's Gateway delegate, so
+ * Gateway Account payments are signed by the server as the person's Gateway delegate, so
  * without this a session token alone could spend the whole GA. With the switch
  * on, /v1/circle/gateway/pay does not send the payment: it asks Circle for a
  * message-signing challenge that names the payment, and parks the payment
@@ -40,7 +40,7 @@ export function gatewayPayNeedsPin(): boolean {
 /** The words the person sees on the PIN screen: what they are approving. */
 export function pinMessageFor(input: { amountUsdc: number; destinationAddress: string }): string {
   const to = `${input.destinationAddress.slice(0, 6)}…${input.destinationAddress.slice(-4)}`;
-  return `Evabob: pay ${input.amountUsdc} USDC from your GA to ${to}`;
+  return `Evabob: pay ${input.amountUsdc} USDC from your Gateway Account to ${to}`;
 }
 
 function sweep(now: number) {
@@ -58,7 +58,7 @@ export function parkForPin(
   parked.set(challengeId, { ...payment, parkedAt: now });
 }
 
-/** True when this challenge only confirms a parked GA payment (no transaction). */
+/** True when this challenge only confirms a parked Gateway Account payment (no transaction). */
 export function isParkedChallenge(challengeId: string): boolean {
   return parked.has(challengeId);
 }

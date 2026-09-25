@@ -2269,6 +2269,13 @@ api.post("/payment-requests/:id/mark", async (c) => {
 /** How long the balance answer waits on Gateway after the wallet is read. */
 const GATEWAY_BALANCE_GRACE_MS = 1_500;
 
+/** How long the other networks' balances may hold up the answer. */
+const CHAIN_BALANCE_GRACE_MS = 2_000;
+const lastChainRead = new Map<
+  string,
+  Awaited<ReturnType<typeof import("../services/arc-balances.js").readMultiChainBalances>>
+>();
+
 type GatewayRead = {
   gatewayUsdc: number;
   gatewayPendingUsdc: number;
@@ -2333,13 +2340,28 @@ api.get("/wallet/balances", async (c) => {
       };
     }),
     // null (not []) on failure — an empty list would erase the client's assets.
-    readMultiChainBalances(address, {
-      ids: ["arc", "ethereum-sepolia", "base-sepolia"],
-      timeoutMs: 8_000,
-    }).catch((e) => {
-      console.warn("multi-chain balances:", e);
-      return null;
-    }),
+    // The other networks used to hold the whole answer for up to 8 s; they get
+    // a short grace now and otherwise their last reading, like the Gateway.
+    (async () => {
+      const key = address.toLowerCase();
+      const read = readMultiChainBalances(address, {
+        ids: ["arc", "ethereum-sepolia", "base-sepolia"],
+        timeoutMs: 8_000,
+      })
+        .then((rows) => {
+          lastChainRead.set(key, rows);
+          return rows;
+        })
+        .catch((e) => {
+          console.warn("multi-chain balances:", e);
+          return null;
+        });
+      const quick = await Promise.race([
+        read,
+        new Promise<"late">((r) => setTimeout(() => r("late"), CHAIN_BALANCE_GRACE_MS)),
+      ]);
+      return quick === "late" ? (lastChainRead.get(key) ?? (await read)) : quick;
+    })(),
   ]);
 
   const gatewayTask = (async () => {

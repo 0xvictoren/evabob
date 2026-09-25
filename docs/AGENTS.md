@@ -12,7 +12,7 @@ to the Evabob Agent, the in-app assistant.
 | 11 | Get paid by agents: paywalls for what people made | `services/paywalls.ts`, `/x/:id` |
 
 Routes: `routes/agentCommerce.ts`. App: Agents screen, **Get paid by agents**
-and **Work from agents** in the Home menu. Web: `/x/:id`, `/a/:handle`,
+and **Work for agents** in the Home menu. Web: `/x/:id`, `/a/:handle`,
 `/t/:id`.
 
 ---

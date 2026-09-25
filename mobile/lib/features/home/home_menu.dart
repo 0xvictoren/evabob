@@ -14,7 +14,7 @@ import 'package:provider/provider.dart';
 /// to do.
 ///
 /// The labels are the brief's, not the code's: Buy is "Convert", Bridge is
-/// "Move money", Unified is "Your GA". A person should not have to know what a
+/// "Move money", Unified is "Your Gateway Account". A person should not have to know what a
 /// bridge is to move their own money.
 enum HomeMenuAction {
   request,
@@ -57,6 +57,12 @@ class _Menu extends StatelessWidget {
       "Buyers' money is set aside until their order arrives"
     ),
     (
+      HomeMenuAction.groups,
+      Icons.groups_2_outlined,
+      'Circles and collections',
+      'Save together, or raise money for something'
+    ),
+    (
       HomeMenuAction.paywalls,
       Icons.sell_outlined,
       'Get paid by agents',
@@ -65,14 +71,8 @@ class _Menu extends StatelessWidget {
     (
       HomeMenuAction.agentTasks,
       Icons.handshake_outlined,
-      'Work from agents',
+      'Work for agents',
       'Tasks software will pay you for, money set aside first'
-    ),
-    (
-      HomeMenuAction.groups,
-      Icons.groups_2_outlined,
-      'Circles and collections',
-      'Save together, or raise money for something'
     ),
     (
       HomeMenuAction.convert,
@@ -83,7 +83,7 @@ class _Menu extends StatelessWidget {
     (
       HomeMenuAction.ga,
       Icons.account_balance_wallet_outlined,
-      'Your GA',
+      'Gateway Account',
       'The balance you spend from'
     ),
     (

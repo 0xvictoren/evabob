@@ -3,7 +3,7 @@
  *
  * Two things used to be fire-and-forget:
  *
- *  - A GA payment whose destination mint did not happen inside the request.
+ *  - A Gateway Account payment whose destination mint did not happen inside the request.
  *    The route answered "in transit — do not retry" and kept nothing. The
  *    attestation that could still finish the mint existed only in that one
  *    response, and Circle's attestations expire after about 10 minutes. Now
@@ -11,7 +11,7 @@
  *    the ops wallet while the attestation is valid, and otherwise asks Circle
  *    how the transfer ended.
  *
- *  - A GA top-up. The activity row was written before the person had even
+ *  - A Gateway Account top-up. The activity row was written before the person had even
  *    entered their PIN, so a cancelled top-up still said "Gateway deposit".
  *    Now the row is written when they have signed, and it flips to "arrived"
  *    only when Gateway actually credits the money — seconds from Arc, around
@@ -87,7 +87,7 @@ export type GatewayDepositWatch = {
 };
 
 /**
- * A GA payment the person confirmed that has to wait before it can be sent:
+ * A Gateway Account payment the person confirmed that has to wait before it can be sent:
  * their approval of Evabob on a source network is not final yet, and Circle
  * refuses it until it is. Sent by the tracker as soon as it is.
  */
@@ -195,7 +195,7 @@ export function depositProgress(input: {
 // ─── Payments ─────────────────────────────────────────────────────────────
 
 /**
- * Records a GA payment that did not finish inside the request, with the
+ * Records a Gateway Account payment that did not finish inside the request, with the
  * pending activity row the person sees. Returns the record id.
  */
 export function trackGatewayPay(input: {
@@ -239,9 +239,9 @@ function settlePay(
       ...(mintTx ? { txHash: mintTx } : {}),
       description:
         outcome === "complete"
-          ? `${r.amountUsdc} USDC from your GA · arrived on ${chainName(r.destinationDomain)}`
+          ? `${r.amountUsdc} USDC from your Gateway Account · arrived on ${chainName(r.destinationDomain)}`
           : outcome === "not_sent"
-            ? `${r.amountUsdc} USDC to ${to} did not go through, so nothing left your GA`
+            ? `${r.amountUsdc} USDC to ${to} did not go through, so nothing left your Gateway Account`
             : `${r.amountUsdc} USDC to ${to} · we are checking this one`,
     });
   }
@@ -249,7 +249,7 @@ function settlePay(
     alertUser(r.userId, {
       kind: "ga_payment_done",
       title: "Payment arrived",
-      body: `${r.amountUsdc} USDC from your GA reached ${to} on ${chainName(r.destinationDomain)}.`,
+      body: `${r.amountUsdc} USDC from your Gateway Account reached ${to} on ${chainName(r.destinationDomain)}.`,
       amountUsdc: r.amountUsdc,
       token: "USDC",
       ...(mintTx ? { txHash: mintTx } : {}),
@@ -260,7 +260,7 @@ function settlePay(
       title: outcome === "not_sent" ? "Payment did not go through" : "We are checking a payment",
       body:
         outcome === "not_sent"
-          ? `${r.amountUsdc} USDC to ${to} did not go through, so nothing left your GA. You can try again.`
+          ? `${r.amountUsdc} USDC to ${to} did not go through, so nothing left your Gateway Account. You can try again.`
           : `We could not confirm ${r.amountUsdc} USDC to ${to} yet. We are looking into it.`,
       amountUsdc: r.amountUsdc,
       token: "USDC",
@@ -269,7 +269,7 @@ function settlePay(
       for (const op of config.auth.operatorUserIds) {
         alertUser(op, {
           kind: "review_needed",
-          title: "A GA payment needs checking",
+          title: "A Gateway Account payment needs checking",
           body: `${r.amountUsdc} USDC · ${note ?? "no transfer id or attestation to follow"}`,
         });
       }
@@ -354,7 +354,7 @@ export function scheduleGatewayPay(input: {
   const activity = store.addActivity({
     userId: input.userId,
     kind: "withdraw",
-    title: "Paid from your GA",
+    title: "Paid from your Gateway Account",
     description: `${input.amountUsdc} USDC to ${to} · goes automatically once your approval on ${names} is confirmed`,
     amountUsdc: -input.amountUsdc,
     token: "USDC",
@@ -386,13 +386,13 @@ function giveUpScheduled(r: GatewayScheduledPay, reason: string) {
   if (r.activityId) {
     store.updateActivity(r.activityId, {
       status: "failed",
-      description: `${r.amountUsdc} USDC to ${to} did not go through, so nothing left your GA`,
+      description: `${r.amountUsdc} USDC to ${to} did not go through, so nothing left your Gateway Account`,
     });
   }
   alertUser(r.userId, {
     kind: "ga_payment_failed",
     title: "Payment did not go through",
-    body: `${r.amountUsdc} USDC to ${to}: ${reason} Nothing left your GA — you can try again.`,
+    body: `${r.amountUsdc} USDC to ${to}: ${reason} Nothing left your Gateway Account — you can try again.`,
     amountUsdc: r.amountUsdc,
     token: "USDC",
   });
@@ -412,7 +412,7 @@ async function advanceScheduled(r: GatewayScheduledPay, nowMs: number): Promise<
   } catch (e) {
     const code = e && typeof e === "object" && "code" in e ? String((e as { code?: string }).code) : "";
     if (code === "INSUFFICIENT_GATEWAY") {
-      giveUpScheduled(r, "your GA no longer has enough ready to spend.");
+      giveUpScheduled(r, "your Gateway Account no longer has enough ready to spend.");
       return "not_sent";
     }
     throw e;
@@ -450,7 +450,7 @@ async function advanceScheduled(r: GatewayScheduledPay, nowMs: number): Promise<
       alertUser(r.userId, {
         kind: "ga_payment_done",
         title: "Payment sent",
-        body: `Your approval was confirmed, so ${r.amountUsdc} USDC from your GA went to ${to} on ${chainName(r.destinationDomain)}.`,
+        body: `Your approval was confirmed, so ${r.amountUsdc} USDC from your Gateway Account went to ${to} on ${chainName(r.destinationDomain)}.`,
         amountUsdc: r.amountUsdc,
         token: "USDC",
       });
@@ -518,7 +518,7 @@ function topUpRow(w: GatewayDepositWatch, txHash?: string) {
   return store.addActivity({
     userId: w.userId,
     kind: "fund",
-    title: "Top up your GA",
+    title: "Top up your Gateway Account",
     description: `${w.amountUsdc} USDC on its way from ${chainName(w.domain)}`,
     amountUsdc: w.amountUsdc,
     token: "USDC",
@@ -574,13 +574,13 @@ async function advanceTopUp(w: GatewayDepositWatch, nowMs: number): Promise<stri
     if (current.activityId) {
       store.updateActivity(current.activityId, {
         status: "completed",
-        description: `${w.amountUsdc} USDC added to your GA from ${chainName(w.domain)}`,
+        description: `${w.amountUsdc} USDC added to your Gateway Account from ${chainName(w.domain)}`,
       });
     }
     alertUser(w.userId, {
       kind: "ga_topup_arrived",
       title: "Your top-up arrived",
-      body: `${w.amountUsdc} USDC from ${chainName(w.domain)} is in your GA and ready to spend.`,
+      body: `${w.amountUsdc} USDC from ${chainName(w.domain)} is in your Gateway Account and ready to spend.`,
       amountUsdc: w.amountUsdc,
       token: "USDC",
     });
@@ -600,7 +600,7 @@ async function advanceTopUp(w: GatewayDepositWatch, nowMs: number): Promise<stri
     for (const op of config.auth.operatorUserIds) {
       alertUser(op, {
         kind: "review_needed",
-        title: "A GA top-up is overdue",
+        title: "A Gateway Account top-up is overdue",
         body: `${w.amountUsdc} USDC from ${chainName(w.domain)}, signed ${Math.round(age / 3_600_000)} hours ago, not credited.`,
       });
     }
