@@ -223,10 +223,14 @@ services:
   - type: web
     name: evabob-webapp-testnet
     runtime: static
+    # Flutter from its official release archive: a shallow git clone leaves
+    # Flutter unable to tell its own version, and `pub get` then fails.
     buildCommand: >-
-      git clone --depth 1 --branch 3.44.6 https://github.com/flutter/flutter.git "$HOME/flutter" &&
+      curl -fsSL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.44.6-stable.tar.xz | tar -xJ -C "$HOME" &&
+      git config --global --add safe.directory "$HOME/flutter" &&
       export PATH="$HOME/flutter/bin:$PATH" &&
       flutter config --no-analytics &&
+      flutter --version &&
       node web-app/tool/build.mjs
     staticPublishPath: web-app/build/web
     autoDeployTrigger: commit

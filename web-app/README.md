@@ -57,7 +57,7 @@ A local run can only sign in if its origin (for example
 
 The site is **https://evabob-webapp-testnet.onrender.com**. `render.free.yaml`
 defines it as the static site `evabob-webapp-testnet`. The build installs
-Flutter 3.44.6 and runs `node web-app/tool/build.mjs`. It rebuilds only when
+Flutter 3.44.6 (from its release archive) and runs `node web-app/tool/build.mjs`. It rebuilds only when
 `mobile/lib`, `mobile/assets`, the mobile pubspec or dart-defines, or
 `web-app/` change.
 

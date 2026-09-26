@@ -25,7 +25,7 @@ const defines = resolve(
 // Override with EVABOB_FLUTTER=/path/to/flutter when it is not on PATH.
 const flutter = process.env.EVABOB_FLUTTER ?? 'flutter';
 
-function run(cmd, cmdArgs, cwd = webApp) {
+function run(cmd, cmdArgs, cwd = webApp, { retryVerbose = false } = {}) {
   console.log(`\n> ${cmd} ${cmdArgs.join(' ')}`);
   // flutter and npm are .bat/.cmd shims on Windows, which only run through
   // a shell; node itself is not one (and its path may contain spaces).
@@ -38,7 +38,14 @@ function run(cmd, cmdArgs, cwd = webApp) {
         shell: true,
       })
     : spawnSync(cmd, cmdArgs, { cwd, stdio: 'inherit' });
-  if (res.status !== 0) process.exit(res.status ?? 1);
+  if (res.status !== 0) {
+    // Run it again with full output, so a CI log shows why it failed.
+    if (retryVerbose) {
+      run(cmd, [...cmdArgs, '--verbose'], cwd);
+      return;
+    }
+    process.exit(res.status ?? 1);
+  }
 }
 
 if (!existsSync(defines)) {
@@ -58,7 +65,7 @@ copyFileSync(
   join(webApp, '..', 'mobile', 'pubspec.lock'),
   join(webApp, 'pubspec.lock'),
 );
-run(flutter, ['pub', 'get']);
+run(flutter, ['pub', 'get'], webApp, { retryVerbose: true });
 run(flutter, [
   'build',
   'web',
