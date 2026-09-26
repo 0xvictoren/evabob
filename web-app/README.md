@@ -55,19 +55,17 @@ A local run can only sign in if its origin (for example
 
 ## Hosting (Render)
 
-The site is **https://app.evabob.app**. `render.free.yaml` defines it as the
-static site `evabob-webapp-testnet`. The build installs Flutter 3.44.6 and runs
-`node web-app/tool/build.mjs`. It rebuilds only when `mobile/lib`,
-`mobile/assets`, the mobile pubspec or dart-defines, or `web-app/` change.
+The site is **https://evabob-webapp-testnet.onrender.com**. `render.free.yaml`
+defines it as the static site `evabob-webapp-testnet`. The build installs
+Flutter 3.44.6 and runs `node web-app/tool/build.mjs`. It rebuilds only when
+`mobile/lib`, `mobile/assets`, the mobile pubspec or dart-defines, or
+`web-app/` change.
 
 For it to work:
 
-1. **DNS:** add a CNAME record for `app` pointing to
-   `evabob-webapp-testnet.onrender.com`, then verify the domain in the
-   Render dashboard.
-2. **Dynamic dashboard → Security → Allowed origins:** add
-   `https://app.evabob.app` (and `https://evabob-webapp-testnet.onrender.com`
-   if testers will use that address too). Without it, the browser cannot
-   send sign-in codes.
-3. **API:** `WEB_APP_ORIGIN` on `evabob-api-testnet` lists both addresses. It
-   is set in `render.free.yaml`.
+1. **Dynamic dashboard → Security → Allowed origins:** add
+   `https://evabob-webapp-testnet.onrender.com`. Without it, the browser
+   cannot send sign-in codes.
+2. **API:** `WEB_APP_ORIGIN` on `evabob-api-testnet` must be the site's exact
+   URL. It is set in `render.free.yaml`; if Render gives the site a different
+   address, update it there.

@@ -56,10 +56,10 @@ services:
           type: web
           name: evabob-web-testnet
           envVarKey: RENDER_EXTERNAL_URL
-      # The browser build of the app (evabob-webapp-testnet below): its own
-      # domain, and Render's address for it.
+      # The browser build of the app (evabob-webapp-testnet below). If Render
+      # gives that site a different address, put its URL here.
       - key: WEB_APP_ORIGIN
-        value: https://app.evabob.app,https://evabob-webapp-testnet.onrender.com
+        value: https://evabob-webapp-testnet.onrender.com
       - key: CRON_SECRET
         generateValue: true
       - key: MONGODB_URI
@@ -229,9 +229,6 @@ services:
       flutter config --no-analytics &&
       node web-app/tool/build.mjs
     staticPublishPath: web-app/build/web
-    # DNS: CNAME app -> evabob-webapp-testnet.onrender.com
-    domains:
-      - app.evabob.app
     autoDeployTrigger: commit
     # Rebuild only when the app or its web shell changes.
     buildFilter:
