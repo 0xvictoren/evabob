@@ -60,6 +60,13 @@ class AppLockService extends ChangeNotifier {
       pinBlocked ? _lockedUntil!.difference(DateTime.now()) : Duration.zero;
 
   Future<void> init() async {
+    // The web-app signs out when the tab closes; a device lock on top of that
+    // has nothing to protect, and browsers have no Keystore for the PIN hash.
+    if (kIsWeb) {
+      _ready = true;
+      notifyListeners();
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     _enabled = prefs.getBool(_prefEnabled) ?? false;
     _bioEnabled = prefs.getBool(_prefBio) ?? false;

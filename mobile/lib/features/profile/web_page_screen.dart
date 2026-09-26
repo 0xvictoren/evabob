@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../core/platform/browser.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/widgets/evabob_ui.dart';
@@ -19,12 +21,18 @@ class WebPageScreen extends StatefulWidget {
   static const termsUrl = 'https://www.evabob.xyz/terms.html';
   static const privacyUrl = 'https://www.evabob.xyz/privacy.html';
 
-  static Future<void> open(BuildContext context, String title, String url) =>
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => WebPageScreen(title: title, url: url),
-        ),
-      );
+  /// The web-app opens the page in a new browser tab instead.
+  static Future<void> open(BuildContext context, String title, String url) {
+    if (kIsWeb) {
+      Browser.openTab(url);
+      return Future<void>.value();
+    }
+    return Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => WebPageScreen(title: title, url: url),
+      ),
+    );
+  }
 
   @override
   State<WebPageScreen> createState() => _WebPageScreenState();

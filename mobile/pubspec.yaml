@@ -40,6 +40,9 @@ dependencies:
   qr_flutter: ^4.1.0
   audioplayers: ^6.8.1
   file_picker: ^10.3.10
+  # Browser APIs for the web-app build (sessionStorage, downloads, iframes).
+  # Pure Dart; unused on Android and iOS.
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

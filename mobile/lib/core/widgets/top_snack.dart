@@ -16,6 +16,11 @@ void showTopSnack(BuildContext context, SnackBar bar) {
   _TopSnackHost.show(overlay, bar, Theme.of(context));
 }
 
+/// The same message, for callers with no context under the overlay — the
+/// web-app's alert banners, raised from outside any screen.
+void showTopSnackOn(OverlayState overlay, SnackBar bar, ThemeData theme) =>
+    _TopSnackHost.show(overlay, bar, theme);
+
 class _TopSnackHost {
   static OverlayEntry? _entry;
 

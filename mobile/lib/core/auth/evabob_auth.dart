@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:dynamic_sdk/dynamic_sdk.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -9,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 import '../config/env.dart';
+import 'dynamic_client.dart';
 import 'evabob_user.dart';
 import 'session_store.dart';
 // Env used for resolvedAvatarUrl
@@ -16,6 +16,9 @@ import 'session_store.dart';
 export 'evabob_user.dart';
 
 /// App login via Dynamic (email OTP). Circle UCW handles wallets separately.
+///
+/// Dynamic is reached through [DynamicAuthClient]: the Flutter SDK on phones,
+/// Dynamic's JavaScript SDK in the web-app. Everything below is shared.
 ///
 /// **Hard session finish:** signed-in only when we have a real Dynamic JWT
 /// (or explicit demo mode). No provisional email-only sessions.
@@ -56,7 +59,7 @@ class EvabobAuth extends ChangeNotifier {
   /// then a deterministic pick from the user id.
   int? _avatarBundleIndex;
   String? _pendingEmail;
-  DynamicSDK? _sdk;
+  DynamicAuthClient? _sdk;
 
   /// Set when a sign-in ended because it expired, not because the person
   /// signed out. The sign-in screen uses it to say so and fill in the email.
@@ -64,9 +67,9 @@ class EvabobAuth extends ChangeNotifier {
   String? get sessionEndedEmail => _sessionEndedEmail;
   Timer? _expiryTimer;
   bool _endingSession = false;
-  StreamSubscription<UserProfile?>? _userSub;
+  StreamSubscription<DynamicProfile?>? _userSub;
   StreamSubscription<String?>? _tokenSub;
-  Completer<UserProfile>? _profileWaiter;
+  Completer<DynamicProfile>? _profileWaiter;
   Completer<String>? _tokenWaiter;
 
   EvabobUser? get user => _user;
@@ -83,7 +86,7 @@ class EvabobAuth extends ChangeNotifier {
   String? get avatarPath => _avatarPath;
   String? get avatarUrl => _avatarUrl;
   int? get avatarBundleIndex => _avatarBundleIndex;
-  Widget? get dynamicOverlay => _sdk?.dynamicWidget;
+  Widget? get dynamicOverlay => _sdk?.overlay;
 
   /// Absolute URL for NetworkImage (API base + path).
   String? get resolvedAvatarUrl {
@@ -124,28 +127,28 @@ class EvabobAuth extends ChangeNotifier {
         }
       }
       if (_resolvedDynamicEnvironmentId.isNotEmpty) {
-        _sdk = DynamicSDK.init(
-          props: ClientProps(
-            environmentId: _resolvedDynamicEnvironmentId,
-            appName: resolvedAppName,
-            appOrigin: Env.dynamicAppOrigin,
-            apiBaseUrl: 'https://app.dynamicauth.com/api/v0',
-            logLevel: kDebugMode ? LoggerLevel.debug : LoggerLevel.error,
-            debugWebview: kDebugMode,
-            debug: kDebugMode ? ClientDebugProps(webview: true) : null,
-          ),
+        _sdk = DynamicAuthClient.create(
+          environmentId: _resolvedDynamicEnvironmentId,
+          appName: resolvedAppName,
+          appOrigin: Env.dynamicAppOrigin,
+          debug: kDebugMode,
         );
-        _userSub = _sdk!.auth.authenticatedUserChanges.listen(_onProfile);
+        _userSub = _sdk!.profileChanges.listen(_onProfile);
         // Only the full token: the minified one carries no verified
         // credentials, so the server cannot confirm the email and says
         // "unauthorized".
-        _tokenSub = _sdk!.auth.tokenChanges.listen(_onToken);
+        _tokenSub = _sdk!.tokenChanges.listen(_onToken);
 
-        // Warm Dynamic WebView bridge before any OTP.
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        // Warm the Dynamic bridge before any OTP. A failure here must not
+        // skip restoring a saved session; sending a code tries again.
+        try {
+          await _sdk!.ready();
+        } catch (e) {
+          debugPrint('EvabobAuth: Dynamic not ready yet ($e)');
+        }
 
         final token = _readToken();
-        final existing = _sdk!.auth.authenticatedUser;
+        final existing = _sdk!.profile;
 
         if (token != null && token.isNotEmpty) {
           // Hard finish from live SDK token (preferred).
@@ -224,11 +227,11 @@ class EvabobAuth extends ChangeNotifier {
   }
 
   String? _readToken() {
-    final t = _sdk?.auth.token;
+    final t = _sdk?.token;
     return t != null && t.isNotEmpty ? t : null;
   }
 
-  void _onProfile(UserProfile? profile) {
+  void _onProfile(DynamicProfile? profile) {
     if (profile != null &&
         _profileWaiter != null &&
         !_profileWaiter!.isCompleted) {
@@ -271,7 +274,7 @@ class EvabobAuth extends ChangeNotifier {
       _tokenWaiter!.complete(token);
     }
 
-    final profile = _sdk?.auth.authenticatedUser;
+    final profile = _sdk?.profile;
     final session = _sessionFromToken(
       token,
       profile: profile,
@@ -378,7 +381,7 @@ class EvabobAuth extends ChangeNotifier {
       _pendingEmail = trimmed;
       if (_sdk != null) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
-        await _sdk!.auth.email.sendOTP(trimmed);
+        await _sdk!.sendEmailOtp(trimmed);
       } else {
         if (!Env.demoEnabled) {
           _error = 'Sign-in is not configured for this build.';
@@ -407,9 +410,9 @@ class EvabobAuth extends ChangeNotifier {
     try {
       if (_sdk != null) {
         try {
-          await _sdk!.auth.email.resendOTP();
+          await _sdk!.resendEmailOtp();
         } catch (_) {
-          await _sdk!.auth.email.sendOTP(email);
+          await _sdk!.sendEmailOtp(email);
         }
       }
       _error = null;
@@ -460,10 +463,10 @@ class EvabobAuth extends ChangeNotifier {
       }
 
       _pendingEmail = trimmedEmail;
-      _profileWaiter = Completer<UserProfile>();
+      _profileWaiter = Completer<DynamicProfile>();
       _tokenWaiter = Completer<String>();
 
-      await _sdk!.auth.email.verifyOTP(trimmedCode);
+      await _sdk!.verifyEmailOtp(trimmedCode);
 
       // HARD FINISH: must obtain a real Dynamic JWT (not provisional email id).
       final session = await _awaitHardSession(
@@ -512,7 +515,7 @@ class EvabobAuth extends ChangeNotifier {
       if (token != null && token.isNotEmpty) {
         final session = _sessionFromToken(
           token,
-          profile: _sdk?.auth.authenticatedUser,
+          profile: _sdk?.profile,
           fallbackEmail: fallbackEmail,
         );
         if (session != null &&
@@ -548,7 +551,7 @@ class EvabobAuth extends ChangeNotifier {
     if (token == null || token.isEmpty) return null;
     return _sessionFromToken(
       token,
-      profile: _sdk?.auth.authenticatedUser,
+      profile: _sdk?.profile,
       fallbackEmail: fallbackEmail,
     );
   }
@@ -556,7 +559,7 @@ class EvabobAuth extends ChangeNotifier {
   /// Build a finished session from JWT. Returns null if `sub` missing.
   EvabobUser? _sessionFromToken(
     String token, {
-    UserProfile? profile,
+    DynamicProfile? profile,
     String? fallbackEmail,
   }) {
     final tokenEnvironment = _jwtClaim(token, 'environment_id');
@@ -615,7 +618,7 @@ class EvabobAuth extends ChangeNotifier {
     _avatarUrl = null;
     _avatarBundleIndex = null;
     try {
-      await _sdk?.auth.logout();
+      await _sdk?.logout();
     } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     // Clears secure storage and any legacy plain-text copy.
@@ -777,19 +780,8 @@ class EvabobAuth extends ChangeNotifier {
     notifyListeners();
   }
 
-  EvabobUser _mapProfile(UserProfile profile, {String? token}) {
-    var email = profile.email?.trim() ?? '';
-    if (email.isEmpty) {
-      for (final c in profile.verifiedCredentials) {
-        if (c.format == JwtVerifiedCredentialFormatEnum.email) {
-          final e = c.email ?? c.publicIdentifier;
-          if (e != null && e.contains('@')) {
-            email = e;
-            break;
-          }
-        }
-      }
-    }
+  EvabobUser _mapProfile(DynamicProfile profile, {String? token}) {
+    final email = profile.email?.trim() ?? '';
     final id = (profile.userId?.isNotEmpty == true)
         ? profile.userId!
         : profile.sessionId;

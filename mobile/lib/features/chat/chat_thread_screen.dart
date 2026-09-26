@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -273,7 +274,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
           SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
         );
     try {
-      if (source == ImageSource.camera) {
+      // Browsers ask for the camera themselves when the picker opens it.
+      if (source == ImageSource.camera && !kIsWeb) {
         final status = await Permission.camera.request();
         if (!status.isGranted) {
           if (mounted) say('Allow the camera in Settings to take a photo.');

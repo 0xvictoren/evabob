@@ -34,6 +34,12 @@ class MoneyAlerts {
   /// chat uses it to stay quiet about the conversation already on screen.
   bool Function(Map<String, dynamic> alert)? shouldNotify;
 
+  /// Web-app: shows an alert inside the page, where the phones would post a
+  /// system notification. Browsers have no notification tray to post to
+  /// until web push (phase 2).
+  void Function(String title, String body, Map<String, dynamic> data)?
+      onWebBanner;
+
   final _events = StreamController<Map<String, dynamic>>.broadcast();
 
   /// Every alert as it arrives, for screens that react live — the seller's
@@ -48,6 +54,8 @@ class MoneyAlerts {
   /// Returns whether notifications are allowed afterwards. Asks again even
   /// after startup — the first ask may have been dismissed.
   Future<bool> requestPermission() async {
+    // Alerts show inside the page in the web-app; nothing to allow.
+    if (kIsWeb) return true;
     await _ensureReady();
     try {
       await _plugin
@@ -68,6 +76,7 @@ class MoneyAlerts {
   /// the system each time, so the in-app prompt disappears once it is on —
   /// it used to ask again every time the screen opened.
   Future<bool> permissionGranted() async {
+    if (kIsWeb) return true;
     try {
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
@@ -110,6 +119,10 @@ class MoneyAlerts {
 
   Future<void> _ensureReady() async {
     if (_ready) return;
+    if (kIsWeb) {
+      _ready = true;
+      return;
+    }
     try {
       await _plugin.initialize(
         const InitializationSettings(
@@ -184,6 +197,10 @@ class MoneyAlerts {
         alert['moneyIn'] == '1' ||
         alert['kind'] == 'money_in';
     final tag = alert['tag']?.toString();
+    if (kIsWeb) {
+      onWebBanner?.call(title, body, alert);
+      return;
+    }
     final payload = jsonEncode({
       for (final k in [
         'kind',

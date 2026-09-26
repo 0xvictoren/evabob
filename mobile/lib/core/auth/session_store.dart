@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../platform/browser.dart';
+
 /// Persistence for the signed-in session record.
 ///
 /// The record holds the Dynamic access JWT, the wallet address and the user's
@@ -17,6 +19,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Values written by an older build are migrated on first read and the plain
 /// copy is deleted, so an upgrade does not silently sign everyone out and does
 /// not leave the old token behind.
+///
+/// In the web-app the record lives in the tab's `sessionStorage` instead, so
+/// closing the tab signs the person out: browser testers sign in each time.
 class SessionStore {
   SessionStore({FlutterSecureStorage? secure})
       : _secure = secure ?? const FlutterSecureStorage();
@@ -34,6 +39,7 @@ class SessionStore {
 
   /// Returns the stored session record, migrating a legacy plain-text copy.
   Future<String?> read() async {
+    if (kIsWeb) return Browser.sessionGet(_secureKey);
     try {
       final secure = await _secure.read(key: _secureKey);
       if (secure != null && secure.isNotEmpty) return secure;
@@ -46,6 +52,10 @@ class SessionStore {
   }
 
   Future<void> write(String record) async {
+    if (kIsWeb) {
+      Browser.sessionSet(_secureKey, record);
+      return;
+    }
     try {
       await _secure.write(key: _secureKey, value: record);
     } catch (e) {
@@ -58,6 +68,10 @@ class SessionStore {
   }
 
   Future<void> clear() async {
+    if (kIsWeb) {
+      Browser.sessionRemove(_secureKey);
+      return;
+    }
     try {
       await _secure.delete(key: _secureKey);
     } catch (e) {

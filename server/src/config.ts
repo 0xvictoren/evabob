@@ -119,8 +119,13 @@ export const config = {
    * subject to CORS and are unaffected. "*" allows every site to issue
    * cross-origin calls — keep it to an explicit list outside development.
    */
-  corsOrigins: req("CORS_ORIGINS", "*")
-    .split(",")
+  corsOrigins: [
+    ...req("CORS_ORIGINS", "*").split(","),
+    // The browser build of the app (web-app/) is a second browser client on
+    // its own origin. A separate variable, so Render can fill it from that
+    // service's URL next to CORS_ORIGINS filled from the website's.
+    ...req("WEB_APP_ORIGIN").split(","),
+  ]
     .map((o) => o.trim())
     .filter(Boolean),
 

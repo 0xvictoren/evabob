@@ -56,6 +56,10 @@ services:
           type: web
           name: evabob-web-testnet
           envVarKey: RENDER_EXTERNAL_URL
+      # The browser build of the app (evabob-webapp-testnet below): its own
+      # domain, and Render's address for it.
+      - key: WEB_APP_ORIGIN
+        value: https://app.evabob.app,https://evabob-webapp-testnet.onrender.com
       - key: CRON_SECRET
         generateValue: true
       - key: MONGODB_URI
@@ -212,3 +216,50 @@ services:
         value: ""
       - key: NEXT_PUBLIC_IOS_APP_URL
         value: ""
+
+  # The app in a browser, for testers while the store reviews are pending.
+  # Same code as the phones (mobile/lib), same dart-defines, same API. Built
+  # with Flutter pinned to the version the phone builds use.
+  - type: web
+    name: evabob-webapp-testnet
+    runtime: static
+    buildCommand: >-
+      git clone --depth 1 --branch 3.44.6 https://github.com/flutter/flutter.git "$HOME/flutter" &&
+      export PATH="$HOME/flutter/bin:$PATH" &&
+      flutter config --no-analytics &&
+      node web-app/tool/build.mjs
+    staticPublishPath: web-app/build/web
+    # DNS: CNAME app -> evabob-webapp-testnet.onrender.com
+    domains:
+      - app.evabob.app
+    autoDeployTrigger: commit
+    # Rebuild only when the app or its web shell changes.
+    buildFilter:
+      paths:
+        - mobile/lib/**
+        - mobile/assets/**
+        - mobile/pubspec.yaml
+        - mobile/pubspec.lock
+        - mobile/dart_defines.json
+        - web-app/**
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # Testers always get the latest build.
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+      - path: /flutter_bootstrap.js
+        name: Cache-Control
+        value: no-cache
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

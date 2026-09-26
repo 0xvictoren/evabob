@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Replaced by the value of `--base-href` at build time. -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Evabob — send money like a message.">
+  <meta name="theme-color" content="#00B5FF">
+
+  <!-- Added to a phone's home screen, it opens like an app. -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Evabob">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="manifest" href="manifest.json">
+
+  <title>Evabob</title>
+
+  <style>
+    html, body { margin: 0; height: 100%; background: #FFFFFF; }
+    /* Shown until Flutter paints its first frame. */
+    #boot {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #00B5FF; background: #FFFFFF;
+    }
+    #boot img { width: 96px; height: 96px; }
+    #boot p { margin: 16px 0 0; font-size: 22px; }
+  </style>
+
+  <!-- Live updates (chat, money alerts): pusher_channels_flutter needs this. -->
+  <script src="https://js.pusher.com/8.3.0/pusher.min.js"></script>
+  <!-- Dynamic email sign-in (web-app/bridge, built by tool/build.mjs). -->
+  <script src="js/dynamic_bridge.js"></script>
+  <script>
+    // The passkeys plugin (pulled in by the phones' Dynamic SDK) registers a
+    // web version at startup and needs this object to exist. Passkeys are not
+    // used in the browser — sign-in goes through the bridge above — so every
+    // call says "not available".
+    window.PasskeyAuthenticator = {
+      init: function () {},
+      register: function () { return Promise.reject(new Error('Passkeys are not available')); },
+      login: function () { return Promise.reject(new Error('Passkeys are not available')); },
+      cancelCurrentAuthenticatorOperation: function () {},
+      isUserVerifyingPlatformAuthenticatorAvailable: function () { return Promise.resolve(false); },
+      isConditionalMediationAvailable: function () { return Promise.resolve(false); },
+      hasPasskeySupport: function () { return false; },
+    };
+  </script>
+</head>
+<body>
+  <div id="boot"><img src="icons/Icon-192.png" alt=""><p>evabob</p></div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var boot = document.getElementById('boot');
+      if (boot) boot.remove();
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+name: evabob_web
+description: Evabob in the browser — the same app as mobile/, built for the web.
+publish_to: "none"
+version: 0.1.2+3
+
+environment:
+  sdk: ^3.5.0
+
+# The whole app lives in ../mobile. This package only hosts it in a browser:
+# screens, services, env and server are shared with the Android and iOS apps.
+dependencies:
+  flutter:
+    sdk: flutter
+  evabob_mobile:
+    path: ../mobile
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+
+# Must match mobile/pubspec.yaml: the shared code loads these by the same
+# paths. `node tool/sync_assets.mjs` copies them from mobile/assets.
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/challenge.html
+    - assets/circle_w3s_sdk.js
+    - assets/circle_w3s_sdk.js.sha256
+    - assets/dp-pic-asset/
+    - assets/icons/
+    - assets/figma/
+    - assets/icons-png/
+    - assets/logo.png
+    - assets/sounds/
+  fonts:
+    - family: Numans
+      fonts:
+        - asset: assets/Numans/Numans-Regular.ttf
+          weight: 400

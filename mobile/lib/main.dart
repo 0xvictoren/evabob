@@ -20,6 +20,7 @@ import 'core/config/app_features.dart';
 import 'core/contacts/contacts_service.dart';
 import 'core/fx/fx_service.dart';
 import 'core/notify/section_notify.dart';
+import 'core/platform/web_phone_frame.dart';
 import 'core/security/app_lock_service.dart';
 import 'core/theme/evabob_colors.dart';
 import 'core/theme/evabob_theme.dart';
@@ -31,6 +32,7 @@ import 'features/auth/login_screen.dart';
 import 'features/onboarding/post_signup_onboarding.dart';
 import 'features/shell/app_shell.dart';
 import 'core/theme/evabob_tokens.dart';
+import 'core/widgets/top_snack.dart';
 
 Future<void> main() async {
   // `debugPrint` is not automatically compiled out of profile/release builds.
@@ -202,6 +204,9 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
   late final PushRegistration _push;
   late final bool _ownsServices;
 
+  /// Web-app: where in-page alert banners are shown.
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
@@ -227,6 +232,28 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
     _appLinks = services.appLinks;
     _push = services.push;
     _auth.addListener(_onAuth);
+    if (kIsWeb) _moneyAlerts.onWebBanner = _showWebBanner;
+  }
+
+  /// Web-app: an alert shown at the top of the page, where the phones post a
+  /// system notification. "View" opens what it is about, like a tapped one.
+  void _showWebBanner(String title, String body, Map<String, dynamic> data) {
+    final nav = _navigatorKey.currentState;
+    final overlay = nav?.overlay;
+    if (nav == null || overlay == null) return;
+    showTopSnackOn(
+      overlay,
+      SnackBar(
+        content: Text('$title · $body'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'View',
+          onPressed: () => _moneyAlerts.onOpen?.call(data),
+        ),
+      ),
+      Theme.of(nav.context),
+    );
   }
 
   @override
@@ -383,6 +410,7 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
       child: Consumer<ThemeController>(
         builder: (context, theme, _) {
           return MaterialApp(
+            navigatorKey: _navigatorKey,
             title: 'evabob',
             debugShowCheckedModeBanner: false,
             theme: EvabobTheme.light(),
@@ -418,11 +446,13 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
               // Someone who needs more than that is better served by the
               // system magnifier than by a screen that has eaten its own
               // labels.
-              return MediaQuery.withClampedTextScaling(
+              final app = MediaQuery.withClampedTextScaling(
                 minScaleFactor: 1.0,
                 maxScaleFactor: 2.0,
                 child: Builder(builder: (_) => body),
               );
+              // Web-app on a laptop: phone width, centred.
+              return kIsWeb ? WebPhoneFrame(child: app) : app;
             },
             home: Consumer2<EvabobAuth, AppLockService>(
               builder: (context, auth, lock, _) {

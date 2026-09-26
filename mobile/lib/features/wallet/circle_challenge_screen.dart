@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:crypto/crypto.dart';
@@ -11,9 +11,13 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/text_safe.dart';
+import 'challenge_frame.dart';
 
 /// Runs one or more Circle challenges in a **single** WebView session
 /// so the user is not bounced through multiple screens (double-PIN UX).
+///
+/// In the web-app the same document runs in an iframe instead
+/// ([ChallengeFrame]); everything else on this screen is shared.
 ///
 /// Layout rules (prevents the classic "Confirm swap" overflow mess):
 /// - Always [Scaffold] + [Material] + [SafeArea]
@@ -59,6 +63,9 @@ class CircleChallengeScreen extends StatefulWidget {
 class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
   static const _challengeDocumentUrl = 'https://evabob.app/_circle-challenge/';
   WebViewController? _controller;
+
+  /// Web-app only: the PIN document is ready to show in its iframe.
+  bool _webReady = false;
   String _status = 'Loading secure confirmation…';
   bool _done = false;
   bool _initialDocumentLoaded = false;
@@ -153,6 +160,19 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
           'CircleChallengeScreen abort: incomplete local challenge input',
         );
       }
+      return;
+    }
+
+    // The web-app serves this document itself, built and checksum-verified
+    // from the same assets (web-app/tool/sync_assets.mjs).
+    if (kIsWeb) {
+      if (!mounted) return;
+      setState(() {
+        _webReady = true;
+        _status = widget.challengeIds.length > 1
+            ? 'Confirm once — approving ${widget.challengeIds.length} steps…'
+            : 'Confirm with your PIN';
+      });
       return;
     }
 
@@ -452,13 +472,23 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
               ),
               Expanded(
                 child: ClipRect(
-                  child: _controller == null
-                      ? Center(
-                          child: CircularProgressIndicator(
-                            color: EvabobColors.blue,
-                          ),
+                  child: _webReady
+                      ? ChallengeFrame(
+                          payload: _authPayload,
+                          onMessage: _onBridge,
+                          onStarted: () {
+                            if (!_done) {
+                              _setStatus('Enter your PIN when prompted');
+                            }
+                          },
                         )
-                      : WebViewWidget(controller: _controller!),
+                      : _controller == null
+                          ? Center(
+                              child: CircularProgressIndicator(
+                                color: EvabobColors.blue,
+                              ),
+                            )
+                          : WebViewWidget(controller: _controller!),
                 ),
               ),
             ],

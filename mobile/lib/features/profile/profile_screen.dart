@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'web_page_screen.dart';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -11,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/fx/fx_service.dart';
+import '../../core/platform/browser.dart';
 import '../../core/api/api_client.dart';
 import '../../core/held/operator_reviews_api.dart';
 import '../../core/utils/text_safe.dart';
@@ -124,15 +126,16 @@ class ProfileScreen extends StatelessWidget {
   Future<void> _exportAccount(BuildContext context) async {
     try {
       final data = await context.read<ApiClient>().get('/v1/users/me/export');
+      final json = const JsonEncoder.withIndent('  ').convert(data);
+      final name =
+          'evabob-export-${DateTime.now().millisecondsSinceEpoch}.json';
+      if (kIsWeb) {
+        Browser.download(utf8.encode(json), name, 'application/json');
+        return;
+      }
       final dir = await getTemporaryDirectory();
-      final path = p.join(
-        dir.path,
-        'evabob-export-${DateTime.now().millisecondsSinceEpoch}.json',
-      );
-      await File(path).writeAsString(
-        const JsonEncoder.withIndent('  ').convert(data),
-        flush: true,
-      );
+      final path = p.join(dir.path, name);
+      await File(path).writeAsString(json, flush: true);
       await SharePlus.instance.share(
         ShareParams(
           subject: 'Your Evabob data export',
@@ -409,11 +412,14 @@ class ProfileScreen extends StatelessWidget {
         }
         return;
       }
-      final dir = await getApplicationDocumentsDirectory();
-      final dest =
-          File(p.join(dir.path, 'avatar_${auth.user?.id ?? 'me'}.jpg'));
-      await dest.writeAsBytes(bytes, flush: true);
-      await auth.setAvatarPath(dest.path);
+      // The web-app has no local copy; it shows the uploaded URL below.
+      if (!kIsWeb) {
+        final dir = await getApplicationDocumentsDirectory();
+        final dest =
+            File(p.join(dir.path, 'avatar_${auth.user?.id ?? 'me'}.jpg'));
+        await dest.writeAsBytes(bytes, flush: true);
+        await auth.setAvatarPath(dest.path);
+      }
 
       // Upload to server (Mongo / uploads) for cross-device PFP
       try {
@@ -694,76 +700,80 @@ class ProfileScreen extends StatelessWidget {
                     );
                   },
                 ),
-                Divider(
-                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
-                Builder(
-                  builder: (context) {
-                    final lock = context.watch<AppLockService>();
-                    return _tile(
-                      Icons.lock_outline_rounded,
-                      'App lock',
-                      lock.enabled
-                          ? (lock.bioEnabled
-                              ? 'PIN + biometrics · tap to change'
-                              : 'PIN enabled · tap to change / disable')
-                          : 'Require PIN or fingerprint to open app',
-                      () async {
-                        if (!lock.enabled) {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  const AppLockScreen(setupMode: true),
-                            ),
-                          );
-                          return;
-                        }
-                        final action = await showModalBottomSheet<String>(
-                          context: context,
-                          builder: (ctx) => SafeArea(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ListTile(
-                                  leading: const Icon(Icons.pin_outlined),
-                                  title: const Text('Change app PIN'),
-                                  onTap: () => Navigator.pop(ctx, 'change'),
-                                ),
-                                if (lock.bioAvailable)
+                // The web-app signs out when the tab closes, so it has no
+                // app lock (and no fingerprint or Face ID to offer).
+                if (!kIsWeb) ...[
+                  Divider(
+                      height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                  Builder(
+                    builder: (context) {
+                      final lock = context.watch<AppLockService>();
+                      return _tile(
+                        Icons.lock_outline_rounded,
+                        'App lock',
+                        lock.enabled
+                            ? (lock.bioEnabled
+                                ? 'PIN + biometrics · tap to change'
+                                : 'PIN enabled · tap to change / disable')
+                            : 'Require PIN or fingerprint to open app',
+                        () async {
+                          if (!lock.enabled) {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const AppLockScreen(setupMode: true),
+                              ),
+                            );
+                            return;
+                          }
+                          final action = await showModalBottomSheet<String>(
+                            context: context,
+                            builder: (ctx) => SafeArea(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
                                   ListTile(
-                                    leading: const Icon(Icons.fingerprint),
-                                    title: Text(
-                                      lock.bioEnabled
-                                          ? 'Disable biometrics'
-                                          : 'Enable biometrics',
-                                    ),
-                                    onTap: () => Navigator.pop(ctx, 'bio'),
+                                    leading: const Icon(Icons.pin_outlined),
+                                    title: const Text('Change app PIN'),
+                                    onTap: () => Navigator.pop(ctx, 'change'),
                                   ),
-                                ListTile(
-                                  leading: const Icon(Icons.lock_open_rounded),
-                                  title: const Text('Turn off app lock'),
-                                  onTap: () => Navigator.pop(ctx, 'off'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                        if (!context.mounted || action == null) return;
-                        if (action == 'change') {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  const AppLockScreen(setupMode: true),
+                                  if (lock.bioAvailable)
+                                    ListTile(
+                                      leading: const Icon(Icons.fingerprint),
+                                      title: Text(
+                                        lock.bioEnabled
+                                            ? 'Disable biometrics'
+                                            : 'Enable biometrics',
+                                      ),
+                                      onTap: () => Navigator.pop(ctx, 'bio'),
+                                    ),
+                                  ListTile(
+                                    leading: const Icon(Icons.lock_open_rounded),
+                                    title: const Text('Turn off app lock'),
+                                    onTap: () => Navigator.pop(ctx, 'off'),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
-                        } else if (action == 'bio') {
-                          await lock.setBiometrics(!lock.bioEnabled);
-                        } else if (action == 'off') {
-                          await lock.disableLock();
-                        }
-                      },
-                    );
-                  },
-                ),
+                          if (!context.mounted || action == null) return;
+                          if (action == 'change') {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const AppLockScreen(setupMode: true),
+                              ),
+                            );
+                          } else if (action == 'bio') {
+                            await lock.setBiometrics(!lock.bioEnabled);
+                          } else if (action == 'off') {
+                            await lock.disableLock();
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ],
                 // Confirm payments with fingerprint or Face ID instead of the
                 // PIN. Shown only in builds that include Circle's native SDK.
                 const _BiometricConfirmTile(),

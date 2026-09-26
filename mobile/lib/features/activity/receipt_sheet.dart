@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/activity/activity_service.dart';
+import '../../core/platform/browser.dart';
 import '../../core/theme/evabob_colors.dart';
 import '../../core/utils/money_format.dart';
 import '../../core/utils/text_safe.dart';
@@ -85,6 +88,17 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
       _actionHint = null;
     });
     try {
+      if (kIsWeb) {
+        // Browsers share text; there is no file on disk to attach.
+        await SharePlus.instance.share(
+          ShareParams(
+            subject: 'Evabob receipt · ${e.title}',
+            text: e.receiptText(),
+          ),
+        );
+        if (mounted) setState(() => _actionHint = 'Share sheet opened');
+        return;
+      }
       final tmp = await getTemporaryDirectory();
       final file = await _writeReceiptFile(preferred: tmp);
       _savedPath = file.path;
@@ -131,6 +145,24 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
       _actionHint = null;
     });
     try {
+      if (kIsWeb) {
+        Browser.download(
+          utf8.encode(e.receiptText()),
+          _fileName,
+          'text/plain',
+        );
+        if (!mounted) return;
+        setState(() => _actionHint = 'Downloaded');
+        showTopSnack(
+          context,
+          SnackBar(
+            content: Text('Receipt downloaded · $_fileName'),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
       final downloads = await _downloadsDir();
       final file = await _writeReceiptFile(
         preferred: downloads ?? await getApplicationDocumentsDirectory(),
