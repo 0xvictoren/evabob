@@ -40,7 +40,11 @@ class ApiClient {
     final h = <String, String>{
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'x-user-id': _userId,
+      // Only for local development servers (ALLOW_HEADER_AUTH); a real API
+      // goes by the sign-in token alone. A browser may not send it at all:
+      // the API does not allow it across origins, and every request from the
+      // web-app was blocked before it left.
+      if (!kIsWeb) 'x-user-id': _userId,
     };
     if (token != null && token.isNotEmpty) {
       h['Authorization'] = 'Bearer $token';
