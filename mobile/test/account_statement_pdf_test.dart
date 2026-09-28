@@ -11,7 +11,7 @@ void main() {
         'displayName': 'Ada 🚀 Obi',
         'handle': 'ada',
         'email': 'ada@example.com',
-        'evmAddress': '0x' + 'a' * 40,
+        'evmAddress': '0x${'a' * 40}',
         'createdAt': '2026-09-01T09:00:00.000Z',
       },
       'activity': [
