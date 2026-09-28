@@ -105,14 +105,27 @@ describe("FCM message", () => {
       },
     );
     assert.equal(m.message.token, token(99));
+    // Who and how much, unless the person chose to hide details.
     assert.deepEqual(m.message.notification, {
-      title: "Evabob",
-      body: "You have a new private update.",
+      title: "Money received",
+      body: "5 USDC from @maya",
     });
     assert.equal(m.message.android.notification.tag, "money_in:0xabc");
     assert.equal(m.message.android.notification.channel_id, "evabob_money");
     assert.equal(m.message.apns.headers["apns-collapse-id"], "money_in:0xabc");
     // FCM data values must all be strings; absent fields are dropped.
     assert.deepEqual(m.message.data, { kind: "money_in", txHash: "0xabc", tag: "money_in:0xabc" });
+  });
+
+  it("says only a private update when the person hides details", () => {
+    const m = fcmMessage(
+      { token: token(98), userId: "u", platform: "android", createdAt: "", lastSeenAt: "" },
+      { title: "Money received", body: "5 USDC from @maya", tag: "money_in:0xdef" },
+      true,
+    );
+    assert.deepEqual(m.message.notification, {
+      title: "Evabob",
+      body: "You have a new private update.",
+    });
   });
 });

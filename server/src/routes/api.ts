@@ -2814,6 +2814,8 @@ async function patchMe(c: Context) {
       avatarUrl: z.literal("").optional(),
       /** A built-in picture (its index), or null to stop using one. */
       avatarBundle: z.number().int().min(0).max(63).nullable().optional(),
+      /** Notifications without who or how much (Profile switch). */
+      hideNotificationDetails: z.boolean().optional(),
     })
     .parse(await c.req.json());
   const uid = userId(c);
@@ -2832,6 +2834,9 @@ async function patchMe(c: Context) {
   const user = store.updateProfile(uid, {
     avatarUrl: body.avatarUrl,
     ...(body.avatarBundle !== undefined ? { avatarBundleIndex: body.avatarBundle } : {}),
+    ...(body.hideNotificationDetails !== undefined
+      ? { hideNotificationDetails: body.hideNotificationDetails }
+      : {}),
   });
   if (body.displayName || body.avatarBundle !== undefined || body.avatarUrl !== undefined) {
     void announceProfileChange(uid);

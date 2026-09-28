@@ -15,6 +15,7 @@ import '../../core/fx/fx_service.dart';
 import '../../core/platform/browser.dart';
 import '../../core/api/api_client.dart';
 import '../../core/held/operator_reviews_api.dart';
+import '../../core/notifications/money_alerts.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/auth/evabob_auth.dart';
 import '../../core/security/app_lock_service.dart';
@@ -817,6 +818,7 @@ class ProfileScreen extends StatelessWidget {
                 // Confirm payments with fingerprint or Face ID instead of the
                 // PIN. Shown only in builds that include Circle's native SDK.
                 const _BiometricConfirmTile(),
+                const _NotificationDetailsTile(),
                 const _ExternalAiTile(),
                 Divider(
                     height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
@@ -1140,6 +1142,81 @@ class _BiometricConfirmTileState extends State<_BiometricConfirmTile> {
             on
                 ? 'Payments ask for your fingerprint or face. Your PIN still works.'
                 : 'Instead of typing your PIN each time. You set it up once with your PIN.',
+            style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Notifications say who and how much by default. This switch makes them say
+/// only "You have a new private update." — on this phone, and in pushes the
+/// server sends while the app is closed.
+class _NotificationDetailsTile extends StatefulWidget {
+  const _NotificationDetailsTile();
+
+  @override
+  State<_NotificationDetailsTile> createState() =>
+      _NotificationDetailsTileState();
+}
+
+class _NotificationDetailsTileState extends State<_NotificationDetailsTile> {
+  late bool _hidden = context.read<MoneyAlerts>().hideDetails;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The account's choice wins: it may have been made on another phone.
+    context.read<ApiClient>().get('/v1/users/me').then((response) {
+      final user = response['user'];
+      if (!mounted || user is! Map) return;
+      final hidden = user['hideNotificationDetails'] == true;
+      if (hidden != _hidden) {
+        context.read<MoneyAlerts>().setHideDetails(hidden);
+        setState(() => _hidden = hidden);
+      }
+    }).catchError((_) {});
+  }
+
+  Future<void> _toggle(bool hide) async {
+    setState(() => _busy = true);
+    try {
+      await context.read<ApiClient>().post(
+        '/v1/users/me',
+        body: {'hideNotificationDetails': hide},
+      );
+      if (!mounted) return;
+      await context.read<MoneyAlerts>().setHideDetails(hide);
+      if (mounted) setState(() => _hidden = hide);
+    } catch (error) {
+      if (mounted) {
+        showTopSnack(context, SnackBar(content: Text(friendlyError(error))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Divider(height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: _hidden,
+          onChanged: _busy ? null : _toggle,
+          secondary: Icon(
+            Icons.notifications_off_outlined,
+            color: EvabobColors.emeraldDeep,
+          ),
+          title: const Text('Hide notification details'),
+          subtitle: Text(
+            _hidden
+                ? 'Notifications only say you have a new private update.'
+                : 'Notifications show who paid and how much.',
             style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
           ),
         ),

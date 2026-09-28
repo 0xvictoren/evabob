@@ -197,8 +197,14 @@ async function fcmAccessToken(sa: ServiceAccount): Promise<string> {
   return data.access_token;
 }
 
-/** The FCM v1 message for one device. Exported for tests. */
-export function fcmMessage(device: PushDevice, message: PushMessage) {
+/** What a notification says when the person chose to hide the details. */
+export const PRIVATE_PUSH_BODY = "You have a new private update.";
+
+/**
+ * The FCM v1 message for one device. Exported for tests. Says who and how
+ * much, unless [hideDetails] (the person's Profile switch).
+ */
+export function fcmMessage(device: PushDevice, message: PushMessage, hideDetails = false) {
   const data = Object.fromEntries(
     Object.entries({ ...message.data, tag: message.tag }).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -207,10 +213,9 @@ export function fcmMessage(device: PushDevice, message: PushMessage) {
   return {
     message: {
       token: device.token,
-      notification: {
-        title: "Evabob",
-        body: "You have a new private update.",
-      },
+      notification: hideDetails
+        ? { title: "Evabob", body: PRIVATE_PUSH_BODY }
+        : { title: message.title || "Evabob", body: message.body || PRIVATE_PUSH_BODY },
       data,
       android: {
         priority: "HIGH",
@@ -250,6 +255,8 @@ export async function sendPush(userId: string, message: PushMessage): Promise<nu
   if (devices.length === 0) return 0;
   let sent = 0;
   try {
+    const { store } = await import("../store/db.js");
+    const hideDetails = store.getUser(userId)?.hideNotificationDetails === true;
     const token = await fcmAccessToken(sa);
     for (const device of devices) {
       const res = await fetch(
@@ -260,7 +267,7 @@ export async function sendPush(userId: string, message: PushMessage): Promise<nu
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(fcmMessage(device, message)),
+          body: JSON.stringify(fcmMessage(device, message, hideDetails)),
         },
       );
       if (res.ok) {

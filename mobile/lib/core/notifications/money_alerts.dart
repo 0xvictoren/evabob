@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../chat/pusher_service.dart';
 
@@ -26,6 +27,30 @@ class MoneyAlerts {
 
   bool _ready = false;
   String? _userId;
+
+  /// Notifications say only [privateBody] instead of who and how much. The
+  /// person's choice in Profile; off unless they turn it on. The server keeps
+  /// the same choice for pushes that arrive while the app is closed.
+  bool get hideDetails => _hideDetails;
+  bool _hideDetails = false;
+  static const _hideDetailsKey = 'evabob_hide_notification_details_v1';
+  static const privateBody = 'You have a new private update.';
+
+  Future<void> _loadHideDetails() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _hideDetails = prefs.getBool(_hideDetailsKey) ?? false;
+    } catch (_) {}
+  }
+
+  /// Saves the choice on this phone. Profile also sends it to the server.
+  Future<void> setHideDetails(bool hide) async {
+    _hideDetails = hide;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_hideDetailsKey, hide);
+    } catch (_) {}
+  }
 
   /// Called with an alert's data when its notification is tapped.
   void Function(Map<String, dynamic> data)? onOpen;
@@ -163,6 +188,7 @@ class MoneyAlerts {
     if (userId.isEmpty || userId == _userId) return;
     if (_userId != null) await _pusher.unsubscribeUserAlerts(_userId!);
     _userId = userId;
+    await _loadHideDetails();
     await _ensureReady();
     await _pusher.subscribeUserAlerts(userId, _show);
   }
@@ -186,9 +212,14 @@ class MoneyAlerts {
     _events.add(alert);
     // A balance nudge refreshes what is on screen; it is not news to show.
     if (alert['kind'] == 'balance_changed') return;
-    // Never expose names, amounts or message text on the lock screen.
-    const title = 'Evabob';
-    const body = 'You have a new private update.';
+    // Who and how much, unless the person chose to hide details in Profile.
+    String? text(String key) {
+      final v = alert[key]?.toString().trim();
+      return v == null || v.isEmpty ? null : v;
+    }
+
+    final title = _hideDetails ? 'Evabob' : (text('title') ?? 'Evabob');
+    final body = _hideDetails ? privateBody : (text('body') ?? privateBody);
     if (!_ready) return;
     if (shouldNotify != null && !shouldNotify!(alert)) return;
     // While the app is open the money-in sound is played by the app itself
@@ -237,7 +268,10 @@ class MoneyAlerts {
             // The second copy of the same alert replaces the first silently.
             onlyAlertOnce: true,
             silent: moneyIn,
-            visibility: NotificationVisibility.private,
+            // Hidden details stay hidden on the lock screen too.
+            visibility: _hideDetails
+                ? NotificationVisibility.private
+                : NotificationVisibility.public,
           ),
           iOS: const DarwinNotificationDetails(),
         ),

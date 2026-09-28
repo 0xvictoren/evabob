@@ -37,6 +37,11 @@ export type UserRecord = {
    * used to live only on their own phone.
    */
   avatarBundleIndex?: number | null;
+  /**
+   * Notifications say only "You have a new private update." instead of who
+   * and how much. Off unless the person turns it on in Profile.
+   */
+  hideNotificationDetails?: boolean;
   /** ISO time of last handle change (null/undefined = never changed after signup default). */
   handleChangedAt?: string | null;
   /** Number of successful handle changes after the free first edit. */
@@ -886,7 +891,12 @@ export const store = {
 
   updateProfile(
     userId: string,
-    patch: { displayName?: string; avatarUrl?: string; avatarBundleIndex?: number | null },
+    patch: {
+      displayName?: string;
+      avatarUrl?: string;
+      avatarBundleIndex?: number | null;
+      hideNotificationDetails?: boolean;
+    },
   ) {
     const user = this.getUser(userId);
     if (!user) return null;
@@ -901,6 +911,11 @@ export const store = {
     }
     if (patch.avatarBundleIndex !== undefined) {
       user.avatarBundleIndex = patch.avatarBundleIndex;
+      save(db);
+      void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
+    }
+    if (patch.hideNotificationDetails !== undefined) {
+      user.hideNotificationDetails = patch.hideNotificationDetails;
       save(db);
       void import("../services/mongo.js").then((m) => m.mongoUpsertUser(user));
     }
