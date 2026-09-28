@@ -27,6 +27,7 @@ import '../../core/widgets/glass.dart';
 import '../auth/app_lock_screen.dart';
 import '../chat/chat_list_screen.dart';
 import '../held/operator_reviews_screen.dart';
+import 'account_statement_pdf.dart';
 import 'family_check_screen.dart';
 // Gateway parked for later.
 // import '../gateway/gateway_screen.dart';
@@ -123,23 +124,62 @@ class ProfileScreen extends StatelessWidget {
   Future<void> _showPrivacy(BuildContext context) =>
       WebPageScreen.open(context, 'Privacy', WebPageScreen.privacyUrl);
 
+  /// Export as a PDF to read (activity, contacts) or as JSON, the complete
+  /// copy of everything the account holds.
   Future<void> _exportAccount(BuildContext context) async {
+    final format = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: EvabobColors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 16, 8, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.picture_as_pdf_outlined),
+                title: const Text('PDF'),
+                subtitle: const Text(
+                    'Easy to read: your account, payments and contacts'),
+                onTap: () => Navigator.pop(sheetContext, 'pdf'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.data_object_rounded),
+                title: const Text('JSON'),
+                subtitle: const Text('Everything, for another app to read'),
+                onTap: () => Navigator.pop(sheetContext, 'json'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (format == null || !context.mounted) return;
     try {
       final data = await context.read<ApiClient>().get('/v1/users/me/export');
-      final json = const JsonEncoder.withIndent('  ').convert(data);
-      final name =
-          'evabob-export-${DateTime.now().millisecondsSinceEpoch}.json';
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final pdf = format == 'pdf';
+      final Uint8List bytes = pdf
+          ? await buildAccountStatementPdf(data)
+          : Uint8List.fromList(
+              utf8.encode(const JsonEncoder.withIndent('  ').convert(data)));
+      final name = 'evabob-export-$stamp.${pdf ? 'pdf' : 'json'}';
+      final mime = pdf ? 'application/pdf' : 'application/json';
       if (kIsWeb) {
-        Browser.download(utf8.encode(json), name, 'application/json');
+        Browser.download(bytes, name, mime);
         return;
       }
       final dir = await getTemporaryDirectory();
       final path = p.join(dir.path, name);
-      await File(path).writeAsString(json, flush: true);
+      await File(path).writeAsBytes(bytes, flush: true);
       await SharePlus.instance.share(
         ShareParams(
           subject: 'Your Evabob data export',
-          files: [XFile(path, mimeType: 'application/json')],
+          files: [XFile(path, mimeType: mime)],
         ),
       );
     } catch (error) {
