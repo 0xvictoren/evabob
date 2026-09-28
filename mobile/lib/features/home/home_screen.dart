@@ -25,6 +25,7 @@ import '../activity/receipt_sheet.dart';
 import '../activity/activity_thumb.dart';
 import '../groups/groups_screen.dart';
 import '../hold_links/hold_links_screen.dart';
+import '../notifications/notifications_screen.dart' show NotificationsSeen;
 import '../agent_tasks/agent_tasks_screen.dart';
 import '../paywalls/paywalls_screen.dart';
 import 'action_row.dart';
@@ -119,6 +120,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // For the dot on the bell.
+    NotificationsSeen.load();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final circle = context.read<CircleWalletService>();
@@ -386,10 +389,23 @@ class _Hero extends StatelessWidget {
                   ),
                   _MenuButton(onTap: onMore),
                   const SizedBox(width: 8),
-                  _HeroIcon(
-                    icon: Icons.notifications_none_rounded,
-                    label: 'Notifications',
-                    onTap: onNotifications,
+                  // A dot while anything arrived since Notifications was
+                  // last opened.
+                  ValueListenableBuilder<DateTime?>(
+                    valueListenable: NotificationsSeen.at,
+                    builder: (context, _, __) {
+                      final fresh = NotificationsSeen.hasNew(
+                        context.watch<ActivityService>().items,
+                      );
+                      return _HeroIcon(
+                        icon: Icons.notifications_none_rounded,
+                        label: fresh
+                            ? 'Notifications, new since you last looked'
+                            : 'Notifications',
+                        onTap: onNotifications,
+                        dot: fresh,
+                      );
+                    },
                   ),
                 ],
               ),
@@ -504,12 +520,19 @@ class _MenuButton extends StatelessWidget {
 }
 
 class _HeroIcon extends StatelessWidget {
-  const _HeroIcon(
-      {required this.icon, required this.label, required this.onTap});
+  const _HeroIcon({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.dot = false,
+  });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+
+  /// A small red dot on the corner: something new is waiting.
+  final bool dot;
 
   @override
   Widget build(BuildContext context) {
@@ -526,7 +549,27 @@ class _HeroIcon extends StatelessWidget {
             shape: BoxShape.circle,
             color: EvabobColors.white.withValues(alpha: .18),
           ),
-          child: Icon(icon, color: EvabobColors.white, size: 20),
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              Icon(icon, color: EvabobColors.white, size: 20),
+              if (dot)
+                const Positioned(
+                  top: -1,
+                  right: -1,
+                  child: SizedBox.square(
+                    dimension: 9,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: EvabobColors.alert,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/auth/evabob_auth.dart';
@@ -80,6 +81,28 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_code.text.length == 6) _primary(auth);
   }
 
+  /// Fills the code from the clipboard: the six digits in whatever was
+  /// copied from the email ("123 456", "123-456", or the whole sentence).
+  Future<void> _pasteCode(EvabobAuth auth) async {
+    if (_busy) return;
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted) return;
+    final text = data?.text ?? '';
+    final digits = text.replaceAll(RegExp(r'\D'), '');
+    final code = digits.length == 6
+        ? digits
+        : RegExp(r'(?<!\d)\d{6}(?!\d)').firstMatch(text)?.group(0);
+    if (code == null) {
+      showTopSnack(
+        context,
+        const SnackBar(content: Text('Copy the six-digit code first')),
+      );
+      return;
+    }
+    setState(() => _code.text = code);
+    await _primary(auth);
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<EvabobAuth>();
@@ -102,6 +125,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     _code.clear();
                   }),
                   onKey: (key) => _codeKey(key, auth),
+                  onPaste: loading ? null : () => _pasteCode(auth),
                   onResend: loading
                       ? null
                       : () async {
@@ -249,6 +273,7 @@ class _CodeView extends StatelessWidget {
     required this.onBack,
     required this.onKey,
     required this.onResend,
+    this.onPaste,
   });
 
   final String email;
@@ -258,6 +283,7 @@ class _CodeView extends StatelessWidget {
   final VoidCallback onBack;
   final ValueChanged<String> onKey;
   final VoidCallback? onResend;
+  final VoidCallback? onPaste;
 
   static const _keys = [
     ['1', '2', '3'],
@@ -305,9 +331,19 @@ class _CodeView extends StatelessWidget {
           Text(error!, style: Type.label.copyWith(color: EvabobColors.alert)),
         ],
         const SizedBox(height: 12),
-        TextButton(
-          onPressed: onResend,
-          child: const Text('Send a new code'),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            TextButton.icon(
+              onPressed: onPaste,
+              icon: const Icon(Icons.content_paste_rounded, size: 18),
+              label: const Text('Paste code'),
+            ),
+            TextButton(
+              onPressed: onResend,
+              child: const Text('Send a new code'),
+            ),
+          ],
         ),
         if (loading) ...[
           const SizedBox(height: 8),

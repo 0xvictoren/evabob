@@ -12,6 +12,52 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/utils/money_format.dart';
 import '../activity/activity_thumb.dart';
 
+/// When Notifications was last opened. Shared with the bell on Home, which
+/// shows a dot while anything newer is waiting.
+class NotificationsSeen {
+  NotificationsSeen._();
+
+  static final ValueNotifier<DateTime?> at = ValueNotifier<DateTime?>(null);
+  static const _key = 'evabob_notifications_seen_at_v1';
+  static bool _loading = false;
+
+  /// Reads the saved time once. Never opened reads as "long ago".
+  static Future<void> load() async {
+    if (at.value != null || _loading) return;
+    _loading = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final ms = prefs.getInt(_key);
+      at.value = at.value ??
+          DateTime.fromMillisecondsSinceEpoch(ms ?? 0);
+    } catch (_) {
+      at.value ??= DateTime.fromMillisecondsSinceEpoch(0);
+    } finally {
+      _loading = false;
+    }
+  }
+
+  /// Opened now. Returns when it was last opened before this.
+  static Future<DateTime> markNow() async {
+    await load();
+    final before = at.value ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final now = DateTime.now();
+    at.value = now;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_key, now.millisecondsSinceEpoch);
+    } catch (_) {}
+    return before;
+  }
+
+  /// True while any of [items] arrived after Notifications was last opened.
+  static bool hasNew(Iterable<ActivityEntry> items) {
+    final seen = at.value;
+    if (seen == null) return false;
+    return items.take(20).any((e) => e.createdAt.isAfter(seen));
+  }
+}
+
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key, required this.onBack});
 
@@ -67,20 +113,11 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   /// When they last looked. Anything newer is "New", with a dot.
   DateTime? _seenAt;
-  static const _seenKey = 'evabob_notifications_seen_at_v1';
 
   Future<void> _loadSeen() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final ms = prefs.getInt(_seenKey);
-      if (mounted) {
-        setState(() => _seenAt = ms == null
-            ? DateTime.fromMillisecondsSinceEpoch(0)
-            : DateTime.fromMillisecondsSinceEpoch(ms));
-      }
-      // Seen from now on; the dots stay for this visit.
-      await prefs.setInt(_seenKey, DateTime.now().millisecondsSinceEpoch);
-    } catch (_) {}
+    // Seen from now on; the dots stay for this visit.
+    final before = await NotificationsSeen.markNow();
+    if (mounted) setState(() => _seenAt = before);
   }
 
   static String _when(DateTime at) {

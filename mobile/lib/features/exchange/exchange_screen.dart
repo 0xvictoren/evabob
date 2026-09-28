@@ -170,6 +170,9 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
     if (amountIn <= 0 || _busy || from.toLowerCase() == to.toLowerCase()) {
       return;
     }
+    // The amount is decided: close the keyboard and let go of the field, so
+    // the cursor is not left blinking in it while the conversion runs.
+    FocusScope.of(context).unfocus();
     if (_fromPreset == 'CUSTOM' &&
         !RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(from)) {
       showTopSnack(
@@ -507,6 +510,8 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                         const SizedBox(height: 10),
                         TextField(
                           controller: _amountCtrl,
+                          // Fixed while a conversion is running.
+                          readOnly: _busy,
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
