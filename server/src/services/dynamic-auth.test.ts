@@ -81,6 +81,14 @@ describe("Dynamic session claim validation", () => {
     }
   });
 
+  it("accepts the web-app's origin as a second audience, and nothing else", () => {
+    const web = "https://evabob-webapp-testnet.onrender.com";
+    const both = { environmentId, audience: [audience, web], nowSeconds: now };
+    assert.equal(validateDynamicClaims(complete(), both)?.sub, "dynamic-user-1");
+    assert.equal(validateDynamicClaims(complete({ aud: web }), both)?.sub, "dynamic-user-1");
+    assert.equal(validateDynamicClaims(complete({ aud: "https://attacker.invalid" }), both), null);
+  });
+
   it("rejects expired, future-issued, and invalid-lifetime tokens", () => {
     for (const patch of [
       { exp: now - 31 },

@@ -71,15 +71,16 @@ export function verifiedEmailFromClaims(value: Record<string, unknown>): string 
  */
 export function validateDynamicClaims(
   value: unknown,
-  options: { environmentId: string; audience: string; nowSeconds?: number },
+  options: { environmentId: string; audience: string | string[]; nowSeconds?: number },
 ): DynamicClaims | null {
+  const accepted = audiences(options.audience);
   if (!value || typeof value !== "object") return null;
   const claims = value as Record<string, unknown>;
   const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
   if (typeof claims.sub !== "string" || !claims.sub.trim()) return null;
   if (!dynamicIssuers(options.environmentId).includes(claims.iss as string)) return null;
   if (claims.environment_id !== options.environmentId) return null;
-  if (!audiences(claims.aud).includes(options.audience)) return null;
+  if (!audiences(claims.aud).some((aud) => accepted.includes(aud))) return null;
   if (!Number.isFinite(claims.iat) || !Number.isFinite(claims.exp)) return null;
   const issuedAt = claims.iat as number;
   const expiresAt = claims.exp as number;
@@ -154,12 +155,12 @@ async function verifyInner(
     const verified = jwt.verify(raw, key.getPublicKey(), {
       algorithms: ["RS256"],
       issuer: dynamicIssuers(config.dynamic.environmentId),
-      audience: config.dynamic.audience,
+      audience: config.dynamic.audiences,
       clockTolerance: CLOCK_TOLERANCE_SECONDS,
     });
     const claims = validateDynamicClaims(verified, {
       environmentId: config.dynamic.environmentId,
-      audience: config.dynamic.audience,
+      audience: config.dynamic.audiences,
     });
     if (!claims) {
       // Say which claim failed; none of these values are secret.
@@ -193,9 +194,13 @@ async function verifyInner(
       }
       return "expired";
     }
+    // The library names only the audience it expected; log the one the token
+    // carried, so a sign-in from a new origin is easy to spot.
+    const payload = jwt.decode(raw);
     console.warn(
       "dynamic jwt:",
       e instanceof Error ? e.message : e,
+      payload && typeof payload === "object" ? { aud: payload.aud } : "",
     );
     return null;
   }

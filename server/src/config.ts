@@ -139,8 +139,17 @@ export const config = {
       "5be16cc5-2968-4265-a14b-86caf3963a72",
     ),
     apiToken: req("DYNAMIC_API_TOKEN"),
-    /** Exact `aud` expected on end-user session JWTs. */
-    audience: req("DYNAMIC_JWT_AUDIENCE", "https://evabob.app"),
+    /**
+     * Every `aud` accepted on end-user session JWTs. The phones sign in as
+     * DYNAMIC_JWT_AUDIENCE; Dynamic's browser SDK signs in as the page's own
+     * origin, so the web-app (WEB_APP_ORIGIN) is accepted too.
+     */
+    audiences: [
+      req("DYNAMIC_JWT_AUDIENCE", "https://evabob.app"),
+      ...req("WEB_APP_ORIGIN").split(","),
+    ]
+      .map((o) => o.trim().replace(/\/+$/, ""))
+      .filter(Boolean) as [string, ...string[]],
     /**
      * Incident-response cutoff. A signed token issued before this instant is
      * treated as expired, forcing every device that used the former HTTP API
