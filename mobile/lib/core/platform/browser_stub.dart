@@ -13,6 +13,8 @@ class Browser {
   static void download(Uint8List bytes, String fileName, String mimeType) =>
       throw UnsupportedError('Browser downloads exist only in the web-app');
 
+  static void log(String message) {}
+
   static void openTab(String url) =>
       throw UnsupportedError('Browser tabs exist only in the web-app');
 }

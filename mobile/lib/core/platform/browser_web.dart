@@ -49,6 +49,12 @@ class Browser {
     });
   }
 
+  /// A line in the browser console, so sign-in steps can be read in the
+  /// page's DevTools.
+  static void log(String message) {
+    web.console.info(message.toJS);
+  }
+
   /// Opens [url] in a new tab, without giving it a handle back to this one.
   static void openTab(String url) {
     web.window.open(url, '_blank', 'noopener,noreferrer');

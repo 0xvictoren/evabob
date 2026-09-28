@@ -11,6 +11,7 @@ import '../config/env.dart';
 import 'dynamic_client.dart';
 import 'evabob_user.dart';
 import 'session_store.dart';
+import '../platform/browser.dart';
 // Env used for resolvedAvatarUrl
 
 export 'evabob_user.dart';
@@ -22,6 +23,13 @@ export 'evabob_user.dart';
 ///
 /// **Hard session finish:** signed-in only when we have a real Dynamic JWT
 /// (or explicit demo mode). No provisional email-only sessions.
+/// A sign-in step, also written to the browser console in the web-app so a
+/// stuck sign-in can be traced from DevTools. Never logs tokens or emails.
+void _authLog(String message) {
+  debugPrint('EvabobAuth: $message');
+  if (kIsWeb) Browser.log('[evabob] $message');
+}
+
 class EvabobAuth extends ChangeNotifier {
   /// Session record (JWT, wallet address, email) lives in secure storage.
   /// See SessionStore -- it used to be plain text in SharedPreferences.
@@ -36,6 +44,7 @@ class EvabobAuth extends ChangeNotifier {
     // straight after they entered their code.
     api?.onSessionExpired = (rejected) {
       if (rejected == null || rejected != _user?.authToken) return;
+      _authLog('the server refused this sign-in; signing out');
       unawaited(endExpiredSession());
     };
   }
@@ -270,6 +279,11 @@ class EvabobAuth extends ChangeNotifier {
 
   void _onToken(String? token) {
     if (token == null || token.isEmpty) return;
+    final claims = _jwtPayload(token);
+    _authLog('token received (aud ${claims?['aud']}, exp '
+        '${claims?['exp']}, env matches '
+        '${claims?['environment_id'] == _resolvedDynamicEnvironmentId}, '
+        'verified credentials ${claims?['verified_credentials'] is List})');
     if (_tokenWaiter != null && !_tokenWaiter!.isCompleted) {
       _tokenWaiter!.complete(token);
     }
@@ -280,7 +294,10 @@ class EvabobAuth extends ChangeNotifier {
       profile: profile,
       fallbackEmail: _pendingEmail ?? _user?.email,
     );
-    if (session == null) return;
+    if (session == null) {
+      _authLog('token not usable for a session; ignored');
+      return;
+    }
 
     final switched = _isAccountSwitch(session);
     // Fresh login / account switch: do not inherit previous wallet address.
@@ -331,6 +348,8 @@ class EvabobAuth extends ChangeNotifier {
     if (exp == null) return;
     final wait = exp.difference(DateTime.now());
     if (wait <= Duration.zero) {
+      _authLog('sign-in token already expired (exp ${exp.toUtc()}, '
+          'now ${DateTime.now().toUtc()}); signing out');
       unawaited(endExpiredSession());
       return;
     }
@@ -477,6 +496,7 @@ class EvabobAuth extends ChangeNotifier {
       if (session == null ||
           session.authToken == null ||
           session.authToken!.isEmpty) {
+        _authLog('code accepted but no usable session came back');
         _error = 'Sign-in did not complete. Request a new code and try again. '
             'Stay on this screen until the session loads.';
         needsNewOtp = true;
@@ -488,10 +508,10 @@ class EvabobAuth extends ChangeNotifier {
       _sessionEndedEmail = null;
       await _persist();
       HapticFeedback.lightImpact();
-      debugPrint('EvabobAuth: hard finish completed');
+      _authLog('signed in');
       return true;
     } catch (e) {
-      debugPrint('loginWithEmailCode failed: ${e.runtimeType}');
+      _authLog('sign-in failed: ${_friendly(e)}');
       _error = _friendly(e);
       needsNewOtp = _isInvalidOtp(e);
       return false;
@@ -609,6 +629,7 @@ class EvabobAuth extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _authLog('signing out');
     _expiryTimer?.cancel();
     _expiryTimer = null;
     final priorId = _user?.id;

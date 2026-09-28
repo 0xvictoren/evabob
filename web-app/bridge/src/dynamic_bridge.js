@@ -14,6 +14,7 @@ import {
   createDynamicClient,
   initializeClient,
   logout as dynamicLogout,
+  onEvent,
   sendEmailOTP,
   verifyOTP,
 } from '@dynamic-labs-sdk/client';
@@ -28,6 +29,9 @@ let client = null;
 let starting = null;
 let pendingEmail = null;
 let otpVerification = null;
+
+// Sign-in steps in the console, to trace a stuck sign-in. No tokens or emails.
+const log = (message) => console.info(`[evabob] ${message}`);
 
 const ok = (extra = {}) => JSON.stringify({ ok: true, ...extra });
 
@@ -49,7 +53,18 @@ async function start(environmentId, appName) {
         metadata: { name: appName, universalLink: window.location.origin },
         coreConfig: { storageAdapter: sessionStore },
       });
+      // Dynamic can end its own session (expired token, missing session
+      // key...). Say why, since the app keeps its own copy of the sign-in.
+      onEvent(
+        {
+          event: 'logout',
+          listener: (meta) =>
+            log(`Dynamic ended its session: ${meta?.reason ?? 'no reason given'}`),
+        },
+        client,
+      );
       await initializeClient(client);
+      log('Dynamic ready');
     })().catch((e) => {
       starting = null;
       throw e;
@@ -112,6 +127,7 @@ window.evabobDynamic = {
         client,
       );
       const user = res.user || client.user || null;
+      log(`code verified: full token ${res.jwt ? 'returned' : 'MISSING'}, user ${user ? 'returned' : 'missing'}`);
       return ok({
         jwt: res.jwt || null,
         user: user
