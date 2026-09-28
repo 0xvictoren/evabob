@@ -231,7 +231,7 @@ services:
       export PATH="$HOME/flutter/bin:$PATH" &&
       flutter config --no-analytics &&
       flutter --version &&
-      node web-app/tool/build.mjs
+      EVABOB_FLUTTER="$HOME/flutter/bin/flutter" node web-app/tool/build.mjs
     staticPublishPath: web-app/build/web
     autoDeployTrigger: commit
     # Rebuild only when the app or its web shell changes.

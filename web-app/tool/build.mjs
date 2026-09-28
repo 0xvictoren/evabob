@@ -39,6 +39,11 @@ function run(cmd, cmdArgs, cwd = webApp, { retryVerbose = false } = {}) {
       })
     : spawnSync(cmd, cmdArgs, { cwd, stdio: 'inherit' });
   if (res.status !== 0) {
+    // A command that never started (not found) or was killed (out of memory)
+    // prints nothing itself, so say why here.
+    if (res.error) console.error(`! ${cmd} could not run: ${res.error.message}`);
+    if (res.signal) console.error(`! ${cmd} was killed by ${res.signal}`);
+    if (res.status !== null) console.error(`! ${cmd} exited with ${res.status}`);
     // Run it again with full output, so a CI log shows why it failed.
     if (retryVerbose) {
       run(cmd, [...cmdArgs, '--verbose'], cwd);
