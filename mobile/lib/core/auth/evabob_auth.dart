@@ -353,12 +353,23 @@ class EvabobAuth extends ChangeNotifier {
       unawaited(endExpiredSession());
       return;
     }
-    _expiryTimer = Timer(wait, () => unawaited(endExpiredSession()));
+    // Waits a day at most, then looks again. A browser cannot hold a timer
+    // past about 24.8 days (2^31 ms): a longer one fires at once, and the
+    // web-app signed people out the moment their 30-day sign-in began.
+    _expiryTimer = Timer(
+      wait < _maxExpiryWait ? wait : _maxExpiryWait,
+      _scheduleExpiry,
+    );
   }
+
+  static const _maxExpiryWait = Duration(days: 1);
 
   /// Timers do not run while the phone sleeps: check again on the way back.
   void checkSessionExpiry() {
-    if (sessionExpired) unawaited(endExpiredSession());
+    if (sessionExpired) {
+      _authLog('sign-in token expired while away; signing out');
+      unawaited(endExpiredSession());
+    }
   }
 
   /// The sign-in has ended. Signs out once — however many requests notice at
