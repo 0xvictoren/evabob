@@ -1,39 +1,53 @@
-# Evabob — a Circle integration showcase
+# Evabob — trust, built into the payment
 
-**Send money like a message.** A mobile-first payments prototype where users think
-in local currency (e.g. Naira) while settlement runs on **USDC on Arc Testnet**,
-built on **Circle App Kit** (Send, Bridge/CCTP, Swap, Unified Balance/Gateway)
-with Circle UCW PIN signing and chat-native money commands.
+**Money that knows its own rules, so people and AI agents can pay each other safely.**
 
-> **What this is.** A testnet integration showcase — an end-to-end exercise of the
-> Circle stack inside a real product shell (Flutter + Hono + Solidity). It has
-> **never held real value and has no users.** Some flows are complete, some are
-> blocked on external gas or credentials, and a few endpoints referenced in
-> earlier drafts of this file were never built. **[docs/STATUS.md](./docs/STATUS.md)
-> is the single source of truth** for what actually works.
-
-> **Not production software.** There is no independent audit, and
-> several known security gaps are still open — they are listed plainly in
-> STATUS.md rather than hidden. Do not point this at real money.
+Paying a stranger, a freelancer or an AI agent usually means hoping they deliver.
+Evabob replaces that hope with **programmable money**. Each USDC payment carries its
+own rules: when it releases, how much can be spent and who has to approve it. It
+then settles on **Arc** in under a second.
 
 ---
 
-## What it does
+## For humans
+
+- **Pay like you text.** Send by `@handle` or email inside a chat and see amounts in
+  your own currency (naira or dollars). Nobody sees a seed phrase or chain jargon.
+- **Money that waits for delivery.** For jobs and sell links, the money is set aside
+  and only goes out on delivery. It releases automatically 7 days after the work is
+  marked delivered, and disputes go to a review form.
+- **Invoices on your terms.** Pay 100% now, split 50/50, or hold 100% in escrow until
+  the work is done.
+- **Money circles** where contributions follow rules instead of reminders.
+- **You stay in control.** Every spend needs your PIN, and an optional family check
+  adds an email code.
+
+## For agents
+
+- **A wallet for each agent**, held by Circle, with spending caps per payment, per day
+  and per month.
+- **Pay-per-call** for paid APIs and services (x402), funded from a balance that works
+  across blockchains (Circle Gateway).
+- **Every spend on record**, with withdrawal and reconciliation history that ties back
+  to the person who owns the agent.
+
+## How it's built
 
 | | |
 |--|--|
-| **Problem** | Cross-border and onchain money feels hard; wallets and chains block normal users. |
-| **Product** | Chat-style P2P payments, Gateway top-up, Buy (swap on Arc), Bridge (CCTP), activity receipts, agent spend wallets. |
-| **Settlement** | **Arc Testnet** (chain `5042002`) — USDC primary, EURC for the euro leg. Wallets are created on **Arc Testnet, Ethereum Sepolia and Base Sepolia**. |
-| **Identity** | On-chain **IdentityRegistry** (hashed email / handle → wallet). Funds are received by **email, `@handle`, or a raw `0x` address** — nothing else. |
-| **Auth** | **Dynamic Labs** email OTP; every `/v1` route requires the verified JWT. |
-| **Custody** | **Circle User-Controlled Wallets** — all user spends go through PIN challenges. |
-| **Liquidity** | **Circle App Kit** for swaps (Synthra fallback before any PIN) and bridges; legacy CCTP / Gateway retired behind `APP_KIT_KEEP_LEGACY` (off). |
-| **Chat** | Threads + `@.` money commands; invoice pay (100% now / 50+50 / 100% escrow); **Pusher** realtime. |
-| **Agents** | Dedicated Circle-held EOA per new agent, Gateway funding, spending limits, x402 batching, withdrawal and reconciliation records. Legacy shared-custody agents require migration. |
+| **Settlement** | USDC (EURC for the euro leg) on **Arc**, with sub-second finality and USDC as gas |
+| **Custody** | Circle User-Controlled Wallets, where every user spend is a PIN challenge |
+| **Money movement** | Circle **App Kit**: send, swap, bridge (CCTP) and unified balance (Gateway) |
+| **Trust rules** | `PaymentEscrowV2` on Arc for protected, invoice and job escrow |
+| **Identity** | On-chain `IdentityRegistry` (hashed email / `@handle` → wallet) |
+| **Apps** | Flutter (Android + iOS), a web app on the same codebase, and a TypeScript (Hono) API |
 
-Product language stays human — *account, balance, send, buy, bridge, activity* —
-not seed phrases or chain jargon.
+**One-liner:** Evabob is a trust layer for payments. Money that knows its own rules
+lets people and AI agents pay each other safely, settled in USDC on Arc.
+
+> **Status:** running on Arc Testnet. It has never held real value and has not been
+> independently audited. **[docs/STATUS.md](./docs/STATUS.md)** is the single source
+> of truth for what works today.
 
 ---
 
