@@ -1103,7 +1103,7 @@ class ChatService extends ChangeNotifier {
     required String myId,
     required String peerHandle,
     required Map<String, dynamic> meta,
-    required String mode, // instant | split | escrow
+    required String mode, // instant | split | escrow | rest
   }) async {
     final amount = (meta['amount'] as num?)?.toDouble() ??
         (meta['amountUsdc'] as num?)?.toDouble() ??
@@ -1303,14 +1303,65 @@ class ChatService extends ChangeNotifier {
           'error': res['error']?.toString() ?? 'Instant half failed',
         };
       }
+      // The first half has reached them. Say so now — receipt, and the
+      // request marked part paid — before holding the second half. Both used
+      // to wait for the hold, so a hold still confirming left the card saying
+      // "unpaid" with Pay on it, and people paid the whole amount again.
+      final paidMsg = ChatMessage(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        threadId: threadId,
+        senderId: myId,
+        kind: ChatMessageKind.receipt,
+        text: 'Paid 50% now',
+        receipt: ReceiptData(
+          amountLabel: formatMoney(instant, token),
+          fxLabel: 'Half now, half held',
+          description: description,
+          statusLabel: 'Paid · 50% instant',
+          peerName: peerHandle,
+          hash: explorerTxHash(res),
+          dateLabel: DateTime.now().toIso8601String(),
+        ),
+        meta: {
+          'fromMe': true,
+          'token': token,
+          'amount': instant,
+          'type': 'payment',
+          'mode': 'split_instant',
+          if (requestId != null) 'requestId': requestId,
+          if (explorerTxHash(res) != null) 'txHash': explorerTxHash(res),
+        },
+        createdAt: DateTime.now(),
+      );
+      try {
+        await _api.post('/v1/chat/threads/$threadId/messages', body: {
+          'text': 'Paid 50% · ${formatTokenAmount(instant, token)}',
+          'senderId': myId,
+          'kind': 'receipt',
+          'meta': paidMsg.meta,
+        });
+      } catch (_) {}
+      _messages.putIfAbsent(threadId, () => []).add(paidMsg);
+      await markRequestServer(
+        'partial',
+        paidTxHash: explorerTxHash(res),
+        chosenStructure: 'split',
+        instantPaidUsdc: instant,
+      );
+      markRequestLocal('Request · part paid');
+      _touchThread(threadId, 'Paid ${formatMoney(instant, token)}');
+      _notify?.bump('activity');
+      notifyListeners();
       try {
         final escrowOut = await fundEscrow(half);
         if (escrowOut['ok'] != true) {
           return {
             'ok': false,
-            'error':
-                'The first half was sent. We could not hold the second half — '
-                    'try holding it again.',
+            'error': escrowOut['pending'] == true
+                ? 'The first half was sent. The other half is still being set '
+                    'aside — check Activity in a minute, and do not pay it again.'
+                : 'The first half was sent. The other half was not held — tap '
+                    '"Pay the rest" on the request when you are ready.',
             'instantHalf': instant,
           };
         }
@@ -1322,39 +1373,6 @@ class ChatService extends ChangeNotifier {
           instantPaidUsdc: instant,
           escrowLockedUsdc: half,
         );
-        final paidMsg = ChatMessage(
-          id: DateTime.now().microsecondsSinceEpoch.toString(),
-          threadId: threadId,
-          senderId: myId,
-          kind: ChatMessageKind.receipt,
-          text: 'Paid 50% now',
-          receipt: ReceiptData(
-            amountLabel: formatMoney(instant, token),
-            fxLabel: 'Half now, half held',
-            description: description,
-            statusLabel: 'Paid · 50% instant',
-            peerName: peerHandle,
-            hash: explorerTxHash(res),
-            dateLabel: DateTime.now().toIso8601String(),
-          ),
-          meta: {
-            'fromMe': true,
-            'token': token,
-            'amount': instant,
-            'type': 'payment',
-            'mode': 'split_instant',
-          },
-          createdAt: DateTime.now(),
-        );
-        try {
-          await _api.post('/v1/chat/threads/$threadId/messages', body: {
-            'text': 'Paid 50% · ${formatTokenAmount(instant, token)}',
-            'senderId': myId,
-            'kind': 'receipt',
-            'meta': paidMsg.meta,
-          });
-        } catch (_) {}
-        _messages.putIfAbsent(threadId, () => []).add(paidMsg);
         markRequestLocal('Held for them');
         _touchThread(threadId, 'Split pay · ${formatMoney(amount, token)}');
         // (own action: no unread badge)
@@ -1368,10 +1386,75 @@ class ChatService extends ChangeNotifier {
       } catch (e) {
         return {
           'ok': false,
-          'error': 'The first half was sent. We could not hold the second '
-              'half — try holding it again.',
+          'error': 'The first half was sent. The other half was not held — '
+              'tap "Pay the rest" on the request when you are ready.',
         };
       }
+    }
+
+    // The rest of a part-paid request: only what is still owed, sent now.
+    if (mode == 'rest') {
+      final rest = (meta['remaining'] as num?)?.toDouble() ?? 0;
+      if (rest <= 0 || rest >= amount) {
+        return {'ok': false, 'error': 'Nothing is left to pay on this request'};
+      }
+      final res = await circle.send(
+        context: context,
+        to: to,
+        amountUsdc: rest,
+        token: token,
+        memo: description.isEmpty ? 'Payment request (rest)' : '$description (rest)',
+      );
+      if (res['ok'] != true) {
+        return {
+          'ok': false,
+          'error': res['error']?.toString() ?? 'The payment did not go through.',
+        };
+      }
+      final marked = await markRequestServer(
+        'paid',
+        paidTxHash: explorerTxHash(res),
+      );
+      if (marked) markRequestLocal('Request · paid');
+      final msg = ChatMessage(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        threadId: threadId,
+        senderId: myId,
+        kind: ChatMessageKind.receipt,
+        text: 'Paid the rest',
+        receipt: ReceiptData(
+          amountLabel: formatMoney(rest, token),
+          fxLabel: 'The rest of the request',
+          description: description,
+          statusLabel: 'Paid · the rest',
+          peerName: peerHandle,
+          hash: explorerTxHash(res),
+          dateLabel: DateTime.now().toIso8601String(),
+        ),
+        meta: {
+          'fromMe': true,
+          'token': token,
+          'amount': rest,
+          'type': 'payment',
+          'mode': 'rest',
+          if (requestId != null) 'requestId': requestId,
+          if (explorerTxHash(res) != null) 'txHash': explorerTxHash(res),
+        },
+        createdAt: DateTime.now(),
+      );
+      try {
+        await _api.post('/v1/chat/threads/$threadId/messages', body: {
+          'text': 'Paid the rest · ${formatTokenAmount(rest, token)}',
+          'senderId': myId,
+          'kind': 'receipt',
+          'meta': msg.meta,
+        });
+      } catch (_) {}
+      _messages.putIfAbsent(threadId, () => []).add(msg);
+      _touchThread(threadId, 'Paid ${formatMoney(rest, token)}');
+      _notify?.bump('activity');
+      notifyListeners();
+      return {'ok': true, 'mode': 'rest', ...res};
     }
 
     // Instant on-chain send (100% now)

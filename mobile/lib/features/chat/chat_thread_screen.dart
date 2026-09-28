@@ -433,11 +433,12 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       );
       return;
     }
-    final label = mode == 'instant'
-        ? 'Paid in full'
-        : mode == 'split'
-            ? 'Half paid, half held until the work arrives'
-            : 'Held until the work arrives';
+    final label = switch (mode) {
+      'instant' => 'Paid in full',
+      'rest' => 'Paid the rest',
+      'split' => 'Half paid, half held until the work arrives',
+      _ => 'Held until the work arrives',
+    };
     showTopSnack(
       context,
       SnackBar(content: Text(label), behavior: SnackBarBehavior.floating),
@@ -457,6 +458,37 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     final token = m.meta?['token']?.toString() ?? 'USDC';
     final symbol = token == 'EURC' ? '€' : r'$';
     String money(double v) => symbol + v.toStringAsFixed(2);
+
+    // Part paid already ("Pay half, hold half" whose hold did not go through):
+    // only what is left is owed, so ask for exactly that.
+    if (m.meta?['rawStatus']?.toString() == 'partial') {
+      final rest = (m.meta?['remaining'] as num?)?.toDouble() ?? 0;
+      if (rest <= 0) return;
+      final confirmed = await confirmPayment(
+        context,
+        PaymentReview(
+          payee: widget.thread.title,
+          payeeDetail: widget.thread.handle,
+          amount: rest,
+          token: token,
+          firstTime: false,
+          warning: PaymentReview.irreversible,
+          note: 'The rest of this request. The part you already paid is not '
+              'charged again.',
+        ),
+      );
+      if (!confirmed || !mounted) return;
+      final handle =
+          (widget.thread.handle ?? '').replaceFirst(RegExp(r'^@'), '').trim();
+      final payee = handle.isEmpty ? widget.thread.title : '@$handle';
+      if (!await passFamilyCheck(context,
+              to: payee, amount: rest, token: token) ||
+          !mounted) {
+        return;
+      }
+      await _payRequestMode(m, myId, 'rest');
+      return;
+    }
 
     final options = <(String, String, String)>[
       (

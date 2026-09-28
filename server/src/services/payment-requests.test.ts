@@ -209,4 +209,28 @@ describe("requests shared in chat", async () => {
     assert.equal(invoiceCardMeta(declined).status, "Request · declined");
     assert.throws(() => declineInvoice(inv.id, "chat-payer"), InvoicePermissionError);
   });
+
+  it("a part-paid request asks only for the rest, and can then be paid or held", () => {
+    const inv = addressed();
+    const first = "0x" + "a".repeat(64);
+    const part = markPaymentRequest(inv.id, "partial", PAYER, {
+      chosenStructure: "split",
+      instantPaidUsdc: 5,
+      partialTxHash: first,
+    })!;
+    assert.equal(part.status, "partial");
+    const card = invoiceCardMeta(part);
+    assert.equal(card.status, "Request · part paid");
+    assert.equal(card.remaining, 5);
+    assert.equal(card.open, false);
+    assert.equal(invoiceCardMeta(inv).remaining, 10);
+
+    // The first half's transaction cannot settle a different request.
+    const other = addressed();
+    assert.throws(() => markPaymentRequest(other.id, "paid", PAYER, { paidTxHash: first }));
+
+    const done = markPaymentRequest(inv.id, "paid", PAYER, { paidTxHash: "0x" + "b".repeat(64) })!;
+    assert.equal(done.status, "paid");
+    assert.equal(done.instantPaidUsdc, 5);
+  });
 });

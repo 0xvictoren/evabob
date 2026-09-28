@@ -17,7 +17,8 @@ import '../../core/widgets/glass.dart';
 ///
 /// The person asked sees **Pay** and **Cancel** (which declines it: the card
 /// closes for both and the sender is told). The person asking sees **Cancel
-/// request** while it is open.
+/// request** while it is open. A part-paid request shows what is left, and
+/// the person asked sees **Pay the rest**.
 class RequestCard extends StatelessWidget {
   const RequestCard({
     super.key,
@@ -51,6 +52,10 @@ class RequestCard extends StatelessWidget {
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
     final open = meta['open'] == true;
+    // "Pay half, hold half" paid its first half but the rest was never held:
+    // the person asked can pay what is left, and only that.
+    final partial = meta['rawStatus']?.toString() == 'partial';
+    final remaining = (meta['remaining'] as num?)?.toDouble() ?? 0;
     final status = meta['status']?.toString() ?? 'Request';
     final note = meta['note']?.toString() ?? '';
     final due = DateTime.tryParse(meta['dueAt']?.toString() ?? '');
@@ -68,6 +73,15 @@ class RequestCard extends StatelessWidget {
       displayAmount: (display['amount'] as num?)?.toDouble(),
     );
     final underneath = fx.secondaryToken(total, token);
+    final displayAmount = (display['amount'] as num?)?.toDouble();
+    final restLabel = fx.requestPrimary(
+      usd: remaining,
+      token: token,
+      displayCurrency: display['currency']?.toString(),
+      displayAmount: displayAmount == null || total <= 0
+          ? null
+          : displayAmount * remaining / total,
+    );
 
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -220,6 +234,37 @@ class RequestCard extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ],
+              if (partial && remaining > 0) ...[
+                const SizedBox(height: 8),
+                Text(
+                  mine ? '$restLabel still to come' : '$restLabel left to pay',
+                  style: Type.caption.copyWith(color: EvabobColors.navyMuted),
+                ),
+              ],
+              if (partial && remaining > 0 && !mine) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: busy ? null : onPay,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 48),
+                    ),
+                    child: busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(
+                            'Pay the rest · $restLabel',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                  ),
                 ),
               ],
               if (open && mine && onCancel != null) ...[

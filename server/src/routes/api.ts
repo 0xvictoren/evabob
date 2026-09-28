@@ -2128,7 +2128,7 @@ api.post("/payment-requests/:id/decline", async (c) => {
 api.post("/payment-requests/:id/mark", async (c) => {
   const body = z
     .object({
-      status: z.enum(["open", "paid", "escrow", "cancelled"]),
+      status: z.enum(["open", "paid", "partial", "escrow", "cancelled"]),
       threadId: z.string().optional(),
       chosenStructure: z.enum(["full", "split", "escrow"]).optional(),
       paidTxHash: z.string().optional(),
@@ -2143,10 +2143,15 @@ api.post("/payment-requests/:id/mark", async (c) => {
   try {
     const requested = (await import("../services/payment-requests.js")).getPaymentRequest(c.req.param("id"));
     if (!requested) return c.json({ error: "not found" }, 404);
+    const { requestRemaining } = await import("../services/payment-requests.js");
     if (body.status === "paid") {
       // A client flag is not settlement evidence. Require the exact transfer
       // hash and verify the ERC-20 receipt before changing the invoice state.
+      // A part-paid request is settled by what is left, not the whole amount.
       if (!body.paidTxHash) return c.json({ error: "paidTxHash is required" , code: "PAYMENT_PROOF_REQUIRED" }, 409);
+      if (requested.status === "partial" && body.paidTxHash.toLowerCase() === requested.partialTxHash?.toLowerCase()) {
+        return c.json({ error: "That payment already counted towards this request", code: "PAYMENT_UNVERIFIED" }, 409);
+      }
       const payer = store.getUser(userId(c));
       const issuer = store.getUser(requested.userId);
       const { verifyPaymentEvidence } = await import("../services/payment-evidence.js");
@@ -2154,7 +2159,33 @@ api.post("/payment-requests/:id/mark", async (c) => {
         txHash: body.paidTxHash,
         sender: payer?.evmAddress || "",
         recipient: issuer?.evmAddress || "",
-        amount: requested.amount,
+        amount: requestRemaining(requested),
+        token: requested.token,
+        notBefore: requested.createdAt,
+      });
+      if (!verified) return c.json({ error: "Payment is not verified on chain.", code: "PAYMENT_UNVERIFIED" }, 409);
+    }
+    if (body.status === "partial") {
+      // "Pay half, hold half" after its first half: recorded straight away,
+      // so the card stops asking for the whole amount even if the hold for
+      // the second half is still confirming or never happens.
+      if (!requested.allowedStructures.includes("split")) {
+        return c.json({ error: "That payment structure is not allowed" }, 409);
+      }
+      if (!body.paidTxHash) return c.json({ error: "paidTxHash is required", code: "PAYMENT_PROOF_REQUIRED" }, 409);
+      const instant = body.instantPaidUsdc ?? 0;
+      const units = (amount: number) => Math.round(amount * 1_000_000);
+      if (!(instant > 0) || units(instant) >= units(requested.amount)) {
+        return c.json({ error: "A part payment must be less than the request" }, 409);
+      }
+      const payer = store.getUser(userId(c));
+      const issuer = store.getUser(requested.userId);
+      const { verifyPaymentEvidence } = await import("../services/payment-evidence.js");
+      const verified = await verifyPaymentEvidence({
+        txHash: body.paidTxHash,
+        sender: payer?.evmAddress || "",
+        recipient: issuer?.evmAddress || "",
+        amount: instant,
         token: requested.token,
         notBefore: requested.createdAt,
       });
@@ -2209,13 +2240,16 @@ api.post("/payment-requests/:id/mark", async (c) => {
     // from the request body — a payer could otherwise credit the payment to
     // someone else, or backdate it.
     const payer = store.getUser(userId(c));
+    const partial = body.status === "partial";
     const row = markPaymentRequest(c.req.param("id"), body.status, userId(c), {
       chosenStructure: body.chosenStructure,
-      paidTxHash: body.paidTxHash,
+      ...(partial
+        ? { partialTxHash: body.paidTxHash }
+        : { paidTxHash: body.paidTxHash }),
       escrowTxHash: body.escrowTxHash || (body.status === "escrow" && body.chosenStructure !== "split" ? body.paidTxHash : undefined),
-      instantPaidUsdc: body.instantPaidUsdc,
+      ...(body.instantPaidUsdc != null ? { instantPaidUsdc: body.instantPaidUsdc } : {}),
       escrowLockedUsdc: body.escrowLockedUsdc,
-      ...(body.status === "paid" || body.status === "escrow"
+      ...(body.status === "paid" || body.status === "escrow" || partial
         ? {
             paidBy: userId(c),
             paidByLabel: payer?.handle
@@ -2227,9 +2261,13 @@ api.post("/payment-requests/:id/mark", async (c) => {
     });
     if (!row) return c.json({ error: "not found" }, 404);
     // Patch original invoice messages so Pay button disappears after reload.
-    if (body.status === "paid" || body.status === "escrow") {
+    if (body.status === "paid" || body.status === "escrow" || partial) {
       const statusLabel =
-        body.status === "paid" ? "Request · paid" : "Request · escrow";
+        body.status === "paid"
+          ? "Request · paid"
+          : partial
+            ? "Request · part paid"
+            : "Request · escrow";
       const touched = new Set<string>();
       for (const m of store.findMessagesByRequestId(
         c.req.param("id"),
@@ -2254,8 +2292,12 @@ api.post("/payment-requests/:id/mark", async (c) => {
         const threadId = [...touched][0] ?? body.threadId;
         alertUser(issuerId, {
           kind: "request_update",
-          title: body.status === "paid" ? "Request paid" : "Request paid into a hold",
-          body: `${payerLabel} paid your request${requested.description ? ` · ${requested.description}` : ""}.`,
+          title: body.status === "paid"
+            ? "Request paid"
+            : partial
+              ? "Request part paid"
+              : "Request paid into a hold",
+          body: `${payerLabel} paid ${partial ? "part of " : ""}your request${requested.description ? ` · ${requested.description}` : ""}.`,
           ...(threadId ? { threadId, link: `evabob://chat/${threadId}` } : {}),
         });
       }

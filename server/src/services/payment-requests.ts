@@ -66,6 +66,8 @@ export type PaymentRequest = {
   paidByLabel?: string;
   paidTxHash?: string;
   escrowTxHash?: string;
+  /** The transaction that paid part of it ("Pay half, hold half"). */
+  partialTxHash?: string;
   link: string;
   shareUrl: string;
   createdAt: string;
@@ -392,6 +394,7 @@ export function markPaymentRequest(
       | "paidAt"
       | "paidTxHash"
       | "escrowTxHash"
+      | "partialTxHash"
       | "milestoneTransferIds"
     >
   >,
@@ -401,11 +404,11 @@ export function markPaymentRequest(
   if (i < 0) return null;
   const current = hydrate(all[i]);
   assertMayMark(current, status, actorId);
-  for (const hash of [extra?.paidTxHash, extra?.escrowTxHash]) {
+  for (const hash of [extra?.paidTxHash, extra?.escrowTxHash, extra?.partialTxHash]) {
     if (!hash) continue;
     const needle = hash.toLowerCase();
     const used = all.some((request, index) => index !== i &&
-      [request.paidTxHash, request.escrowTxHash]
+      [request.paidTxHash, request.escrowTxHash, request.partialTxHash]
         .some(existing => existing?.toLowerCase() === needle));
     if (used) throw new Error("Transaction is already attached to another invoice");
   }
@@ -438,6 +441,17 @@ export function markPaymentRequest(
   return all[i];
 }
 
+/**
+ * What is still owed on a request. After "Pay half, hold half" paid only its
+ * first half, this is the rest — so the payer is asked for that, not the
+ * whole amount again.
+ */
+export function requestRemaining(inv: Pick<PaymentRequest, "status" | "total" | "instantPaidUsdc">): number {
+  if (inv.status !== "partial") return inv.total;
+  const paid = inv.instantPaidUsdc ?? 0;
+  return Math.max(0, Math.round((inv.total - paid) * 1_000_000) / 1_000_000);
+}
+
 /** Chat card payload — keep this shape stable. */
 export function invoiceChatMeta(inv: PaymentRequest): Record<string, unknown> {
   return {
@@ -464,6 +478,8 @@ export function invoiceChatMeta(inv: PaymentRequest): Record<string, unknown> {
     chosenStructure: inv.chosenStructure || null,
     paidTxHash: inv.paidTxHash || null,
     escrowTxHash: inv.escrowTxHash || null,
+    instantPaidUsdc: inv.instantPaidUsdc ?? null,
+    remaining: requestRemaining(inv),
     paidBy: inv.paidBy || null,
     paidByLabel: inv.paidByLabel || null,
     paidAt: inv.paidAt || null,
