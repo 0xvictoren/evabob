@@ -51,12 +51,6 @@ export function findAgentByApiKey(rawKey: string): AgentWallet | undefined {
   return store.findAgentByApiKeyHash(hash);
 }
 
-/** Exact origins plus, when configured, Circle's payable catalog origins. */
-async function allowedOrigins(): Promise<string[]> {
-  const { resolvedAgentOrigins } = await import("./circle-x402.js");
-  return resolvedAgentOrigins();
-}
-
 function paidReady(agent: AgentWallet): string | null {
   if (agent.revokedAt) return "Agent key revoked";
   if (agent.custodyMode !== "circle-eoa" || !agent.circleWalletId || !agent.custodyAddress) {
@@ -163,8 +157,7 @@ export async function x402PayForAgent(input: {
     return {
       ...base,
       ok: false,
-      code: "NOT_ON_LIST",
-      error: "This seller is not on the approved list. Only Evabob paywalls and curated marketplace sellers can be paid.",
+      error: "Only HTTPS addresses, or an Evabob paywall that exists, can be paid.",
     };
   }
 
@@ -172,7 +165,9 @@ export async function x402PayForAgent(input: {
   const fetcher = seller.paywallId
     ? paywallFetcher(seller.paywallId, { agentId: agent.id, paymentKey: key })
     : undefined;
-  const origins = seller.paywallId ? [] : await allowedOrigins();
+  // Exactly the seller's own origin: the fetch still refuses redirects,
+  // private addresses and IP literals.
+  const origins = seller.paywallId ? [] : [seller.id];
 
   const readiness = paidReady(agent);
   if (readiness) {

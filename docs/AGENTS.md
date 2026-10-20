@@ -107,10 +107,16 @@ back because nothing was delivered, holds settled by a reviewer, paid calls
 delivered / not charged / paid for nothing. Shown on `/a/:handle`, on its
 tasks, and in the app.
 
-**Seller list seeded, not empty.** With `AGENT_RESOURCE_ORIGINS` unset, the
-allowlist is the curated marketplace: every Evabob paywall plus Circle's x402
-catalog filtered to sellers an agent can pay on this network (none on Arc
-testnet yet). Each seller has a category and a delivery record.
+**Any x402 seller, no list to join.** An agent can pay any public HTTPS
+endpoint that answers `402` with an Arc Gateway-batched requirement: paste
+the URL into `POST /v1/x402/pay` and it pays. The site does not have to be
+added anywhere first. The marketplace (Evabob paywalls plus Circle's catalog,
+and `AGENT_RESOURCE_ORIGINS`) is now only what the app *shows*. What keeps
+open-web spending safe is the allowance (amount, categories inferred from
+the seller's address, ask-me limit), the loop breaker, the SSRF-safe fetch
+(HTTPS, public IPs, no redirects) and the evidence bundle with the owner
+alert when a paid call returns nothing usable. "Only pay after proof" is off
+by default; turned on, it limits the agent to Evabob paywalls.
 
 ## 10 · An agent hires a person
 

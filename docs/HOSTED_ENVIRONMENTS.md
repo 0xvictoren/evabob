@@ -130,10 +130,11 @@ domain is attached.
 
 ## 6. Mobile testnet build
 
-The mobile build contains public identifiers only:
+The mobile build contains public identifiers only. `api-testnet.evabob.app`
+has no DNS record yet, so until section 5 is done the API is the Render URL:
 
 ```text
-API_BASE_URL=https://api-testnet.evabob.app
+API_BASE_URL=https://evabob-api-testnet.onrender.com
 DYNAMIC_APP_ORIGIN=https://testnet.evabob.app
 AUTO_DEMO=false
 ```

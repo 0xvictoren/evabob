@@ -35,7 +35,8 @@ export type Seller = {
   category: SpendCategory;
   /** Takes the money only after the response passes the check. */
   waitsForProof: boolean;
-  source: "evabob" | "circle-catalog" | "configured";
+  /** "open": any other HTTPS x402 seller, paid without being listed first. */
+  source: "evabob" | "circle-catalog" | "configured" | "open";
   paywallId?: string;
 };
 
@@ -61,8 +62,12 @@ export function recordFromEvidence(
 }
 
 /**
- * Who is behind a URL an agent wants to pay, or null when it is on no list
- * at all — which an agent may not pay.
+ * Who is behind a URL an agent wants to pay. Any public HTTPS x402 seller
+ * can be paid — an agent should not wait for someone to list a site before
+ * it can buy from it. What keeps that safe is the agent's allowance (amount,
+ * categories, ask-me limit), the loop breaker, the SSRF-safe fetch and the
+ * evidence bundle, not a list. Null only for a URL that is not HTTPS or an
+ * Evabob paywall that does not exist.
  */
 export async function sellerFor(url: string): Promise<Seller | null> {
   const paywallId = evabobPaywallId(url);
@@ -78,28 +83,31 @@ export async function sellerFor(url: string): Promise<Seller | null> {
       paywallId,
     };
   }
-  let origin: string;
+  let parsed: URL;
   try {
-    origin = new URL(url).origin;
+    parsed = new URL(url);
   } catch {
     return null;
   }
+  if (parsed.protocol !== "https:") return null;
+  const origin = parsed.origin;
   const { resolvedAgentOrigins, payableServices } = await import("./circle-x402.js");
-  const allowed = await resolvedAgentOrigins();
-  if (!allowed.includes(origin)) return null;
   let catalog: Awaited<ReturnType<typeof payableServices>> = [];
   try {
     catalog = await payableServices();
   } catch {
-    /* catalog down: configured origins still work, uncategorised */
+    /* catalog down: every seller is still payable, just uncategorised */
   }
   const entry = catalog.find((s) => s.origin === origin);
+  const listed = Boolean(entry) || (await resolvedAgentOrigins()).includes(origin);
   return {
     id: origin,
-    name: entry?.provider || new URL(origin).hostname,
-    category: normalizeCategory(entry?.category),
+    name: entry?.provider || parsed.hostname,
+    // An open-web seller has no category of its own; its address usually
+    // says what it is ("…/api/agent/research").
+    category: normalizeCategory(entry?.category ?? `${parsed.hostname} ${parsed.pathname}`),
     waitsForProof: false,
-    source: entry ? "circle-catalog" : "configured",
+    source: entry ? "circle-catalog" : listed ? "configured" : "open",
   };
 }
 

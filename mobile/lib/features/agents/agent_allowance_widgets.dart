@@ -37,7 +37,7 @@ class _AllowanceSheetState extends State<AllowanceSheet> {
       TextEditingController(text: _plain(widget.initial?.askAboveUsdc ?? 2));
   late String _window = widget.initial?.window ?? 'week';
   late final Set<String> _categories = {...?widget.initial?.categories};
-  late bool _proofOnly = widget.initial?.proofOnly ?? true;
+  late bool _proofOnly = widget.initial?.proofOnly ?? false;
   String? _error;
 
   static String _plain(double v) =>

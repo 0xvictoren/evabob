@@ -3937,7 +3937,9 @@ export const allowanceBody = z.object({
   window: z.enum(["day", "week", "month"]),
   categories: z.array(z.enum(["research", "data", "media", "ai", "finance", "people", "tools"])).max(7).default([]),
   askAboveUsdc: z.number().min(0),
-  proofOnly: z.boolean().default(true),
+  // Off unless the owner asks: almost every outside x402 seller takes the
+  // money with the request, so on by default refuses nearly all of them.
+  proofOnly: z.boolean().default(false),
 });
 
 /**
