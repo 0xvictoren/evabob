@@ -28,8 +28,7 @@ class NotificationsSeen {
     try {
       final prefs = await SharedPreferences.getInstance();
       final ms = prefs.getInt(_key);
-      at.value = at.value ??
-          DateTime.fromMillisecondsSinceEpoch(ms ?? 0);
+      at.value = at.value ?? DateTime.fromMillisecondsSinceEpoch(ms ?? 0);
     } catch (_) {
       at.value ??= DateTime.fromMillisecondsSinceEpoch(0);
     } finally {
@@ -123,8 +122,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   static String _when(DateTime at) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final days =
-        today.difference(DateTime(at.year, at.month, at.day)).inDays;
+    final days = today.difference(DateTime(at.year, at.month, at.day)).inDays;
     if (days <= 0) return DateFormat('H:mm').format(at);
     if (days == 1) return 'Yesterday';
     return DateFormat('d MMM').format(at);
@@ -140,7 +138,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         : items.where((e) => e.createdAt.isAfter(seen)).toList();
     final earlier = items.where((e) => !fresh.contains(e)).toList();
     const section = TextStyle(
-      fontSize: 10,
+      fontSize: 12,
       height: 14 / 10,
       letterSpacing: .8,
       color: EvabobColors.inkTertiary,
@@ -205,15 +203,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                               children: [
                                 SvgPicture.asset('assets/figma/btn_back.svg',
                                     width: 44, height: 44),
-                                const Text(
-                                  '‹',
-                                  style: TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 22,
-                                    height: 28 / 22,
-                                    color: EvabobColors.ink,
-                                  ),
+                                const Icon(
+                                  Icons.chevron_left_rounded,
+                                  size: 24,
+                                  color: EvabobColors.ink,
                                 ),
                               ],
                             ),
@@ -348,11 +341,24 @@ class _NotificationRow extends StatelessWidget {
     final first = name?.split(' ').first.replaceFirst('@', '');
     switch (e.kind) {
       case 'send':
-        if (e.didNotLand) return ("Your $amount didn't land", 'Nothing left your balance');
-        if (e.isPending) return ('Your $amount is on its way', name == null ? 'We will tell you when it lands' : 'To $name');
-        return ('Your $amount landed', name == null ? 'It has arrived' : '$name has it now');
+        if (e.didNotLand) {
+          return ("Your $amount didn't land", 'Nothing left your balance');
+        }
+        if (e.isPending) {
+          return (
+            'Your $amount is on its way',
+            name == null ? 'We will tell you when it lands' : 'To $name'
+          );
+        }
+        return (
+          'Your $amount landed',
+          name == null ? 'It has arrived' : '$name has it now'
+        );
       case 'receive':
-        return (first == null ? 'Money received' : '$first sent you money', '$amount landed');
+        return (
+          first == null ? 'Money received' : '$first sent you money',
+          '$amount landed'
+        );
       default:
         final d = e.description.trim();
         return (e.title, d.isEmpty ? amount : d);
@@ -360,9 +366,12 @@ class _NotificationRow extends StatelessWidget {
   }
 
   static String _initials(String s) {
-    final words = s.replaceAll(RegExp(r'[^A-Za-z ]'), ' ').trim().split(RegExp(r'\s+'));
+    final words =
+        s.replaceAll(RegExp(r'[^A-Za-z ]'), ' ').trim().split(RegExp(r'\s+'));
     if (words.isEmpty || words.first.isEmpty) return 'EB';
-    return (words.length == 1 ? words.first.substring(0, words.first.length.clamp(0, 2)) : '${words[0][0]}${words[1][0]}')
+    return (words.length == 1
+            ? words.first.substring(0, words.first.length.clamp(0, 2))
+            : '${words[0][0]}${words[1][0]}')
         .toUpperCase();
   }
 
@@ -387,7 +396,6 @@ class _NotificationRow extends StatelessWidget {
         child: Text(
           ours ? 'EB' : _initials(e.title),
           style: TextStyle(
-            fontFamily: 'Inter',
             fontWeight: FontWeight.w900,
             fontSize: 14,
             height: 18 / 14,

@@ -169,7 +169,7 @@ class DoneReceiptScreen extends StatelessWidget {
                 'EVABOB RECEIPT',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 12,
                   height: 14 / 10,
                   letterSpacing: .8,
                   color: EvabobColors.inkTertiary,

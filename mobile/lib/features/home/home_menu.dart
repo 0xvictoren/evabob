@@ -140,7 +140,8 @@ class _Menu extends StatelessWidget {
           border: Border.all(color: EvabobColors.hairline),
           boxShadow: Shadows.raised,
         ),
-        padding: const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.lg),
+        padding:
+            const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.lg),
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.8,
         ),

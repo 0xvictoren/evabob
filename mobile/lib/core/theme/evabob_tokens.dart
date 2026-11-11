@@ -64,13 +64,13 @@ class Shadows {
   ];
 
   static List<BoxShadow> get button => [
-    BoxShadow(
-      color: EvabobColors.buttonGlow,
-      blurRadius: 24,
-      spreadRadius: -6,
-      offset: Offset(0, 10),
-    ),
-  ];
+        BoxShadow(
+          color: EvabobColors.buttonGlow,
+          blurRadius: 24,
+          spreadRadius: -6,
+          offset: Offset(0, 10),
+        ),
+      ];
 
   static const knob = [
     BoxShadow(color: Color(0x290B1620), blurRadius: 4, offset: Offset(0, 2)),
@@ -84,6 +84,17 @@ class Shadows {
 class Type {
   Type._();
 
+  /// The person's own total, on Home and Wallet. Big enough to read at
+  /// arm's length; both screens wrap it in a FittedBox so a long figure
+  /// shrinks instead of clipping.
+  static const balance = TextStyle(
+    fontSize: 56,
+    fontWeight: FontWeight.w400,
+    letterSpacing: -1.5,
+    height: 62 / 56,
+  );
+
+  /// Amounts on receipts, review sheets and pay screens.
   static const hero = TextStyle(
     fontSize: 48,
     fontWeight: FontWeight.w400,
@@ -96,29 +107,39 @@ class Type {
   static const title = TextStyle(
     fontSize: 22,
     fontWeight: FontWeight.w400,
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
     height: 28 / 22,
   );
 
-  static const section = TextStyle(
-    fontSize: 10,
+  /// The title of a screen reached from another one.
+  static const pageTitle = TextStyle(
+    fontSize: 18,
     fontWeight: FontWeight.w400,
-    letterSpacing: 0.8,
-    height: 14 / 10,
+    letterSpacing: -0.2,
+    height: 24 / 18,
+  );
+
+  static const section = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w400,
+    letterSpacing: 0.9,
+    height: 16 / 11,
   );
 
   static const body = TextStyle(
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: FontWeight.w400,
-    height: 18 / 14,
+    height: 20 / 15,
     letterSpacing: -0.1,
   );
 
+  /// Supporting text. 12, not 10: the second line of a row is where the
+  /// app says what happened to someone's money, and it has to be readable.
   static const label = TextStyle(
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: FontWeight.w400,
-    height: 14 / 10,
-    letterSpacing: 0.2,
+    height: 16 / 12,
+    letterSpacing: 0.1,
   );
 
   static const caption = label;
@@ -126,27 +147,27 @@ class Type {
   static const micro = label;
 
   static const tab = TextStyle(
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: FontWeight.w400,
-    height: 12 / 10,
-    letterSpacing: 0.2,
+    height: 14 / 11,
+    letterSpacing: 0.1,
   );
 
   /// Amounts and timestamps. Tabular figures stop columns of numbers from
   /// jittering as digits change, which is the whole reason to ask for them.
   static const amount = TextStyle(
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: FontWeight.w400,
     letterSpacing: -0.1,
-    height: 18 / 14,
+    height: 20 / 15,
     fontFeatures: [FontFeature.tabularFigures()],
   );
 
   static const amountSmall = TextStyle(
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: FontWeight.w400,
-    height: 14 / 10,
-    letterSpacing: 0.2,
+    height: 16 / 12,
+    letterSpacing: 0.1,
     fontFeatures: [FontFeature.tabularFigures()],
   );
 }

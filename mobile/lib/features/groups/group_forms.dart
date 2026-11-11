@@ -95,14 +95,15 @@ class _CreateCircleScreenState extends State<_CreateCircleScreen> {
   Future<void> _create() async {
     // Typed in the person's own currency; the circle runs in dollars.
     final typed = double.tryParse(_amount.text.trim());
-    final amount = typed == null ? null : context.read<FxService>().toUsd(typed);
+    final amount =
+        typed == null ? null : context.read<FxService>().toUsd(typed);
     if (_name.text.trim().isEmpty) {
       setState(() => _error = 'Give the circle a name');
       return;
     }
     if (amount == null || amount < 1) {
-      setState(() => _error =
-          'Each person puts in at least ${formatMoney(1)} a round');
+      setState(() =>
+          _error = 'Each person puts in at least ${formatMoney(1)} a round');
       return;
     }
     if (_members.length < 2) {

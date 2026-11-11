@@ -6,7 +6,9 @@ import 'package:evabob_mobile/features/chat/request_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Map<String, dynamic> _card({bool open = true, String status = 'Request · unpaid'}) => {
+Map<String, dynamic> _card(
+        {bool open = true, String status = 'Request · unpaid'}) =>
+    {
       'type': 'invoice_card',
       'requestId': '594fc8d3-c021-40c7-8fef-a8e2dbc34f14',
       'token': 'USDC',
@@ -26,7 +28,8 @@ Widget _host(Widget child) => ChangeNotifierProvider(
     );
 
 void main() {
-  testWidgets('the person asked sees every line, the total, Pay and Cancel', (t) async {
+  testWidgets('the person asked sees every line, the total, Pay and Cancel',
+      (t) async {
     var paid = false;
     var declined = false;
     await t.pumpWidget(_host(RequestCard(
@@ -87,7 +90,8 @@ void main() {
     final ok = NativeConfirm.fromMap({'ok': true, 'signature': '0xabc'});
     expect(ok.ok, isTrue);
     expect(ok.signature, '0xabc');
-    expect(NativeConfirm.fromMap({'ok': true, 'signature': 'nope'}).signature, isNull);
+    expect(NativeConfirm.fromMap({'ok': true, 'signature': 'nope'}).signature,
+        isNull);
     final cancel = NativeConfirm.fromMap({'ok': false, 'canceled': true});
     expect(cancel.canceled, isTrue);
     expect(NativeConfirm.fromMap(null).ok, isFalse);

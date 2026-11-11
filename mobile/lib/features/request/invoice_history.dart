@@ -221,14 +221,14 @@ class _Row extends StatelessWidget {
             const SizedBox(width: Space.sm),
             Text(
               context.watch<FxService>().requestPrimary(
-                usd: total,
-                token: token,
-                displayCurrency: (invoice['display'] as Map?)?['currency']
-                    ?.toString(),
-                displayAmount:
-                    ((invoice['display'] as Map?)?['amount'] as num?)
-                        ?.toDouble(),
-              ),
+                    usd: total,
+                    token: token,
+                    displayCurrency:
+                        (invoice['display'] as Map?)?['currency']?.toString(),
+                    displayAmount:
+                        ((invoice['display'] as Map?)?['amount'] as num?)
+                            ?.toDouble(),
+                  ),
               style: Type.amount.copyWith(color: EvabobColors.nearBlack),
             ),
             const SizedBox(width: Space.xs),

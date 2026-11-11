@@ -95,7 +95,7 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                 const SizedBox(height: 4),
                 const Text(
                   'Pick an email. Phone numbers are not payees.',
-                  style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+                  style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -147,7 +147,7 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                           title: Text(c.displayName),
                           subtitle: Text(
                             c.email ?? '',
-                            style: const TextStyle(fontSize: 10),
+                            style: const TextStyle(fontSize: 12),
                           ),
                           onTap: () {
                             final value = c.email ?? '';

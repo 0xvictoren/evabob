@@ -320,8 +320,7 @@ class _HeldPaymentScreenState extends State<HeldPaymentScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.lock_clock_outlined,
-                  color: EvabobColors.emeraldDeep),
+              Icon(Icons.lock_clock_outlined, color: EvabobColors.emeraldDeep),
               const SizedBox(width: Space.md),
               Expanded(
                 child: Column(
@@ -422,8 +421,7 @@ class _HeldPaymentScreenState extends State<HeldPaymentScreen> {
         ),
       if (h.can('cancel_with_reason'))
         secondary('Something is wrong', () => _cancelWithReason(h)),
-      if (h.can('give_back'))
-        secondary('Return the money', () => _giveBack(h)),
+      if (h.can('give_back')) secondary('Return the money', () => _giveBack(h)),
     ];
   }
 

@@ -19,7 +19,8 @@ void main() {
           {
             'kind': i.isEven ? 'send' : 'receive',
             'title': i.isEven ? 'Sent' : 'Received',
-            'description': 'please I need payment for my goods ₦2,000 — “thanks”',
+            'description':
+                'please I need payment for my goods ₦2,000 — “thanks”',
             'amountUsdc': i.isEven ? -1.44 : 3.8,
             'token': i % 5 == 0 ? 'EURC' : 'USDC',
             'counterparty': '@ekuma',
@@ -30,7 +31,10 @@ void main() {
       'contacts': [
         {'name': 'Chidi 😀', 'handle': '@chidi', 'email': 'chidi@example.com'},
       ],
-      'chats': {'threads': [{}, {}], 'messages': [{}, {}, {}]},
+      'chats': {
+        'threads': [{}, {}],
+        'messages': [{}, {}, {}]
+      },
       'limitations': ['Public blockchain records cannot be erased.'],
     });
     expect(ascii.decode(bytes.sublist(0, 5)), '%PDF-');

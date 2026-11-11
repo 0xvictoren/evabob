@@ -57,6 +57,7 @@ class FxService extends ChangeNotifier {
     _dominant = value;
     moneyDisplayNgnRate = value == DominantCurrency.ngn ? fixedUsdToNgn : null;
   }
+
   bool get isNaira => dominant == DominantCurrency.ngn;
 
   /// Reads the choice saved on this phone.
@@ -128,7 +129,9 @@ class FxService extends ChangeNotifier {
   /// The line under [primaryToken]: the other currency, or naira for euros.
   String secondaryToken(double amount, String token) {
     if (token.toUpperCase() == 'EURC') {
-      return isNaira ? formatNgn(eurToNgn(amount)) : formatUsd(eurToUsdc(amount));
+      return isNaira
+          ? formatNgn(eurToNgn(amount))
+          : formatUsd(eurToUsdc(amount));
     }
     if (token.toUpperCase() == 'CIRBTC') return '';
     return secondary(amount);

@@ -11,7 +11,8 @@ class NativeConfirm {
   });
 
   factory NativeConfirm.fromMap(Object? raw) {
-    final m = raw is Map ? Map<String, dynamic>.from(raw) : const <String, dynamic>{};
+    final m =
+        raw is Map ? Map<String, dynamic>.from(raw) : const <String, dynamic>{};
     final sig = m['signature']?.toString();
     return NativeConfirm(
       ok: m['ok'] == true,
@@ -69,7 +70,11 @@ class CircleNativeSdk {
     try {
       return NativeConfirm.fromMap(await _channel.invokeMethod<Object?>(
         'setBiometricsPin',
-        {'appId': appId, 'userToken': userToken, 'encryptionKey': encryptionKey},
+        {
+          'appId': appId,
+          'userToken': userToken,
+          'encryptionKey': encryptionKey
+        },
       ));
     } catch (e) {
       return NativeConfirm(ok: false, error: e.toString());

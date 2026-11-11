@@ -1935,8 +1935,8 @@ class CircleWalletService extends ChangeNotifier {
       amountIn: amountIn,
     );
     if (kit['ok'] == true) return kit;
-    final nothingSigned = (kit['jobId']?.toString() ?? '').isEmpty ||
-        kit['noPinEntered'] == true;
+    final nothingSigned =
+        (kit['jobId']?.toString() ?? '').isEmpty || kit['noPinEntered'] == true;
     if (!nothingSigned) return kit;
     // Too little money is the same answer on any rail.
     if ((kit['error']?.toString() ?? '').startsWith('Not enough money')) {

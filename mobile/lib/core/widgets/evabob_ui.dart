@@ -44,27 +44,24 @@ class EvabobPageHeader extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 12),
           ],
           Expanded(
             child: Semantics(
               header: true,
               child: Text(
                 title,
-                textAlign: onBack == null ? TextAlign.left : TextAlign.center,
+                textAlign: TextAlign.left,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: (root ? Type.title : Type.body).copyWith(
+                style: (root ? Type.title : Type.pageTitle).copyWith(
                   color: EvabobColors.ink,
-                  letterSpacing: root ? -0.2 : 0,
                 ),
               ),
             ),
           ),
           if (trailing != null)
-            SizedBox(width: 44, height: 44, child: Center(child: trailing))
-          else if (onBack != null)
-            const SizedBox(width: 50),
+            SizedBox(width: 44, height: 44, child: Center(child: trailing)),
         ],
       ),
     );
@@ -142,7 +139,10 @@ class EvabobPrimaryButton extends StatelessWidget {
                 : Text(
                     label,
                     textAlign: TextAlign.center,
-                    style: Type.body.copyWith(color: EvabobColors.white),
+                    style: Type.body.copyWith(
+                      color: EvabobColors.white,
+                      fontSize: 16,
+                    ),
                   ),
           ),
         ),

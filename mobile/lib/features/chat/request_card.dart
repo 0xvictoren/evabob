@@ -104,7 +104,7 @@ class RequestCard extends StatelessWidget {
                 child: Text(
                   status,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 12,
                     color: EvabobColors.emeraldDeep,
                   ),
                 ),
@@ -192,7 +192,7 @@ class RequestCard extends StatelessWidget {
                   if (due != null && open)
                     'due ${DateFormat('d MMM').format(due.toLocal())}',
                 ].join(' · '),
-                style: const TextStyle(fontSize: 10, color: EvabobColors.chalk),
+                style: const TextStyle(fontSize: 12, color: EvabobColors.chalk),
               ),
               if (open && !mine) ...[
                 const SizedBox(height: 12),

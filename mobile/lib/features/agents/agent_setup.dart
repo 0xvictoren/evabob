@@ -18,8 +18,8 @@ import '../../core/widgets/top_snack.dart';
 class AgentSetupText {
   AgentSetupText({String? apiKey, String? baseUrl})
       : key = apiKey ?? keyPlaceholder,
-        base = (baseUrl ?? Env.resolveApiBaseUrl())
-            .replaceAll(RegExp(r'/+$'), '');
+        base =
+            (baseUrl ?? Env.resolveApiBaseUrl()).replaceAll(RegExp(r'/+$'), '');
 
   static const keyPlaceholder = 'sk_evabob_YOUR_KEY';
 

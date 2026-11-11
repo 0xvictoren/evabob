@@ -264,6 +264,7 @@ class _PotScreenState extends State<PotScreen> {
                         '${context.watch<FxService>().dominant.symbol} ',
                     hintText: 'Amount',
                     border: InputBorder.none,
+                    filled: false,
                   ),
                   onChanged: (_) => setState(() {}),
                 ),

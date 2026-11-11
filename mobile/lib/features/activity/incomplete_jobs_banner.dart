@@ -100,7 +100,7 @@ class IncompleteJobsBanner extends StatelessWidget {
                         const Text(
                           'PIN was started. Continue to finish so funds are not stuck.',
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 12,
                             color: EvabobColors.navyMuted,
                           ),
                         ),

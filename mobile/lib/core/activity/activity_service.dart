@@ -101,6 +101,7 @@ class ActivityEntry {
   /// Payments this person made can be shared as a public link.
   bool get shareable =>
       (kind == 'send' || kind == 'withdraw' || kind == 'bridge') && !didNotLand;
+
   /// Only a bridge is ever held for the person to continue: its money can be
   /// between chains. A swap or send moves in one transaction — it has landed
   /// or it has not — so it reads as on the way, never as on hold.

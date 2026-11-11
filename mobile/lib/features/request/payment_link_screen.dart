@@ -347,12 +347,12 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
       for (final raw in (invoice?['items'] as List? ?? const []))
         if (raw is Map) Map<String, dynamic>.from(raw),
     ];
-    final description = (invoice?['description']?.toString().trim() ?? '')
-            .isNotEmpty
-        ? invoice!['description'].toString().trim()
-        : items.length == 1
-            ? (items.first['description']?.toString().trim() ?? '')
-            : '';
+    final description =
+        (invoice?['description']?.toString().trim() ?? '').isNotEmpty
+            ? invoice!['description'].toString().trim()
+            : items.length == 1
+                ? (items.first['description']?.toString().trim() ?? '')
+                : '';
     final fee = context.read<AppFeatures>().platformFeeFor(amount);
     final note = invoice?['note']?.toString().trim() ?? '';
 
@@ -383,8 +383,7 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
       if (open) ('Fee', fee > 0 ? fx.primaryToken(fee, token) : 'Free'),
     ];
 
-    Widget row(String label, String value, {bool overdue = false}) =>
-        SizedBox(
+    Widget row(String label, String value, {bool overdue = false}) => SizedBox(
           height: 52,
           child: Row(
             children: [
@@ -588,15 +587,10 @@ class _FigmaHeader extends StatelessWidget {
                       children: [
                         SvgPicture.asset('assets/figma/btn_back.svg',
                             width: 44, height: 44),
-                        const Text(
-                          '‹',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontWeight: FontWeight.w900,
-                            fontSize: 22,
-                            height: 28 / 22,
-                            color: EvabobColors.ink,
-                          ),
+                        const Icon(
+                          Icons.chevron_left_rounded,
+                          size: 24,
+                          color: EvabobColors.ink,
                         ),
                       ],
                     ),
@@ -807,8 +801,21 @@ class _ClaimLinkScreenState extends State<ClaimLinkScreen> {
   }
 
   static const _words = [
-    'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
-    'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen',
+    'zero',
+    'one',
+    'two',
+    'three',
+    'four',
+    'five',
+    'six',
+    'seven',
+    'eight',
+    'nine',
+    'ten',
+    'eleven',
+    'twelve',
+    'thirteen',
+    'fourteen',
   ];
 
   @override

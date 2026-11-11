@@ -63,7 +63,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 const Text(
                   'Find someone by their @username.',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 12,
                     color: EvabobColors.navyMuted,
                   ),
                 ),
@@ -211,7 +211,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         Text(
                           '+',
                           style: TextStyle(
-                            fontFamily: 'Inter',
                             fontWeight: FontWeight.w900,
                             fontSize: 20,
                             height: 26 / 20,

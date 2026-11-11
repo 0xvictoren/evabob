@@ -14,9 +14,17 @@ class ActivityThumb extends StatelessWidget {
   final ActivityEntry entry;
   final double size;
 
-  static const _tokenKinds = {'exchange', 'bridge', 'fund', 'withdraw', 'agent', 'system'};
+  static const _tokenKinds = {
+    'exchange',
+    'bridge',
+    'fund',
+    'withdraw',
+    'agent',
+    'system'
+  };
 
-  static bool _looksLikeAddress(String v) => v.startsWith('0x') && v.length >= 20;
+  static bool _looksLikeAddress(String v) =>
+      v.startsWith('0x') && v.length >= 20;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +64,8 @@ class ActivityThumb extends StatelessWidget {
                 shape: BoxShape.circle,
                 border: Border.all(color: EvabobColors.white, width: 2),
               ),
-              child: Icon(Icons.schedule_rounded, size: size * 0.2, color: EvabobColors.white),
+              child: Icon(Icons.schedule_rounded,
+                  size: size * 0.2, color: EvabobColors.white),
             ),
           ),
         ],

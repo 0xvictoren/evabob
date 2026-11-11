@@ -222,8 +222,7 @@ class _ConfirmPaymentSheetState extends State<_ConfirmPaymentSheet> {
                     child: _Field(
                       label: r.payeeLabel,
                       value: r.payee,
-                      style:
-                          Type.title.copyWith(color: EvabobColors.nearBlack),
+                      style: Type.title.copyWith(color: EvabobColors.nearBlack),
                     ),
                   ),
                 ],

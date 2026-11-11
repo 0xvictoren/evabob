@@ -308,12 +308,12 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
           sub: 'from ${_amountIn(amountIn, _fromPreset, _fromCa)}',
           rows: [
             if (out != null && amountIn > 0)
-              ('Rate', '${_amountIn(out / amountIn, _toPreset, _toCa)} to '
-                  '${_amountIn(1, _fromPreset, _fromCa)}'),
-            (
-              'Fee',
-              fee > 0 ? formatTokenAmount(fee, _feeToken) : 'Free'
-            ),
+              (
+                'Rate',
+                '${_amountIn(out / amountIn, _toPreset, _toCa)} to '
+                    '${_amountIn(1, _fromPreset, _fromCa)}'
+              ),
+            ('Fee', fee > 0 ? formatTokenAmount(fee, _feeToken) : 'Free'),
             ('Done at', DoneReceiptScreen.when(DateTime.now())),
           ],
         );
@@ -407,7 +407,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
               border: OutlineInputBorder(),
               isDense: true,
             ),
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             onChanged: (_) => _refreshQuote(),
           ),
         ],
@@ -484,7 +484,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                       '${formatTokenAmount(wallet.cirbtcWallet, 'CIRBTC')}',
                       style: const TextStyle(
                         color: EvabobColors.navyMuted,
-                        fontSize: 10,
+                        fontSize: 12,
                       ),
                     ),
                   ),
@@ -522,6 +522,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                               EvabobTheme.amountDisplay.copyWith(fontSize: 48),
                           decoration: InputDecoration(
                             border: InputBorder.none,
+                            filled: false,
                             hintText: '0',
                             suffixText: _label(_fromPreset, _fromCa),
                             suffixStyle: const TextStyle(
@@ -539,7 +540,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                           Text(
                             'Available ${avail.toStringAsFixed(_fromPreset == 'CIRBTC' ? 6 : 2)}',
                             style: const TextStyle(
-                              fontSize: 10,
+                              fontSize: 12,
                               color: EvabobColors.chalk,
                             ),
                           ),
@@ -571,7 +572,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                                       '$pct%',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w400,
-                                        fontSize: 10,
+                                        fontSize: 12,
                                         color: _selectedPct == pct
                                             ? EvabobColors.emeraldDeep
                                             : EvabobColors.navyMuted,
@@ -642,7 +643,6 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                             _refreshQuote();
                           },
                           ca: _toCa,
-
                         ),
                         const SizedBox(height: 10),
                         Text(
@@ -661,7 +661,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                               _quoteLine!,
                               style: const TextStyle(
                                 color: EvabobColors.chalk,
-                                fontSize: 10,
+                                fontSize: 12,
                               ),
                             ),
                           ),

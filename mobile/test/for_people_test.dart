@@ -28,12 +28,36 @@ void main() {
           'place': null,
           'paidOut': {'round': 1, 'amountUsdc': 29.985},
         },
-        {'userId': 'b', 'name': '@bola', 'joined': true, 'behindUsdc': 10, 'place': 2},
-        {'userId': 'c', 'name': '@chidi', 'joined': true, 'behindUsdc': 0, 'place': 1},
+        {
+          'userId': 'b',
+          'name': '@bola',
+          'joined': true,
+          'behindUsdc': 10,
+          'place': 2
+        },
+        {
+          'userId': 'c',
+          'name': '@chidi',
+          'joined': true,
+          'behindUsdc': 0,
+          'place': 1
+        },
       ],
-      'me': {'userId': 'b', 'name': '@bola', 'joined': true, 'behindUsdc': 10, 'place': 2},
+      'me': {
+        'userId': 'b',
+        'name': '@bola',
+        'joined': true,
+        'behindUsdc': 10,
+        'place': 2
+      },
       'history': [
-        {'round': 1, 'recipient': '@ada', 'amountUsdc': 19.99, 'missed': ['@bola'], 'at': '2026-09-18T12:00:00Z'},
+        {
+          'round': 1,
+          'recipient': '@ada',
+          'amountUsdc': 19.99,
+          'missed': ['@bola'],
+          'at': '2026-09-18T12:00:00Z'
+        },
       ],
     });
 
@@ -52,13 +76,19 @@ void main() {
         'state': 'forming',
         'members': const [],
         'history': const [],
-        'me': {'userId': 'b', 'name': '@bola', 'joined': false, 'behindUsdc': 0},
+        'me': {
+          'userId': 'b',
+          'name': '@bola',
+          'joined': false,
+          'behindUsdc': 0
+        },
       });
       expect(forming.needsMyJoin, isTrue);
     });
 
     test('groups are told apart by kind', () {
-      expect(groupFromJson({'kind': 'circle', 'id': 'c_1'}), isA<CircleGroup>());
+      expect(
+          groupFromJson({'kind': 'circle', 'id': 'c_1'}), isA<CircleGroup>());
       expect(groupFromJson({'kind': 'pot', 'id': 'p_1'}), isA<PotGroup>());
     });
   });
@@ -83,7 +113,9 @@ void main() {
     test('a seller with no finished orders says so plainly', () {
       expect(const SellerRecord().summary, 'No finished orders yet');
       expect(
-        SellerRecord.fromJson({'delivered': 12, 'notDelivered': 1, 'refundedAfterReview': 0}).summary,
+        SellerRecord.fromJson(
+                {'delivered': 12, 'notDelivered': 1, 'refundedAfterReview': 0})
+            .summary,
         '12 delivered · 1 not delivered · 0 refunded after review',
       );
     });
@@ -119,7 +151,12 @@ void main() {
             'links': const [],
             'at': '2026-09-18T12:00:00Z',
           },
-          {'id': 'm2', 'from': 'reviewer', 'text': 'Which courier?', 'at': '2026-09-18T13:00:00Z'},
+          {
+            'id': 'm2',
+            'from': 'reviewer',
+            'text': 'Which courier?',
+            'at': '2026-09-18T13:00:00Z'
+          },
         ],
       });
       expect(review.messages.length, 2);

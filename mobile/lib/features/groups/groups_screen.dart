@@ -82,28 +82,33 @@ class _GroupsScreenState extends State<GroupsScreen> {
                   padding: const EdgeInsets.fromLTRB(
                       Space.page, 0, Space.page, Space.xl),
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StartCard(
-                            icon: Icons.autorenew_rounded,
-                            title: 'Money circle',
-                            text: 'Save together. Each round, one person '
-                                'takes the pot.',
-                            onTap: _newCircle,
+                    // Equal heights: the two cards used to end at different
+                    // lines because one description wraps further.
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: _StartCard(
+                              icon: Icons.autorenew_rounded,
+                              title: 'Money circle',
+                              text: 'Save together. Each round, one person '
+                                  'takes the pot.',
+                              onTap: _newCircle,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: Space.md),
-                        Expanded(
-                          child: _StartCard(
-                            icon: Icons.volunteer_activism_outlined,
-                            title: 'Collection',
-                            text: 'Raise money for something, refunded if '
-                                'it falls short.',
-                            onTap: _newPot,
+                          const SizedBox(width: Space.md),
+                          Expanded(
+                            child: _StartCard(
+                              icon: Icons.volunteer_activism_outlined,
+                              title: 'Collection',
+                              text: 'Raise money for something, refunded if '
+                                  'it falls short.',
+                              onTap: _newPot,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     const SizedBox(height: Space.lg),
                     if (items == null && _error == null)
@@ -124,8 +129,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           'circle or collection does, and it can only go '
                           'where the rules say.',
                           textAlign: TextAlign.center,
-                          style: Type.body
-                              .copyWith(color: EvabobColors.navyMuted),
+                          style:
+                              Type.body.copyWith(color: EvabobColors.navyMuted),
                         ),
                       ),
                     for (final g in items ?? const <Group>[])
@@ -218,16 +223,14 @@ class _CircleRow extends StatelessWidget {
       child: Glass(
         child: Row(
           children: [
-            Icon(Icons.autorenew_rounded,
-                color: EvabobColors.emeraldDeep),
+            Icon(Icons.autorenew_rounded, color: EvabobColors.emeraldDeep),
             const SizedBox(width: Space.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(c.name,
-                      style:
-                          Type.body.copyWith(color: EvabobColors.nearBlack)),
+                      style: Type.body.copyWith(color: EvabobColors.nearBlack)),
                   Text(
                     '${formatMoney(c.contributionUsdc)} ${c.everyWords} · $status',
                     style: Type.caption.copyWith(
@@ -270,8 +273,7 @@ class _PotRow extends StatelessWidget {
                 const SizedBox(width: Space.md),
                 Expanded(
                   child: Text(pot.title,
-                      style:
-                          Type.body.copyWith(color: EvabobColors.nearBlack)),
+                      style: Type.body.copyWith(color: EvabobColors.nearBlack)),
                 ),
                 Text(
                   '${formatMoney(pot.raisedUsdc)} / ${formatMoney(pot.targetUsdc)}',

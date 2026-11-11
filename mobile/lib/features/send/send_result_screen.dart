@@ -381,7 +381,6 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
                   Text(
                     glyph,
                     style: TextStyle(
-                      fontFamily: 'Inter',
                       fontWeight: FontWeight.w900,
                       fontSize: 14,
                       height: 18 / 14,

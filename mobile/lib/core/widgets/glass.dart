@@ -30,7 +30,10 @@ class Glass extends StatelessWidget {
         color: color ?? EvabobColors.sheet,
         boxShadow: Shadows.card,
       ),
-      child: child,
+      // Rows and buttons inside a card paint their press ripple on the
+      // nearest Material. Without one here it was drawn underneath the
+      // card's white fill, so pressing a row showed nothing.
+      child: Material(type: MaterialType.transparency, child: child),
     );
   }
 }
@@ -54,7 +57,7 @@ class FlatSurfaceCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         boxShadow: Shadows.card,
       ),
-      child: child,
+      child: Material(type: MaterialType.transparency, child: child),
     );
   }
 }

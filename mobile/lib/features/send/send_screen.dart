@@ -182,6 +182,7 @@ class _SendScreenState extends State<SendScreen> {
               hintText: '0',
               hintStyle: style.copyWith(color: EvabobColors.inkTertiary),
               border: InputBorder.none,
+              filled: false,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               isDense: true,
@@ -243,7 +244,7 @@ class _SendScreenState extends State<SendScreen> {
             const Text(
               'If they do not claim it within a week, it comes back to you '
               'automatically.',
-              style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+              style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
             ),
             PlatformFeeNote(
               amount: amount,
@@ -601,7 +602,7 @@ class _SendScreenState extends State<SendScreen> {
                             const Text(
                               'Send to',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 12,
                                 color: EvabobColors.navyMuted,
                               ),
                             ),
@@ -617,6 +618,7 @@ class _SendScreenState extends State<SendScreen> {
                                     decoration: const InputDecoration(
                                       hintText: 'Name, @username or email',
                                       border: InputBorder.none,
+                                      filled: false,
                                       isDense: true,
                                     ),
                                     style: const TextStyle(
@@ -689,7 +691,7 @@ class _SendScreenState extends State<SendScreen> {
                                                 ? 'You can still continue with what you entered.'
                                                 : 'Try a handle, email, or wallet address.',
                                             style: const TextStyle(
-                                              fontSize: 10,
+                                              fontSize: 12,
                                               color: EvabobColors.inkTertiary,
                                             ),
                                           ),
@@ -729,7 +731,7 @@ class _SendScreenState extends State<SendScreen> {
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
-                                          fontSize: 10,
+                                          fontSize: 12,
                                           color: EvabobColors.inkTertiary,
                                         ),
                                       ),
@@ -784,7 +786,7 @@ class _SendScreenState extends State<SendScreen> {
                                 child: Text(
                                   '${_secondaryLabel(fx)} · tap to change currency',
                                   style: const TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 12,
                                     color: EvabobColors.inkTertiary,
                                     letterSpacing: .2,
                                   ),
@@ -826,8 +828,7 @@ class _SendScreenState extends State<SendScreen> {
                                   // The Evabob fee is added on top, so "all of
                                   // it" is the largest amount that still leaves
                                   // room for its fee — rounded down, never up.
-                                  final features =
-                                      context.read<AppFeatures>();
+                                  final features = context.read<AppFeatures>();
                                   final flatFee = features.platformFeeFlatUsd;
                                   final feeBps = features.platformFeeBps;
                                   final afterFee = flatFee > 0
@@ -910,6 +911,7 @@ class _SendScreenState extends State<SendScreen> {
                                         : 'Add a memo (optional)',
                                     counterText: '',
                                     border: InputBorder.none,
+                                    filled: false,
                                     enabledBorder: InputBorder.none,
                                     focusedBorder: InputBorder.none,
                                     contentPadding: EdgeInsets.zero,
@@ -928,9 +930,11 @@ class _SendScreenState extends State<SendScreen> {
                     ],
                     PressScale(
                       onTap: _pickCurrency,
-                      child: SizedBox(
-                        height: 72,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 72),
                         child: Glass(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 14),
                           child: Row(
                             children: [
                               AssetThumbnail(asset: _token, size: 36),
@@ -943,14 +947,14 @@ class _SendScreenState extends State<SendScreen> {
                                     const Text(
                                       'Paying from your balance',
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 15,
                                         color: EvabobColors.ink,
                                       ),
                                     ),
                                     Text(
                                       '$balLabel available',
                                       style: const TextStyle(
-                                        fontSize: 10,
+                                        fontSize: 12,
                                         color: EvabobColors.inkTertiary,
                                       ),
                                     ),
@@ -1303,7 +1307,7 @@ class _SendScreenState extends State<SendScreen> {
                                 'on Evabob yet, we hold it until they join.',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          fontSize: 10,
+                          fontSize: 12,
                           color: EvabobColors.chalk,
                         ),
                       ),

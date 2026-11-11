@@ -24,7 +24,8 @@ Future<void> showReceiveQr(
     isScrollControlled: true,
     backgroundColor: EvabobColors.white,
     showDragHandle: true,
-    builder: (_) => _ReceiveQrSheet(address: address, network: network, handle: handle),
+    builder: (_) =>
+        _ReceiveQrSheet(address: address, network: network, handle: handle),
   );
 }
 
@@ -44,7 +45,8 @@ int? _chainIdFor(String network) {
 }
 
 class _ReceiveQrSheet extends StatelessWidget {
-  const _ReceiveQrSheet({required this.address, required this.network, this.handle});
+  const _ReceiveQrSheet(
+      {required this.address, required this.network, this.handle});
 
   final String address;
   final String network;
@@ -58,11 +60,13 @@ class _ReceiveQrSheet extends StatelessWidget {
     return SafeArea(
       top: false,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.page),
+        padding:
+            const EdgeInsets.fromLTRB(Space.page, 0, Space.page, Space.page),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Get paid on $network', style: Type.title, textAlign: TextAlign.center),
+            Text('Get paid on $network',
+                style: Type.title, textAlign: TextAlign.center),
             const SizedBox(height: Space.xs),
             Text(
               'Let them scan this to send you USDC on $network.',
@@ -109,7 +113,8 @@ class _ReceiveQrSheet extends StatelessWidget {
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: address));
                       if (!context.mounted) return;
-                      showTopSnack(context, const SnackBar(content: Text('Address copied')));
+                      showTopSnack(context,
+                          const SnackBar(content: Text('Address copied')));
                     },
                     icon: const Icon(Icons.copy_rounded, size: 18),
                     label: const Text('Copy'),

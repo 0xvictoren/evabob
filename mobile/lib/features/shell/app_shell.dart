@@ -518,7 +518,7 @@ class _AppShellState extends State<AppShell> {
                       badge > 9 ? '9+' : '$badge',
                       style: Type.label.copyWith(
                         color: EvabobColors.white,
-                        fontSize: 9,
+                        fontSize: 11,
                       ),
                     ),
                   ),

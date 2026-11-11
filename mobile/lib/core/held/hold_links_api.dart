@@ -116,7 +116,9 @@ class PublicHoldLink {
               : '${Env.resolveApiBaseUrl().replaceAll(RegExp(r'/$'), '')}$avatar',
       sellerSince: DateTime.tryParse(s['memberSince']?.toString() ?? ''),
       record: SellerRecord.fromJson(
-        j['record'] is Map ? Map<String, dynamic>.from(j['record'] as Map) : null,
+        j['record'] is Map
+            ? Map<String, dynamic>.from(j['record'] as Map)
+            : null,
       ),
     );
   }
@@ -153,7 +155,9 @@ class HoldLinksApi {
     return (
       items,
       SellerRecord.fromJson(
-        res['record'] is Map ? Map<String, dynamic>.from(res['record'] as Map) : null,
+        res['record'] is Map
+            ? Map<String, dynamic>.from(res['record'] as Map)
+            : null,
       ),
     );
   }

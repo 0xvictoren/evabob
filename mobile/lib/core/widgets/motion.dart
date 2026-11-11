@@ -131,8 +131,7 @@ class PopIn extends StatelessWidget {
     if (Motion.reduced(context)) return child;
     final delay = Motion.stagger * (index.clamp(0, 12));
     final total = Motion.base + delay;
-    final start =
-        (delay.inMilliseconds / total.inMilliseconds).clamp(0.0, 0.9);
+    final start = (delay.inMilliseconds / total.inMilliseconds).clamp(0.0, 0.9);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: total,
@@ -182,8 +181,8 @@ class EvabobPageTransitionsBuilder extends PageTransitionsBuilder {
     return FadeTransition(
       opacity: fade,
       child: SlideTransition(
-        position: Tween(begin: const Offset(0, 0.05), end: Offset.zero)
-            .animate(rise),
+        position:
+            Tween(begin: const Offset(0, 0.05), end: Offset.zero).animate(rise),
         child: ScaleTransition(
           scale: Tween(begin: 1.0, end: 0.98).animate(under),
           child: child,
@@ -191,4 +190,15 @@ class EvabobPageTransitionsBuilder extends PageTransitionsBuilder {
       ),
     );
   }
+}
+
+/// Whether balances are shown as dots. One switch for every screen that
+/// shows the total, kept for as long as the app is open: it is a "someone is
+/// looking over my shoulder" control, not a setting.
+class BalancePrivacy {
+  BalancePrivacy._();
+
+  static final ValueNotifier<bool> hidden = ValueNotifier<bool>(false);
+
+  static void toggle() => hidden.value = !hidden.value;
 }

@@ -270,7 +270,6 @@ class ProfileScreen extends StatelessWidget {
                 'Your profile, chats and Evabob history will be removed, and you will not be able to sign in again. Send out any money in your wallet first: once the account is deleted you cannot reach it from Evabob.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Inter',
                   fontSize: 14,
                   height: 18 / 14,
                   color: EvabobColors.inkMuted,
@@ -385,7 +384,6 @@ class ProfileScreen extends StatelessWidget {
               Text(
                 body,
                 style: const TextStyle(
-                  fontFamily: 'Inter',
                   fontSize: 14,
                   height: 20 / 14,
                   color: EvabobColors.ink,
@@ -401,7 +399,6 @@ class ProfileScreen extends StatelessWidget {
                 child: Text(
                   footnote,
                   style: const TextStyle(
-                    fontFamily: 'Inter',
                     fontSize: 12,
                     height: 16 / 12,
                     color: EvabobColors.inkMuted,
@@ -577,7 +574,7 @@ class ProfileScreen extends StatelessWidget {
                 const SizedBox(height: 6),
                 const Text(
                   'Tap to change',
-                  style: TextStyle(fontSize: 10, color: EvabobColors.chalk),
+                  style: TextStyle(fontSize: 12, color: EvabobColors.chalk),
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -612,7 +609,7 @@ class ProfileScreen extends StatelessWidget {
                   child: Text(
                     auth.isDemoMode ? 'Demo account' : 'Signed in',
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: FontWeight.w400,
                       color: EvabobColors.emeraldDeep,
                     ),
@@ -649,7 +646,7 @@ class ProfileScreen extends StatelessWidget {
                 const Text(
                   'Wallet',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 12,
                     fontWeight: FontWeight.w400,
                     color: EvabobColors.navyMuted,
                   ),
@@ -689,7 +686,7 @@ class ProfileScreen extends StatelessWidget {
                 Text(
                   'Arc',
                   style: const TextStyle(
-                    fontSize: 10,
+                    fontSize: 12,
                     color: EvabobColors.chalk,
                   ),
                 ),
@@ -745,7 +742,8 @@ class ProfileScreen extends StatelessWidget {
                 // app lock (and no fingerprint or Face ID to offer).
                 if (!kIsWeb) ...[
                   Divider(
-                      height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                      height: 1,
+                      color: EvabobColors.sand.withValues(alpha: 0.8)),
                   Builder(
                     builder: (context) {
                       final lock = context.watch<AppLockService>();
@@ -789,7 +787,8 @@ class ProfileScreen extends StatelessWidget {
                                       onTap: () => Navigator.pop(ctx, 'bio'),
                                     ),
                                   ListTile(
-                                    leading: const Icon(Icons.lock_open_rounded),
+                                    leading:
+                                        const Icon(Icons.lock_open_rounded),
                                     title: const Text('Turn off app lock'),
                                     onTap: () => Navigator.pop(ctx, 'off'),
                                   ),
@@ -927,7 +926,7 @@ class ProfileScreen extends StatelessWidget {
           const Text(
             'Evabob',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 10, color: EvabobColors.chalk),
+            style: TextStyle(fontSize: 12, color: EvabobColors.chalk),
           ),
         ],
       ),
@@ -1022,7 +1021,7 @@ class ProfileScreen extends StatelessWidget {
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+        style: const TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
       ),
       trailing:
           const Icon(Icons.chevron_right_rounded, color: EvabobColors.chalk),
@@ -1069,7 +1068,7 @@ class _OperatorReviewsTileState extends State<_OperatorReviewsTile> {
           ),
           subtitle: const Text(
             'Jobs cancelled after delivery, waiting for a decision',
-            style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+            style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
           trailing: const Icon(Icons.chevron_right_rounded,
               color: EvabobColors.chalk),
@@ -1142,7 +1141,7 @@ class _BiometricConfirmTileState extends State<_BiometricConfirmTile> {
             on
                 ? 'Payments ask for your fingerprint or face. Your PIN still works.'
                 : 'Instead of typing your PIN each time. You set it up once with your PIN.',
-            style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+            style: const TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
         ),
       ],
@@ -1217,7 +1216,7 @@ class _NotificationDetailsTileState extends State<_NotificationDetailsTile> {
             _hidden
                 ? 'Notifications only say you have a new private update.'
                 : 'Notifications show who paid and how much.',
-            style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+            style: const TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
         ),
       ],
@@ -1284,7 +1283,7 @@ class _ExternalAiTileState extends State<_ExternalAiTile> {
           title: const Text('External AI assistant'),
           subtitle: const Text(
             'Off by default. Core wallet and payment features still work.',
-            style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+            style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
         ),
       ],

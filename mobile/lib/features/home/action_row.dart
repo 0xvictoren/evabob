@@ -30,7 +30,8 @@ class HomeActionRow extends StatelessWidget {
         if (showRequest) ...[
           Expanded(
             child: _ActionPill(
-              label: '↙  Request',
+              label: 'Request',
+              icon: Icons.south_west_rounded,
               foreground: EvabobColors.white,
               background: EvabobColors.white.withValues(alpha: .18),
               onTap: onRequest,
@@ -68,7 +69,8 @@ class HomeActionRow extends StatelessWidget {
           const SizedBox(width: 13),
           Expanded(
             child: _ActionPill(
-              label: '↗  Send',
+              label: 'Send',
+              icon: Icons.north_east_rounded,
               foreground: EvabobColors.ink,
               background: EvabobColors.white,
               shadow: Shadows.card,
@@ -84,6 +86,7 @@ class HomeActionRow extends StatelessWidget {
 class _ActionPill extends StatelessWidget {
   const _ActionPill({
     required this.label,
+    required this.icon,
     required this.foreground,
     required this.background,
     required this.onTap,
@@ -91,6 +94,7 @@ class _ActionPill extends StatelessWidget {
   });
 
   final String label;
+  final IconData icon;
   final Color foreground;
   final Color background;
   final VoidCallback onTap;
@@ -100,7 +104,8 @@ class _ActionPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: label.replaceAll(RegExp(r'[^A-Za-z ]'), '').trim(),
+      label: label,
+      excludeSemantics: true,
       child: PressScale(
         onTap: onTap,
         scale: Motion.pressScale,
@@ -112,7 +117,22 @@ class _ActionPill extends StatelessWidget {
             borderRadius: BorderRadius.circular(999),
             boxShadow: shadow,
           ),
-          child: Text(label, style: Type.body.copyWith(color: foreground)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: foreground),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.body
+                      .copyWith(color: foreground, fontSize: 16, height: 1.2),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -251,7 +251,8 @@ class _GatewayScreenState extends State<GatewayScreen> {
         // Saying "topped up" while the balance has not moved is what made a
         // working deposit look broken, so each outcome gets its own message.
         final message = switch (watch) {
-          DepositWatch.credited => 'Added ${formatTokenAmount(amt)} to your Gateway Account',
+          DepositWatch.credited =>
+            'Added ${formatTokenAmount(amt)} to your Gateway Account',
           DepositWatch.pending =>
             'On its way · ${formatTokenAmount(wallet.gatewayPendingUsdc)} arriving',
           DepositWatch.stillSettling =>
@@ -460,14 +461,14 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   Text(
                     'Gateway Account',
                     style:
-                        TextStyle(color: EvabobColors.lightDark, fontSize: 10),
+                        TextStyle(color: EvabobColors.lightDark, fontSize: 12),
                   ),
                   // The one invented term the app keeps, so it gets defined
                   // where it is used rather than in a help page nobody opens.
                   Text(
                     'Money you have moved here, ready to spend anywhere.',
                     style:
-                        TextStyle(color: EvabobColors.lightDark, fontSize: 10),
+                        TextStyle(color: EvabobColors.lightDark, fontSize: 12),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -482,7 +483,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   Text(
                     'Ready to spend  ${formatTokenAmount(wallet.gatewayConfirmedUsdc)}',
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: FontWeight.w400,
                       color: EvabobColors.white,
                     ),
@@ -490,7 +491,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   Text(
                     'Still arriving  ${formatTokenAmount(wallet.gatewayPendingUsdc)}',
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: FontWeight.w400,
                       color: EvabobColors.lightDark,
                     ),
@@ -500,14 +501,14 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     // shown beside a dollar total.
                     'Wallet ${formatTokenAmount(wallet.usdcWallet)} · '
                     'Total ${formatTokenAmount(wallet.totalUsdc)}',
-                    style: TextStyle(
-                        fontSize: 10, color: EvabobColors.lightDark),
+                    style:
+                        TextStyle(fontSize: 12, color: EvabobColors.lightDark),
                   ),
                   const SizedBox(height: 10),
                   Text(
                     'Where it came from',
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: FontWeight.w400,
                       color: EvabobColors.lightDark,
                     ),
@@ -551,7 +552,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                                 child: Text(
                                   b.name ?? 'Another network',
                                   style: const TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 12,
                                     color: EvabobColors.navy,
                                   ),
                                 ),
@@ -559,7 +560,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                               Text(
                                 formatTokenAmount(b.balanceUsdc),
                                 style: TextStyle(
-                                  fontSize: 10,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w400,
                                   fontFamily: 'monospace',
                                   color: EvabobColors.emeraldDeep,
@@ -613,7 +614,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                       'we tell you when it has arrived.',
                       style: const TextStyle(
                         color: EvabobColors.navyMuted,
-                        fontSize: 10,
+                        fontSize: 12,
                         height: 1.35,
                       ),
                     ),
@@ -624,7 +625,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                       'You have ${formatTokenAmount(sourceBal)} there'
                       '${_sourceDomain == 26 ? ' (Arc wallet)' : ''}',
                       style: const TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         color: EvabobColors.navyMuted,
                       ),
                     ),
@@ -671,7 +672,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                       'more. Money still arriving cannot be spent yet.',
                       style: const TextStyle(
                         color: EvabobColors.navyMuted,
-                        fontSize: 10,
+                        fontSize: 12,
                         height: 1.35,
                       ),
                     ),

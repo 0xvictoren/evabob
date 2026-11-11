@@ -50,11 +50,11 @@ Future<Uint8List> buildAccountStatementPdf(Map<String, dynamic> export) async {
               pw.SizedBox(
                 width: 110,
                 child: pw.Text(_safe(label),
-                    style: const pw.TextStyle(fontSize: 9, color: muted)),
+                    style: const pw.TextStyle(fontSize: 11, color: muted)),
               ),
               pw.Expanded(
                 child: pw.Text(_safe(value),
-                    style: pw.TextStyle(fontSize: 9, color: ink)),
+                    style: pw.TextStyle(fontSize: 11, color: ink)),
               ),
             ],
           ),
@@ -73,13 +73,13 @@ Future<Uint8List> buildAccountStatementPdf(Map<String, dynamic> export) async {
           : pw.Padding(
               padding: const pw.EdgeInsets.only(bottom: 10),
               child: pw.Text('Evabob account statement',
-                  style: const pw.TextStyle(fontSize: 8, color: muted)),
+                  style: const pw.TextStyle(fontSize: 10, color: muted)),
             ),
       footer: (context) => pw.Align(
         alignment: pw.Alignment.centerRight,
         child: pw.Text(
           'Page ${context.pageNumber} of ${context.pagesCount}',
-          style: const pw.TextStyle(fontSize: 8, color: muted),
+          style: const pw.TextStyle(fontSize: 10, color: muted),
         ),
       ),
       build: (context) => [
@@ -94,7 +94,7 @@ Future<Uint8List> buildAccountStatementPdf(Map<String, dynamic> export) async {
         pw.SizedBox(height: 2),
         pw.Text(
           'Account statement - exported ${day.format(exportedAt.toLocal())}',
-          style: const pw.TextStyle(fontSize: 9, color: muted),
+          style: const pw.TextStyle(fontSize: 11, color: muted),
         ),
         heading('Account'),
         line('Name', _str(profile['displayName'])),
@@ -106,7 +106,7 @@ Future<Uint8List> buildAccountStatementPdf(Map<String, dynamic> export) async {
         heading('Activity (${activity.length})'),
         if (activity.isEmpty)
           pw.Text('No payments yet.',
-              style: const pw.TextStyle(fontSize: 9, color: muted))
+              style: const pw.TextStyle(fontSize: 11, color: muted))
         else
           pw.TableHelper.fromTextArray(
             headers: const ['Date', 'What', 'With', 'Amount', 'Status'],
@@ -121,16 +121,18 @@ Future<Uint8List> buildAccountStatementPdf(Map<String, dynamic> export) async {
                           ? _str(a['receiver'])
                           : _str(a['sender']))),
                   _amount(a),
-                  _safe(_str(a['status']).isEmpty ? 'completed' : _str(a['status'])),
+                  _safe(_str(a['status']).isEmpty
+                      ? 'completed'
+                      : _str(a['status'])),
                 ],
             ],
             headerStyle: pw.TextStyle(
-              fontSize: 8,
+              fontSize: 10,
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.white,
             ),
             headerDecoration: pw.BoxDecoration(color: ink),
-            cellStyle: pw.TextStyle(fontSize: 8, color: ink),
+            cellStyle: pw.TextStyle(fontSize: 10, color: ink),
             cellAlignments: const {3: pw.Alignment.centerRight},
             columnWidths: const {
               0: pw.FixedColumnWidth(78),
@@ -139,14 +141,16 @@ Future<Uint8List> buildAccountStatementPdf(Map<String, dynamic> export) async {
               3: pw.FixedColumnWidth(72),
               4: pw.FixedColumnWidth(56),
             },
-            oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF3F5F8)),
+            oddRowDecoration:
+                const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF3F5F8)),
             border: null,
-            cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            cellPadding:
+                const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           ),
         heading('Contacts (${contacts.length})'),
         if (contacts.isEmpty)
           pw.Text('No saved contacts.',
-              style: const pw.TextStyle(fontSize: 9, color: muted))
+              style: const pw.TextStyle(fontSize: 11, color: muted))
         else
           for (final c in contacts)
             line(
@@ -163,7 +167,7 @@ Future<Uint8List> buildAccountStatementPdf(Map<String, dynamic> export) async {
         line('Messages', '$messages'),
         pw.Text(
           'Message text is in the JSON export.',
-          style: const pw.TextStyle(fontSize: 8, color: muted),
+          style: const pw.TextStyle(fontSize: 10, color: muted),
         ),
         if (limitations.isNotEmpty) ...[
           heading('Good to know'),
@@ -171,7 +175,7 @@ Future<Uint8List> buildAccountStatementPdf(Map<String, dynamic> export) async {
             pw.Padding(
               padding: const pw.EdgeInsets.only(bottom: 3),
               child: pw.Text('- ${_safe(l)}',
-                  style: const pw.TextStyle(fontSize: 8, color: muted)),
+                  style: const pw.TextStyle(fontSize: 10, color: muted)),
             ),
         ],
       ],
@@ -192,10 +196,10 @@ String _what(Map<String, dynamic> a) {
 
 /// Signed and in its own token: "-12.50 USDC", "+3.00 EURC".
 String _amount(Map<String, dynamic> a) {
-  final token = _str(a['token']).isEmpty ? 'USDC' : _str(a['token']).toUpperCase();
+  final token =
+      _str(a['token']).isEmpty ? 'USDC' : _str(a['token']).toUpperCase();
   final signed = (a['amountUsdc'] as num?)?.toDouble() ?? 0;
-  final value =
-      (a['amountToken'] as num?)?.toDouble().abs() ?? signed.abs();
+  final value = (a['amountToken'] as num?)?.toDouble().abs() ?? signed.abs();
   final kind = _str(a['kind']);
   final out = kind == 'send' || kind == 'withdraw' || signed < 0;
   final places = token == 'CIRBTC' ? 8 : 2;
@@ -233,6 +237,7 @@ String _safe(String? s) {
       .replaceAll(RegExp('[“”]'), '"')
       .replaceAll(RegExp('[–—·•]'), '-');
   return String.fromCharCodes(
-    text.runes.where((r) => r == 0x0A || (r >= 0x20 && r <= 0x7E) || (r >= 0xA0 && r <= 0xFF)),
+    text.runes.where((r) =>
+        r == 0x0A || (r >= 0x20 && r <= 0x7E) || (r >= 0xA0 && r <= 0xFF)),
   ).replaceAll(RegExp(r' {2,}'), ' ').trim();
 }

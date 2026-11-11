@@ -150,7 +150,9 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       if (!mounted) return;
       showTopSnack(
         context,
-        SnackBar(content: Text(friendlyError(error, fallback: 'Could not accept invitation.'))),
+        SnackBar(
+            content: Text(friendlyError(error,
+                fallback: 'Could not accept invitation.'))),
       );
     }
   }
@@ -163,7 +165,9 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       if (!mounted) return;
       showTopSnack(
         context,
-        SnackBar(content: Text(friendlyError(error, fallback: 'Could not block this account.'))),
+        SnackBar(
+            content: Text(friendlyError(error,
+                fallback: 'Could not block this account.'))),
       );
     }
   }
@@ -182,7 +186,9 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
             decoration: const InputDecoration(hintText: 'What happened?'),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel')),
             FilledButton(
               onPressed: () {
                 final value = controller.text.trim();
@@ -204,7 +210,9 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       if (!mounted) return;
       showTopSnack(
         context,
-        SnackBar(content: Text(friendlyError(error, fallback: 'Could not submit report.'))),
+        SnackBar(
+            content: Text(
+                friendlyError(error, fallback: 'Could not submit report.'))),
       );
     }
   }
@@ -254,7 +262,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     if (!mounted || choice == null) return;
 
     if (choice == 'photo' || choice == 'camera') {
-      await _sendPhoto(choice == 'camera' ? ImageSource.camera : ImageSource.gallery);
+      await _sendPhoto(
+          choice == 'camera' ? ImageSource.camera : ImageSource.gallery);
       return;
     }
 
@@ -285,7 +294,11 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       XFile? file;
       Uint8List? bytes;
       // Smaller each time, until it fits.
-      for (final (size, quality) in const [(1080.0, 65), (900.0, 55), (720.0, 45)]) {
+      for (final (size, quality) in const [
+        (1080.0, 65),
+        (900.0, 55),
+        (720.0, 45)
+      ]) {
         file = await ImagePicker().pickImage(
           source: source,
           maxWidth: size,
@@ -345,7 +358,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
               controller: amountCtrl,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: const [AmountInputFormatter()],
+              inputFormatters: const [AmountInputFormatter()],
               decoration: InputDecoration(
                 labelText: 'Amount',
                 prefixText: '${context.read<FxService>().dominant.symbol} ',
@@ -931,7 +944,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 10,
+                              fontSize: 12,
                               color: EvabobColors.navyMuted,
                             ),
                           ),
@@ -954,14 +967,16 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.mark_chat_unread_outlined, size: 42),
+                              const Icon(Icons.mark_chat_unread_outlined,
+                                  size: 42),
                               const SizedBox(height: 16),
                               Text(
                                 awaitingMe
                                     ? '${thread.title} wants to start a conversation.'
                                     : 'Invitation sent. You can message after ${thread.title} accepts.',
                                 textAlign: TextAlign.center,
-                                style: Type.body.copyWith(color: EvabobColors.navyMuted),
+                                style: Type.body
+                                    .copyWith(color: EvabobColors.navyMuted),
                               ),
                               if (awaitingMe) ...[
                                 const SizedBox(height: 20),
@@ -979,106 +994,110 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                         ),
                       )
                     : messages.isEmpty
-                    // A brand-new thread was a blank white area above a
-                    // composer, with nothing saying what to type.
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Text(
-                            widget.thread.isAgent
-                                ? 'Ask anything — what you can spend, how to '
-                                    'pay someone, what a payment cost.'
-                                : 'Say hello, or ask them for money.',
-                            textAlign: TextAlign.center,
-                            style: Type.body
-                                .copyWith(color: EvabobColors.navyMuted),
+                        // A brand-new thread was a blank white area above a
+                        // composer, with nothing saying what to type.
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Text(
+                                widget.thread.isAgent
+                                    ? 'Ask anything — what you can spend, how to '
+                                        'pay someone, what a payment cost.'
+                                    : 'Say hello, or ask them for money.',
+                                textAlign: TextAlign.center,
+                                style: Type.body
+                                    .copyWith(color: EvabobColors.navyMuted),
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: _scroll,
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                            itemCount: messages.length,
+                            itemBuilder: (context, i) {
+                              final m = messages[i];
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _bubble(m, myId, auth),
+                              );
+                            },
                           ),
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: _scroll,
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                        itemCount: messages.length,
-                        itemBuilder: (context, i) {
-                          final m = messages[i];
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _bubble(m, myId, auth),
-                          );
-                        },
-                      ),
               ),
               // Composer
               if (!thread.isPending)
                 Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: Glass(
-                  borderRadius: 20,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Attach',
-                        onPressed: _sendingPhoto ? null : () => _openAttachMenu(myId),
-                        icon: _sendingPhoto
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Icon(
-                                Icons.attach_file_rounded,
-                                color: EvabobColors.emeraldDeep,
-                              ),
-                      ),
-                      Expanded(
-                        child: TextField(
-                          controller: _input,
-                          minLines: 1,
-                          maxLines: 4,
-                          textInputAction: TextInputAction.send,
-                          onSubmitted: (_) => _send(),
-                          decoration: InputDecoration(
-                            hintText: widget.thread.isAgent
-                                ? 'Send \$25 to @john…'
-                                : context.watch<ChatService>().showMoneyHint
-                                    ? 'use @. to send money'
-                                    : 'Message…',
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                          ),
-                          onTap: () {
-                            final chat = context.read<ChatService>();
-                            if (chat.showMoneyHint) {
-                              chat.dismissMoneyHint();
-                            }
-                          },
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: Glass(
+                    borderRadius: 20,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Attach',
+                          onPressed: _sendingPhoto
+                              ? null
+                              : () => _openAttachMenu(myId),
+                          icon: _sendingPhoto
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Icon(
+                                  Icons.attach_file_rounded,
+                                  color: EvabobColors.emeraldDeep,
+                                ),
                         ),
-                      ),
-                      Semantics(
-                        button: true,
-                        label: 'Send message',
-                        child: PressScale(
-                          onTap: _send,
-                          child: Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: EvabobColors.gradientEmerald,
+                        Expanded(
+                          child: TextField(
+                            controller: _input,
+                            minLines: 1,
+                            maxLines: 4,
+                            textInputAction: TextInputAction.send,
+                            onSubmitted: (_) => _send(),
+                            decoration: InputDecoration(
+                              hintText: widget.thread.isAgent
+                                  ? 'Send \$25 to @john…'
+                                  : context.watch<ChatService>().showMoneyHint
+                                      ? 'use @. to send money'
+                                      : 'Message…',
+                              border: InputBorder.none,
+                              filled: false,
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
                             ),
-                            child: const Icon(Icons.arrow_upward_rounded,
-                                color: EvabobColors.onPrimary, size: 20),
+                            onTap: () {
+                              final chat = context.read<ChatService>();
+                              if (chat.showMoneyHint) {
+                                chat.dismissMoneyHint();
+                              }
+                            },
                           ),
                         ),
-                      ),
-                    ],
+                        Semantics(
+                          button: true,
+                          label: 'Send message',
+                          child: PressScale(
+                            onTap: _send,
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: EvabobColors.gradientEmerald,
+                              ),
+                              child: const Icon(Icons.arrow_upward_rounded,
+                                  color: EvabobColors.onPrimary, size: 20),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -1276,7 +1295,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 Text(
                   m.text ?? '',
                   style: const TextStyle(
-                    fontSize: 10,
+                    fontSize: 12,
                     color: EvabobColors.navyMuted,
                   ),
                 ),
@@ -1319,7 +1338,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
         child: Text(
           m.text ?? '',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 10, color: EvabobColors.chalk),
+          style: const TextStyle(fontSize: 12, color: EvabobColors.chalk),
         ),
       );
     }
@@ -1351,7 +1370,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                       child: Text(
                         r.statusLabel,
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 12,
                           fontWeight: FontWeight.w400,
                           color: EvabobColors.emeraldDeep,
                         ),
@@ -1372,7 +1391,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 Text(
                   r.fxLabel,
                   style: const TextStyle(
-                    fontSize: 10,
+                    fontSize: 12,
                     color: EvabobColors.navyMuted,
                   ),
                 ),
@@ -1390,7 +1409,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                   Text(
                     'From ${r.sender}',
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       color: EvabobColors.chalk,
                     ),
                   ),
@@ -1398,7 +1417,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                   Text(
                     'To ${r.receiver ?? r.peerName}',
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       color: EvabobColors.chalk,
                     ),
                   ),
@@ -1409,7 +1428,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                         : DateFormat('d MMM yyyy, HH:mm')
                             .format(DateTime.parse(r.dateLabel!).toLocal()),
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       color: EvabobColors.chalk,
                     ),
                   ),
@@ -1419,7 +1438,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                   SelectableText(
                     'Tx ${r.hash!.length > 18 ? '${r.hash!.substring(0, 10)}…${r.hash!.substring(r.hash!.length - 6)}' : r.hash}',
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       fontFamily: 'monospace',
                       color: EvabobColors.navyMuted,
                     ),
@@ -1470,7 +1489,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                   Text(
                     '${m.meta?['status'] ?? r.statusLabel}',
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: FontWeight.w400,
                       color: EvabobColors.navyMuted,
                     ),

@@ -57,10 +57,7 @@ class UserAvatar extends StatelessWidget {
     final path = auth.avatarPath;
     final url = auth.resolvedAvatarUrl;
     // The web-app keeps no local copy; it shows the uploaded URL instead.
-    if (!kIsWeb &&
-        path != null &&
-        path.isNotEmpty &&
-        File(path).existsSync()) {
+    if (!kIsWeb && path != null && path.isNotEmpty && File(path).existsSync()) {
       provider = FileImage(File(path));
     } else if (url != null && url.isNotEmpty) {
       provider = NetworkImage(url);

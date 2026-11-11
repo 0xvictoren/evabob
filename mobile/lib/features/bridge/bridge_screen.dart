@@ -257,8 +257,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
   }
 
   Future<void> _scanRecipient() async {
-    final hit =
-        await AddressScanSheet.open(
+    final hit = await AddressScanSheet.open(
       context,
       title: 'Scan who receives it',
       pickNetwork: true,
@@ -639,7 +638,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
             label,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 12,
               fontWeight: active || done ? FontWeight.w400 : FontWeight.w400,
               color: color,
             ),
@@ -704,20 +703,20 @@ class _BridgeScreenState extends State<BridgeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text(
-                    'Source',
+                    'From',
                     style: TextStyle(
-                      fontWeight: FontWeight.w400,
-                      color: EvabobColors.navy,
+                      fontSize: 12,
+                      color: EvabobColors.navyMuted,
                     ),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
                     // ignore: deprecated_member_use
                     value: _sourceDomain,
+                    isExpanded: true,
                     decoration: InputDecoration(
                       border: const OutlineInputBorder(),
                       isDense: true,
-                      labelText: 'From',
                       helperText:
                           '${formatTokenAmount(available, 'USDC')} on $_sourceName',
                     ),
@@ -730,9 +729,13 @@ class _BridgeScreenState extends State<BridgeScreen> {
                             children: [
                               AssetThumbnail(asset: c.name, size: 24),
                               const SizedBox(width: 10),
-                              Text(
-                                '${c.name}'
-                                '${c.domain == _destDomain ? ' (destination)' : ''}',
+                              Flexible(
+                                child: Text(
+                                  '${c.name}'
+                                  '${c.domain == _destDomain ? ' (destination)' : ''}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ],
                           ),
@@ -750,26 +753,26 @@ class _BridgeScreenState extends State<BridgeScreen> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'Destination',
+                    'To',
                     style: TextStyle(
-                      fontWeight: FontWeight.w400,
-                      color: EvabobColors.navy,
+                      fontSize: 12,
+                      color: EvabobColors.navyMuted,
                     ),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
                     // ignore: deprecated_member_use
                     value: _destDomain,
+                    isExpanded: true,
                     decoration: InputDecoration(
                       border: const OutlineInputBorder(),
                       isDense: true,
-                      labelText: 'To',
                       helperText: _expectedAmount != null
                           ? '~ ${formatTokenAmount(_expectedAmount!, _expectedToken ?? 'USDC')} on $_destName'
                           : _expectedLine ?? 'You receive it on $_destName',
                       helperMaxLines: 2,
                       helperStyle: TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         color: _bridgeable
                             ? EvabobColors.navyMuted
                             : EvabobColors.danger,
@@ -784,7 +787,13 @@ class _BridgeScreenState extends State<BridgeScreen> {
                             children: [
                               AssetThumbnail(asset: d.name, size: 24),
                               const SizedBox(width: 10),
-                              Text(d.name),
+                              Flexible(
+                                child: Text(
+                                  d.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -836,7 +845,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
                               child: Text(
                                 '$pct%',
                                 style: TextStyle(
-                                  fontSize: 10,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w400,
                                   color: _selectedPct == pct
                                       ? EvabobColors.emeraldDeep
@@ -915,7 +924,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
                       Text(
                         _phaseLabel!,
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 12,
                           color: _lastError != null && !_mintDone
                               ? EvabobColors.danger
                               : EvabobColors.navyMuted,
@@ -955,7 +964,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
                         'Only dollars can move between networks. The same amount arrives on the other side.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       color: EvabobColors.chalk,
                     ),
                   ),
@@ -985,7 +994,7 @@ class _HashRow extends StatelessWidget {
         Text(
           '$label ',
           style: const TextStyle(
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: FontWeight.w400,
             color: EvabobColors.navyMuted,
           ),
@@ -994,7 +1003,7 @@ class _HashRow extends StatelessWidget {
           child: Text(
             short,
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 12,
               fontFamily: 'monospace',
               color: EvabobColors.navy,
             ),

@@ -288,7 +288,8 @@ class AllowanceMeter extends StatelessWidget {
         Text(
           [
             '${formatTokenAmount(meter.spentUsdc)} spent',
-            if (meter.heldUsdc > 0) '${formatTokenAmount(meter.heldUsdc)} waiting',
+            if (meter.heldUsdc > 0)
+              '${formatTokenAmount(meter.heldUsdc)} waiting',
             '${formatTokenAmount(meter.remainingUsdc)} left',
             if (!compact && _resets.isNotEmpty) _resets,
           ].join(' · '),
@@ -412,7 +413,7 @@ class AgentNameCard extends StatelessWidget {
             const Text(
               'People and software can pay it by this name, and wherever it '
               'appears you are shown as its owner. Names are permanent.',
-              style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+              style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
             ),
           ],
         ),
@@ -631,7 +632,8 @@ class _AgentPaymentsState extends State<AgentPayments> {
                 'evabob-evidence-${p.key.substring(0, p.key.length.clamp(0, 16))}.json',
           ),
         ],
-        text: 'Evidence for a ${formatTokenAmount(p.amountUsdc)} payment by my agent',
+        text:
+            'Evidence for a ${formatTokenAmount(p.amountUsdc)} payment by my agent',
         sharePositionOrigin:
             box != null ? box.localToGlobal(Offset.zero) & box.size : null,
       ));

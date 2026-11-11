@@ -9,6 +9,8 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/wallet/wallet_service.dart';
 import '../../core/widgets/asset_thumbnail.dart';
 import '../../core/widgets/evabob_ui.dart';
+import '../../core/widgets/glass.dart';
+import '../../core/widgets/motion.dart';
 import '../../core/widgets/receive_qr_sheet.dart';
 import '../../core/auth/evabob_auth.dart';
 
@@ -183,7 +185,8 @@ class _AssetsScreenState extends State<AssetsScreen> {
                       thumbnail: networks[i]['name'].toString(),
                       name: networks[i]['name'].toString(),
                       subtitle: networks[i]['subtitle'].toString(),
-                      amount: formatTokenAmount(networks[i]['amount'] as double),
+                      amount:
+                          formatTokenAmount(networks[i]['amount'] as double),
                       onTap: () => _networkActions(networks[i]),
                     ),
                     if (i != networks.length - 1) const _InsetDivider(),
@@ -224,37 +227,82 @@ class _TotalCard extends StatelessWidget {
     final fx = context.watch<FxService>();
     final amount = fx.primary(total);
     final dot = amount.lastIndexOf('.');
+    return ValueListenableBuilder<bool>(
+      valueListenable: BalancePrivacy.hidden,
+      builder: (context, hidden, _) => Semantics(
+        button: true,
+        label: hidden ? 'Show balance' : 'Hide balance',
+        child: PressScale(
+          onTap: BalancePrivacy.toggle,
+          scale: 0.98,
+          child: _card(amount, dot, total, hidden),
+        ),
+      ),
+    );
+  }
+
+  Widget _card(String amount, int dot, double total, bool hidden) {
     return Container(
-      height: 140,
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+      // Grows with its text: a fixed height clipped the larger figures.
+      constraints: const BoxConstraints(minHeight: 140),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
       decoration: BoxDecoration(
         color: EvabobColors.blue,
-        borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderRadius: BorderRadius.all(Radius.circular(16)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Your money',
-            style: Type.label.copyWith(color: EvabobColors.lightDark),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Your money',
+                style: Type.label.copyWith(color: EvabobColors.white),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                hidden
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                size: 16,
+                color: EvabobColors.white,
+              ),
+            ],
           ),
-          Text.rich(
-            TextSpan(
-              style: Type.hero.copyWith(color: EvabobColors.white),
-              children: [
-                TextSpan(text: dot < 0 ? amount : amount.substring(0, dot)),
-                if (dot >= 0)
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text.rich(
+              TextSpan(
+                style: Type.balance.copyWith(color: EvabobColors.white),
+                children: [
                   TextSpan(
-                    text: amount.substring(dot),
-                    style: Type.hero.copyWith(color: EvabobColors.lightDark),
+                    text: hidden
+                        ? '••••••'
+                        : dot < 0
+                            ? amount
+                            : amount.substring(0, dot),
                   ),
-              ],
+                  if (dot >= 0 && !hidden)
+                    TextSpan(
+                      text: amount.substring(dot),
+                      style:
+                          Type.balance.copyWith(color: EvabobColors.lightDark),
+                    ),
+                ],
+              ),
+              maxLines: 1,
             ),
-            maxLines: 1,
           ),
+          const SizedBox(height: 4),
           Text(
-            '≈ ${formatTokenAmount(total)} USD · Spendable, Gateway Account and on hold',
-            style: Type.label.copyWith(color: EvabobColors.lightDark),
+            hidden
+                ? 'Tap to show'
+                : '≈ ${formatTokenAmount(total)} USD · Spendable, Gateway Account and on hold',
+            style: Type.label.copyWith(color: EvabobColors.white),
           ),
         ],
       ),

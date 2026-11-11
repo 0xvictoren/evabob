@@ -109,8 +109,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // Money set aside for this person, waiting for them to act, comes first.
       bool waitingOnMe(HeldPayment h) =>
           !h.isPayer && h.stage == HeldStage.waitingForDelivery;
-      open.sort((a, b) =>
-          (waitingOnMe(b) ? 1 : 0).compareTo(waitingOnMe(a) ? 1 : 0));
+      open.sort(
+          (a, b) => (waitingOnMe(b) ? 1 : 0).compareTo(waitingOnMe(a) ? 1 : 0));
       setState(() => _held = open);
     } catch (_) {
       // Keeps what it showed; the next refresh tries again.
@@ -244,7 +244,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       // everything in motion — rather than jumping to Move
                       // money.
                       _TextLink(
-                        label: _moneyExpanded ? 'Show less ˄' : 'View all ˅',
+                        label: _moneyExpanded ? 'Show less' : 'View all',
+                        icon: _moneyExpanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
                         onTap: () =>
                             setState(() => _moneyExpanded = !_moneyExpanded),
                       ),
@@ -381,7 +384,7 @@ class _Hero extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Type.label.copyWith(
-                            color: EvabobColors.lightDark,
+                            color: EvabobColors.white.withValues(alpha: .85),
                           ),
                         ),
                       ],
@@ -409,45 +412,119 @@ class _Hero extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 36),
-              Text(
-                'Spendable balance',
-                style: Type.label.copyWith(color: EvabobColors.lightDark),
-              ),
-              CountUp(
-                shown,
-                builder: (_, value) {
-                  final formatted =
-                      fx.isNaira ? formatNgn(value) : formatUsd(value);
-                  final dot = formatted.lastIndexOf('.');
-                  return FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text.rich(
-                      TextSpan(
-                        style: Type.hero.copyWith(color: EvabobColors.white),
+              const SizedBox(height: 28),
+              // The whole balance is one press target: it gives under the
+              // thumb and hides or shows the figures, for when someone is
+              // looking over a shoulder.
+              ValueListenableBuilder<bool>(
+                valueListenable: BalancePrivacy.hidden,
+                builder: (context, hidden, _) => Semantics(
+                  button: true,
+                  label: hidden ? 'Show balance' : 'Hide balance',
+                  child: PressScale(
+                    onTap: BalancePrivacy.toggle,
+                    scale: 0.97,
+                    child: ColoredBox(
+                      color: Colors.transparent,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          TextSpan(
-                            text: dot < 0
-                                ? formatted
-                                : formatted.substring(0, dot),
-                          ),
-                          if (dot >= 0)
-                            TextSpan(
-                              text: formatted.substring(dot),
-                              style: Type.hero.copyWith(
-                                color: EvabobColors.lightDark,
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Spendable balance',
+                                style: Type.label
+                                    .copyWith(color: EvabobColors.white),
                               ),
+                              const SizedBox(width: 6),
+                              Icon(
+                                hidden
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                size: 16,
+                                color: EvabobColors.white,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          AnimatedSwitcher(
+                            duration: Motion.fast,
+                            switchInCurve: Motion.smooth,
+                            layoutBuilder: (current, previous) => Stack(
+                              alignment: Alignment.centerLeft,
+                              children: [
+                                ...previous,
+                                if (current != null) current
+                              ],
                             ),
+                            child: hidden
+                                ? SizedBox(
+                                    key: const ValueKey('hidden'),
+                                    width: double.infinity,
+                                    child: Text(
+                                      '••••••',
+                                      style: Type.balance.copyWith(
+                                        color: EvabobColors.white,
+                                        letterSpacing: 4,
+                                      ),
+                                    ),
+                                  )
+                                : SizedBox(
+                                    key: const ValueKey('shown'),
+                                    width: double.infinity,
+                                    child: CountUp(
+                                      shown,
+                                      builder: (_, value) {
+                                        final formatted = fx.isNaira
+                                            ? formatNgn(value)
+                                            : formatUsd(value);
+                                        final dot = formatted.lastIndexOf('.');
+                                        return FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          alignment: Alignment.centerLeft,
+                                          child: Text.rich(
+                                            TextSpan(
+                                              style: Type.balance.copyWith(
+                                                  color: EvabobColors.white),
+                                              children: [
+                                                TextSpan(
+                                                  text: dot < 0
+                                                      ? formatted
+                                                      : formatted.substring(
+                                                          0, dot),
+                                                ),
+                                                if (dot >= 0)
+                                                  TextSpan(
+                                                    text: formatted
+                                                        .substring(dot),
+                                                    style:
+                                                        Type.balance.copyWith(
+                                                      color: EvabobColors
+                                                          .lightDark,
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            hidden
+                                ? 'Tap to show'
+                                : '≈ ${fx.secondary(dollars)}',
+                            style:
+                                Type.body.copyWith(color: EvabobColors.white),
+                          ),
                         ],
                       ),
                     ),
-                  );
-                },
-              ),
-              Text(
-                '≈ ${fx.secondary(dollars)}',
-                style: Type.body.copyWith(color: EvabobColors.lightDark),
+                  ),
+                ),
               ),
               const Spacer(),
               HomeActionRow(
@@ -474,15 +551,15 @@ class _MenuButton extends StatelessWidget {
   final VoidCallback onTap;
 
   static Widget get _dot => SizedBox(
-    width: 10,
-    height: 10,
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        color: EvabobColors.pageBg,
-        shape: BoxShape.circle,
-      ),
-    ),
-  );
+        width: 10,
+        height: 10,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: EvabobColors.pageBg,
+            shape: BoxShape.circle,
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -753,7 +830,10 @@ class _MoneyCard extends StatelessWidget {
     final limit = expanded ? 1 << 30 : 4;
     String networkName(Map<String, dynamic> r) {
       final n = r['name']?.toString() ?? '';
-      return n.replaceAll(RegExp(r'\s*(Sepolia|Testnet)\s*', caseSensitive: false), '').trim();
+      return n
+          .replaceAll(
+              RegExp(r'\s*(Sepolia|Testnet)\s*', caseSensitive: false), '')
+          .trim();
     }
 
     // What the person holds, each pot on its own line. The GA stays off Home.
@@ -767,7 +847,8 @@ class _MoneyCard extends StatelessWidget {
       if (wallet.eurcWallet > 0)
         row(
           title: 'Euros',
-          subtitle: 'Spendable · ≈ ${fx.secondaryToken(wallet.eurcWallet, 'EURC')}',
+          subtitle:
+              'Spendable · ≈ ${fx.secondaryToken(wallet.eurcWallet, 'EURC')}',
           icon: Icons.euro_rounded,
           trailing: formatEur(wallet.eurcWallet),
         ),
@@ -830,7 +911,8 @@ class _MoneyCard extends StatelessWidget {
         ),
       for (final e in gaInFlight.take(limit))
         row(
-          title: 'Paying ${formatMoney(e.displayAmount)} from your Gateway Account',
+          title:
+              'Paying ${formatMoney(e.displayAmount)} from your Gateway Account',
           subtitle: e.mode == 'gateway_pay_scheduled'
               ? 'Goes by itself once your approval is confirmed'
               : 'On its way',
@@ -881,7 +963,11 @@ class _RecentActivity extends StatelessWidget {
           children: [
             Text('Recent activity', style: Type.title),
             const Spacer(),
-            _TextLink(label: 'View all ›', onTap: onSeeAll),
+            _TextLink(
+              label: 'View all',
+              icon: Icons.chevron_right_rounded,
+              onTap: onSeeAll,
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -987,9 +1073,10 @@ class _ActivityRow extends StatelessWidget {
 }
 
 class _TextLink extends StatelessWidget {
-  const _TextLink({required this.label, required this.onTap});
+  const _TextLink({required this.label, required this.onTap, this.icon});
 
   final String label;
+  final IconData? icon;
   final VoidCallback onTap;
 
   @override
@@ -1001,8 +1088,20 @@ class _TextLink extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: 44),
         child: Align(
           alignment: Alignment.centerRight,
-          child:
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               Text(label, style: Type.body.copyWith(color: EvabobColors.blue)),
+              if (icon != null) ...[
+                const SizedBox(width: 2),
+                AnimatedSwitcher(
+                  duration: Motion.fast,
+                  child: Icon(icon,
+                      key: ValueKey(icon), size: 20, color: EvabobColors.blue),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

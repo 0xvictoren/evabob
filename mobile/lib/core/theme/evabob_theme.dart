@@ -100,8 +100,8 @@ class EvabobTheme {
           shape: const StadiumBorder(),
           textStyle: const TextStyle(
             fontWeight: FontWeight.w400,
-            fontSize: 14,
-            height: 18 / 14,
+            fontSize: 15,
+            height: 20 / 15,
             letterSpacing: -0.1,
             fontFamily: 'Numans',
           ),
@@ -118,7 +118,14 @@ class EvabobTheme {
         fillColor: EvabobColors.creamDeep,
         hintStyle: const TextStyle(color: EvabobColors.chalk),
         labelStyle: const TextStyle(color: EvabobColors.navyMuted),
-        helperStyle: const TextStyle(color: EvabobColors.chalk),
+        floatingLabelStyle: TextStyle(color: EvabobColors.emeraldDeep),
+        helperStyle: const TextStyle(
+          color: EvabobColors.chalk,
+          fontSize: 12,
+          height: 16 / 12,
+        ),
+        helperMaxLines: 3,
+        errorMaxLines: 3,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
@@ -144,6 +151,27 @@ class EvabobTheme {
         checkColor: const WidgetStatePropertyAll(EvabobColors.onPrimary),
         side: const BorderSide(color: EvabobColors.navyMuted),
       ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          // A soft track with a filled choice, not a black outline.
+          side: const WidgetStatePropertyAll(BorderSide.none),
+          shape: const WidgetStatePropertyAll(StadiumBorder()),
+          backgroundColor: WidgetStateProperty.resolveWith(
+            (s) => s.contains(WidgetState.selected)
+                ? EvabobColors.emerald
+                : EvabobColors.sheet,
+          ),
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (s) => s.contains(WidgetState.selected)
+                ? EvabobColors.onPrimary
+                : EvabobColors.navyMuted,
+          ),
+          minimumSize: const WidgetStatePropertyAll(Size(44, 48)),
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(fontSize: 15, height: 20 / 15, fontFamily: 'Numans'),
+          ),
+        ),
+      ),
       dividerColor: EvabobColors.hairline,
       chipTheme: base.chipTheme.copyWith(
         backgroundColor: EvabobColors.creamDeep,
@@ -154,11 +182,58 @@ class EvabobTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: EvabobColors.creamDeep,
-        contentTextStyle: TextStyle(color: EvabobColors.nearBlack),
+        contentTextStyle: TextStyle(
+          color: EvabobColors.nearBlack,
+          fontSize: 13,
+          height: 18 / 13,
+          fontFamily: 'Numans',
+        ),
         behavior: SnackBarBehavior.floating,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+        ),
       ),
       dialogTheme: const DialogThemeData(
         backgroundColor: EvabobColors.sheet,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(20)),
+        ),
+      ),
+      listTileTheme: const ListTileThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+        ),
+        titleTextStyle: TextStyle(
+          fontSize: 15,
+          height: 20 / 15,
+          letterSpacing: -0.1,
+          color: EvabobColors.ink,
+          fontFamily: 'Numans',
+        ),
+        subtitleTextStyle: TextStyle(
+          fontSize: 12,
+          height: 16 / 12,
+          letterSpacing: 0.1,
+          color: EvabobColors.inkMuted,
+          fontFamily: 'Numans',
+        ),
+      ),
+      // Every other button is a pill; these were rounded squares.
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: EvabobColors.emerald,
+        foregroundColor: EvabobColors.onPrimary,
+        elevation: 2,
+        focusElevation: 2,
+        hoverElevation: 3,
+        highlightElevation: 1,
+        shape: const StadiumBorder(),
+        extendedTextStyle: const TextStyle(
+          fontSize: 15,
+          height: 20 / 15,
+          letterSpacing: -0.1,
+          fontFamily: 'Numans',
+        ),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: EvabobColors.sheet,
@@ -187,12 +262,12 @@ class EvabobTheme {
       );
 
   static TextStyle get monoRate => const TextStyle(
-        fontSize: 10,
+        fontSize: 12,
         fontWeight: FontWeight.w400,
         color: EvabobColors.navyMuted,
         fontFamily: 'Numans',
         fontFeatures: [FontFeature.tabularFigures()],
-        height: 14 / 10,
-        letterSpacing: 0.2,
+        height: 16 / 12,
+        letterSpacing: 0.1,
       );
 }

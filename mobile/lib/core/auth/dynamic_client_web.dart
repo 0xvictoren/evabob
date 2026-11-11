@@ -49,7 +49,8 @@ class _WebDynamicClient implements DynamicAuthClient {
   _Bridge get _js {
     final b = _bridge;
     if (b == null) {
-      throw Exception('Sign-in could not load. Refresh the page and try again.');
+      throw Exception(
+          'Sign-in could not load. Refresh the page and try again.');
     }
     return b;
   }

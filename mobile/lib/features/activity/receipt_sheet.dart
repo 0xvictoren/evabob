@@ -299,7 +299,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                               child: Text(
                                 failed ? "Didn't land" : kindLabel(e.kind),
                                 style: TextStyle(
-                                  fontSize: 10,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w400,
                                   color: failed
                                       ? EvabobColors.alert
@@ -312,7 +312,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                             const Text(
                               'Evabob',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w400,
                                 color: EvabobColors.navyMuted,
                               ),
@@ -333,7 +333,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                           df.format(e.createdAt.toLocal()),
                           style: const TextStyle(
                             color: EvabobColors.navyMuted,
-                            fontSize: 10,
+                            fontSize: 12,
                           ),
                         ),
                         if (!zero || (e.amountToken ?? 0) > 0) ...[
@@ -400,7 +400,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                                 ? 'This payment did not land. Nothing was recorded as delivered; check Activity before trying again.'
                                 : 'This is your official Evabob payment receipt. Download or share it anytime from history.',
                             style: const TextStyle(
-                              fontSize: 10,
+                              fontSize: 12,
                               color: EvabobColors.navyMuted,
                               height: 1.35,
                             ),
@@ -410,7 +410,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                         const Text(
                           'Built on Arc',
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 12,
                             color: EvabobColors.chalk,
                           ),
                         ),
@@ -426,7 +426,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                     Text(
                       'File: $_savedPath',
                       style: const TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         color: EvabobColors.navyMuted,
                       ),
                     ),
@@ -436,7 +436,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
                     Text(
                       _actionHint!,
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         fontWeight: FontWeight.w400,
                         color: EvabobColors.emeraldDeep,
                       ),
@@ -490,7 +490,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
           Text(
             k,
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 12,
               color: EvabobColors.chalk,
               fontWeight: FontWeight.w400,
             ),
@@ -499,7 +499,7 @@ class _ReceiptSheetState extends State<ReceiptSheet> {
             display,
             maxLines: 3,
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 12,
               color: EvabobColors.navy,
               fontWeight: FontWeight.w400,
               fontFamily: 'monospace',

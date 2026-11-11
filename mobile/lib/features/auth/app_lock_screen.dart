@@ -579,7 +579,7 @@ class _LockedOutViewState extends State<_LockedOutView> {
                 'UNTIL YOU CAN TRY AGAIN',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 12,
                   height: 14 / 10,
                   letterSpacing: .8,
                   color: EvabobColors.inkTertiary,

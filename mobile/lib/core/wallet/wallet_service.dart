@@ -182,8 +182,10 @@ class WalletService extends ChangeNotifier {
       }
       final cb = j['chainBalances'];
       if (cb is List) {
-        chainBalances =
-            cb.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        chainBalances = cb
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
       }
       address ??= addr;
       notifyListeners();

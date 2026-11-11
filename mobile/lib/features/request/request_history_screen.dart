@@ -89,8 +89,18 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
     if (days <= 0) return 'today';
     if (days == 1) return 'yesterday';
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return 'on ${at.day} ${months[at.month - 1]}';
   }
@@ -144,7 +154,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
     final waiting = _rows.where(_waiting).toList();
     final done = _rows.where((r) => !_waiting(r)).toList();
     const section = TextStyle(
-      fontSize: 10,
+      fontSize: 12,
       height: 14 / 10,
       letterSpacing: .8,
       color: EvabobColors.inkTertiary,
@@ -223,15 +233,10 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
                               children: [
                                 SvgPicture.asset('assets/figma/btn_back.svg',
                                     width: 44, height: 44),
-                                const Text(
-                                  '‹',
-                                  style: TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 22,
-                                    height: 28 / 22,
-                                    color: EvabobColors.ink,
-                                  ),
+                                const Icon(
+                                  Icons.chevron_left_rounded,
+                                  size: 24,
+                                  color: EvabobColors.ink,
                                 ),
                               ],
                             ),
@@ -298,8 +303,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
                               ? 'No one has asked you for money yet.'
                               : 'You have not asked anyone for money yet.',
                           textAlign: TextAlign.center,
-                          style:
-                              Type.body.copyWith(color: EvabobColors.slate),
+                          style: Type.body.copyWith(color: EvabobColors.slate),
                         ),
                       )
                     else ...[

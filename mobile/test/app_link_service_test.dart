@@ -4,7 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('the account-recovery alert link opens in the app', () {
     final uri = AppLinkService.validated(
-      Uri.parse('evabob://account-recovery/5b7f2c1e-9a0d-4f3e-8c1b-2d6a7e9f0a11'),
+      Uri.parse(
+          'evabob://account-recovery/5b7f2c1e-9a0d-4f3e-8c1b-2d6a7e9f0a11'),
     );
     expect(uri, isNotNull);
     expect(uri!.host, 'account-recovery');

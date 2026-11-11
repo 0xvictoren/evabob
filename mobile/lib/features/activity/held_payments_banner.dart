@@ -65,9 +65,8 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
       HeldStage.delivered => h.isPayer
           ? '$who says it is done — check it by ${day(h.autoReleaseAt)}'
           : 'Delivered — yours on ${day(h.autoReleaseAt)} unless they object',
-      HeldStage.underReview => h.isPayer
-          ? 'Being reviewed'
-          : 'Being reviewed — add your side',
+      HeldStage.underReview =>
+        h.isPayer ? 'Being reviewed' : 'Being reviewed — add your side',
       HeldStage.coolingOff => 'Sending to $who shortly — you can still cancel',
       HeldStage.waitingToClaim => 'Waiting for $who to join',
       _ => '',
@@ -89,15 +88,15 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
                 child: Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: (h.needsMe
-                              ? EvabobColors.danger
-                              : EvabobColors.blue)
-                          .withValues(alpha: 0.12),
+                      backgroundColor:
+                          (h.needsMe ? EvabobColors.danger : EvabobColors.blue)
+                              .withValues(alpha: 0.12),
                       child: Icon(
                         h.isCoolingOff
                             ? Icons.timer_outlined
                             : Icons.lock_clock_rounded,
-                        color: h.needsMe ? EvabobColors.danger : EvabobColors.blue,
+                        color:
+                            h.needsMe ? EvabobColors.danger : EvabobColors.blue,
                         size: 20,
                       ),
                     ),
@@ -119,7 +118,7 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
                           Text(
                             _line(h),
                             style: const TextStyle(
-                              fontSize: 10,
+                              fontSize: 12,
                               color: EvabobColors.navyMuted,
                             ),
                           ),

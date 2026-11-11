@@ -101,13 +101,15 @@ class MoneyCircle {
         nextCollectionAt:
             DateTime.tryParse(j['nextCollectionAt']?.toString() ?? ''),
         members: ((j['members'] as List?) ?? const [])
-            .map((e) => CircleMember.fromJson(Map<String, dynamic>.from(e as Map)))
+            .map((e) =>
+                CircleMember.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(growable: false),
         me: j['me'] is Map
             ? CircleMember.fromJson(Map<String, dynamic>.from(j['me'] as Map))
             : null,
         history: ((j['history'] as List?) ?? const [])
-            .map((e) => CircleRound.fromJson(Map<String, dynamic>.from(e as Map)))
+            .map((e) =>
+                CircleRound.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(growable: false),
       );
 
@@ -158,8 +160,8 @@ class GroupPot {
         beneficiary: j['beneficiary']?.toString() ?? '',
         targetUsdc: (j['targetUsdc'] as num?)?.toDouble() ?? 0,
         raisedUsdc: (j['raisedUsdc'] as num?)?.toDouble() ?? 0,
-        deadline:
-            DateTime.tryParse(j['deadline']?.toString() ?? '') ?? DateTime.now(),
+        deadline: DateTime.tryParse(j['deadline']?.toString() ?? '') ??
+            DateTime.now(),
         contributors: (j['contributors'] as num?)?.toInt() ?? 0,
         url: j['url']?.toString() ?? '',
         isOrganizer: j['isOrganizer'] == true,

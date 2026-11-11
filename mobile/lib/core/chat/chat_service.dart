@@ -42,8 +42,7 @@ String? explorerTxHash(Map<String, dynamic>? data) {
 
 /// Chat backed by Evabob API. Money commands use real Circle UCW sends.
 class ChatService extends ChangeNotifier {
-  ChatService(this._fx, this._api, {SectionNotify? notify})
-      : _notify = notify;
+  ChatService(this._fx, this._api, {SectionNotify? notify}) : _notify = notify;
 
   /// The person's main currency: a request typed as ₦2,500 is created in
   /// dollars and keeps "₦2,500" for display.
@@ -1041,7 +1040,8 @@ class ChatService extends ChangeNotifier {
         if (caption.trim().isNotEmpty) 'caption': caption.trim(),
       });
       await loadMessages(threadId);
-      _touchThread(threadId, caption.trim().isEmpty ? '📷 Photo' : caption.trim());
+      _touchThread(
+          threadId, caption.trim().isEmpty ? '📷 Photo' : caption.trim());
       notifyListeners();
       return null;
     } catch (e) {
@@ -1253,7 +1253,8 @@ class ChatService extends ChangeNotifier {
       );
       try {
         await _api.post('/v1/chat/threads/$threadId/messages', body: {
-          'text': 'Held ${formatTokenAmount(lockAmount, token)} for $peerHandle',
+          'text':
+              'Held ${formatTokenAmount(lockAmount, token)} for $peerHandle',
           'senderId': myId,
           'kind': 'receipt',
           'meta': msg.meta,
@@ -1403,12 +1404,15 @@ class ChatService extends ChangeNotifier {
         to: to,
         amountUsdc: rest,
         token: token,
-        memo: description.isEmpty ? 'Payment request (rest)' : '$description (rest)',
+        memo: description.isEmpty
+            ? 'Payment request (rest)'
+            : '$description (rest)',
       );
       if (res['ok'] != true) {
         return {
           'ok': false,
-          'error': res['error']?.toString() ?? 'The payment did not go through.',
+          'error':
+              res['error']?.toString() ?? 'The payment did not go through.',
         };
       }
       final marked = await markRequestServer(

@@ -32,10 +32,9 @@ class PushRegistration {
   String? _userId;
   final List<StreamSubscription<Object?>> _subs = [];
 
-  static String get _appId =>
-      defaultTargetPlatform == TargetPlatform.iOS
-          ? Env.firebaseIosAppId
-          : Env.firebaseAndroidAppId;
+  static String get _appId => defaultTargetPlatform == TargetPlatform.iOS
+      ? Env.firebaseIosAppId
+      : Env.firebaseAndroidAppId;
 
   static bool get configured =>
       !kIsWeb &&
@@ -135,9 +134,8 @@ class PushRegistration {
     _userId = null;
     final unregister = token == null
         ? null
-        : _api
-            .delete('/v1/users/me/push-devices', body: {'token': token})
-            .catchError((Object e) {
+        : _api.delete('/v1/users/me/push-devices',
+            body: {'token': token}).catchError((Object e) {
             debugPrint('Push unregister: $e');
             return <String, dynamic>{};
           });

@@ -219,7 +219,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerRight,
                       child: Text(
-                        e.resumable ? 'Continue' : formatMoney(e.displayAmount, e.displayToken),
+                        e.resumable
+                            ? 'Continue'
+                            : formatMoney(e.displayAmount, e.displayToken),
                         maxLines: 1,
                         style: Type.body.copyWith(
                           color: e.resumable ? EvabobColors.blue : color,
@@ -268,7 +270,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
       boxShadow: Shadows.card,
     );
     const sectionStyle = TextStyle(
-      fontSize: 10,
+      fontSize: 12,
       height: 14 / 10,
       letterSpacing: .8,
       color: EvabobColors.inkTertiary,
@@ -317,7 +319,6 @@ class _ActivityScreenState extends State<ActivityScreen> {
                             const Text(
                               '≡',
                               style: TextStyle(
-                                fontFamily: 'Inter',
                                 fontWeight: FontWeight.w900,
                                 fontSize: 18,
                                 height: 24 / 18,
@@ -428,8 +429,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
                                     .copyWith(color: EvabobColors.slate),
                               ),
                               TextButton(
-                                onPressed: () => setState(
-                                    () => _f = const ActivityFilter()),
+                                onPressed: () =>
+                                    setState(() => _f = const ActivityFilter()),
                                 child: const Text('Show everything'),
                               ),
                             ],
@@ -448,7 +449,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
                                 _row(context, group.value[i]),
                                 if (i < group.value.length - 1)
                                   const Padding(
-                                    padding: EdgeInsets.only(left: 68, right: 20),
+                                    padding:
+                                        EdgeInsets.only(left: 68, right: 20),
                                     child: Divider(
                                         height: 1,
                                         color: EvabobColors.hairline),
@@ -555,7 +557,8 @@ class _Pill extends StatelessWidget {
 /// Figma "Activity · Filter" (18:970): what to show, when, with whom, and
 /// how it ended — with the number of matches on the button.
 class ActivityFilterSheet extends StatefulWidget {
-  const ActivityFilterSheet({super.key, required this.initial, required this.items});
+  const ActivityFilterSheet(
+      {super.key, required this.initial, required this.items});
 
   final ActivityFilter initial;
   final List<ActivityEntry> items;
@@ -599,7 +602,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
   @override
   Widget build(BuildContext context) {
     const section = TextStyle(
-      fontSize: 10,
+      fontSize: 12,
       height: 14 / 10,
       letterSpacing: .8,
       color: EvabobColors.inkTertiary,
@@ -668,7 +671,8 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
         color: EvabobColors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         boxShadow: [
-          BoxShadow(color: Color(0x290B1620), blurRadius: 40, offset: Offset(0, -8)),
+          BoxShadow(
+              color: Color(0x290B1620), blurRadius: 40, offset: Offset(0, -8)),
         ],
       ),
       padding: EdgeInsets.fromLTRB(
@@ -739,14 +743,14 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
                   face(
                     selected: _f.person == null,
                     label: 'Anyone',
-                    onTap: () => setState(() => _f = _f.copyWith(person: () => null)),
+                    onTap: () =>
+                        setState(() => _f = _f.copyWith(person: () => null)),
                     child: Container(
                       color: EvabobColors.pageBg,
                       alignment: Alignment.center,
                       child: Text(
                         'All',
                         style: TextStyle(
-                          fontFamily: 'Inter',
                           fontWeight: FontWeight.w900,
                           fontSize: 14,
                           color: EvabobColors.blue,
@@ -862,7 +866,6 @@ class _ActivityEmptyState extends StatelessWidget {
               'Every payment and receipt shows up here, the moment money moves.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Inter',
                 fontSize: 14,
                 height: 18 / 14,
                 letterSpacing: -.1,
@@ -917,14 +920,10 @@ class _ActivityOfflineState extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Text(
-              '!',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 28,
-                height: 32 / 28,
-                color: EvabobColors.ink,
-              ),
+            child: const Icon(
+              Icons.cloud_off_rounded,
+              size: 32,
+              color: EvabobColors.ink,
             ),
           ),
           const SizedBox(height: 44),
@@ -944,7 +943,6 @@ class _ActivityOfflineState extends StatelessWidget {
               "We can't reach Evabob right now. What you see is the last thing we knew.",
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Inter',
                 fontSize: 14,
                 height: 18 / 14,
                 letterSpacing: -.1,
@@ -980,11 +978,6 @@ class _ActivityOfflineState extends StatelessWidget {
             height: 56,
             child: FilledButton(
               onPressed: onRetry,
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
               child: const Text('Try again'),
             ),
           ),
@@ -993,8 +986,7 @@ class _ActivityOfflineState extends StatelessWidget {
             "Nothing you started is lost. We'll finish it when you're back.",
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 10,
+              fontSize: 12,
               height: 14 / 10,
               letterSpacing: .2,
               color: EvabobColors.inkMuted,
@@ -1103,8 +1095,7 @@ class _ActivityLoadingStateState extends State<_ActivityLoadingState>
               'Updating your activity…',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 10,
+                fontSize: 12,
                 height: 1.4,
                 letterSpacing: .2,
                 color: EvabobColors.inkTertiary,

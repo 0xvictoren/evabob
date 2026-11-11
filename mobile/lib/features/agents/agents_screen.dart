@@ -79,7 +79,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
           title: const Text('API key'),
           content: SelectableText(
             shown,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
           ),
           actions: [
             TextButton(
@@ -207,7 +207,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                 'Set money aside for a piece of software to spend on your '
                 'behalf, without giving it your main balance.',
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 12,
                   color: EvabobColors.navyMuted,
                 ),
               ),
@@ -240,7 +240,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                         'to spend.',
                         style: TextStyle(
                           color: EvabobColors.navyMuted,
-                          fontSize: 10,
+                          fontSize: 12,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -298,7 +298,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                                               .where((x) => x.isNotEmpty)
                                               .join(' · '),
                                   style: TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 12,
                                     color: w.paused || w.approvals.isNotEmpty
                                         ? EvabobColors.alert
                                         : EvabobColors.navyMuted,
@@ -352,18 +352,18 @@ class _AgentDetailState extends State<_AgentDetail> {
           children: [
             SelectableText(
               key,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             ),
             const SizedBox(height: 10),
             const Text(
               'Copy this now. It is not stored and cannot be shown again — '
               'if you lose it, rotate to issue a new one.',
-              style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+              style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
             ),
             const SizedBox(height: 12),
             const Text(
               'Or copy the setup, with this key already in it:',
-              style: TextStyle(fontSize: 10, color: EvabobColors.navy),
+              style: TextStyle(fontSize: 12, color: EvabobColors.navy),
             ),
             const SizedBox(height: 6),
             AgentSetupButtons(apiKey: key),
@@ -495,7 +495,7 @@ class _AgentDetailState extends State<_AgentDetail> {
               controller: amount,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: const [AmountInputFormatter()],
+              inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(labelText: 'Amount in dollars'),
             ),
             const SizedBox(height: 8),
@@ -503,7 +503,7 @@ class _AgentDetailState extends State<_AgentDetail> {
               'Available ${formatTokenAmount(balanceUsdc)}. '
               'Goes back to your own wallet.',
               style: const TextStyle(
-                fontSize: 10,
+                fontSize: 12,
                 color: EvabobColors.navyMuted,
               ),
             ),
@@ -561,13 +561,13 @@ class _AgentDetailState extends State<_AgentDetail> {
               controller: amount,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: const [AmountInputFormatter()],
+              inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(labelText: 'Amount in dollars'),
             ),
             const SizedBox(height: 8),
             const Text(
               'Moves money from your balance into this agent wallet.',
-              style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+              style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
             ),
             ValueListenableBuilder<TextEditingValue>(
               valueListenable: amount,
@@ -723,7 +723,7 @@ class _AgentDetailState extends State<_AgentDetail> {
                 'Its key',
                 style: TextStyle(
                   fontWeight: FontWeight.w400,
-                  fontSize: 10,
+                  fontSize: 12,
                   color: EvabobColors.navy,
                 ),
               ),
@@ -737,7 +737,7 @@ class _AgentDetailState extends State<_AgentDetail> {
                       '${w.apiKeyPrefix}••••••••',
                       style: TextStyle(
                         fontFamily: 'monospace',
-                        fontSize: 10,
+                        fontSize: 12,
                         color: w.active
                             ? EvabobColors.navy
                             : EvabobColors.navyMuted,
@@ -752,7 +752,7 @@ class _AgentDetailState extends State<_AgentDetail> {
                       child: Text(
                         'REVOKED',
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 12,
                           fontWeight: FontWeight.w400,
                           color: EvabobColors.alert,
                         ),
@@ -813,7 +813,7 @@ class _AgentDetailState extends State<_AgentDetail> {
                 'Give this key to your software',
                 style: TextStyle(
                   fontWeight: FontWeight.w400,
-                  fontSize: 10,
+                  fontSize: 12,
                   color: EvabobColors.navy,
                 ),
               ),
@@ -822,7 +822,7 @@ class _AgentDetailState extends State<_AgentDetail> {
                 'It can spend from this wallet only — never your main '
                 'balance — and stops at its allowance. Pause it, freeze '
                 'everything, or revoke the key any time.',
-                style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+                style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
               ),
               const SizedBox(height: 8),
               // The one genuinely developer-facing line on this screen. Kept,
@@ -830,7 +830,7 @@ class _AgentDetailState extends State<_AgentDetail> {
               // explanation rather than instead of it.
               const Text(
                 'Copy the setup for whatever will use it:',
-                style: TextStyle(fontSize: 10, color: EvabobColors.chalk),
+                style: TextStyle(fontSize: 12, color: EvabobColors.chalk),
               ),
               const SizedBox(height: 6),
               const AgentSetupButtons(),
@@ -894,7 +894,7 @@ class _PayableServicesState extends State<_PayableServices> {
                       'agents from Get paid by agents. An agent wallet can '
                       'still hold money, and you can take it out any time.',
               style: const TextStyle(
-                fontSize: 10,
+                fontSize: 12,
                 color: EvabobColors.navyMuted,
               ),
             )
@@ -914,7 +914,7 @@ class _PayableServicesState extends State<_PayableServices> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 10,
+                          fontSize: 12,
                           color: EvabobColors.navyMuted,
                         ),
                       ),
@@ -922,7 +922,7 @@ class _PayableServicesState extends State<_PayableServices> {
                     Text(
                       formatTokenAmount(item.priceUsdc),
                       style: const TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         color: EvabobColors.navy,
                       ),
                     ),
@@ -997,7 +997,7 @@ class _AllowanceCard extends StatelessWidget {
               'Asks you above ${formatTokenAmount(w.allowance.askAboveUsdc)}',
               if (w.allowance.proofOnly) 'pays only after proof',
             ].join(' · '),
-            style: const TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
+            style: const TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
           const SizedBox(height: 10),
           AllowanceMeter(meter: w.meter),
@@ -1011,7 +1011,7 @@ class _AllowanceCard extends StatelessWidget {
                   : w.pauseReason == 'freeze'
                       ? 'Frozen with everything else.'
                       : 'Paused by you.',
-              style: const TextStyle(fontSize: 10, color: EvabobColors.alert),
+              style: const TextStyle(fontSize: 12, color: EvabobColors.alert),
             ),
           ],
           const SizedBox(height: 8),

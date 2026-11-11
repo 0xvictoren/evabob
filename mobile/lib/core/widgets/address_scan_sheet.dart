@@ -113,7 +113,8 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
       r'(?:evabob://pay/|https?://\S*/pay/)([0-9a-fA-F-]{36})',
     ).firstMatch(s);
     if (req != null) {
-      return ScannedPayee(address: '', kind: 'request', requestId: req.group(1));
+      return ScannedPayee(
+          address: '', kind: 'request', requestId: req.group(1));
     }
     final handle = _handleIn(s);
     if (handle != null) {
@@ -206,10 +207,8 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
 
   Future<String?> _handleForAddress(String address) async {
     try {
-      final res = await context
-          .read<ApiClient>()
-          .get('/v1/users/lookup', query: {'to': address})
-          .timeout(const Duration(seconds: 4));
+      final res = await context.read<ApiClient>().get('/v1/users/lookup',
+          query: {'to': address}).timeout(const Duration(seconds: 4));
       if (res['found'] == true) return asHandle(res['handle']?.toString());
     } catch (_) {
       // No answer means we fill in the address; the payment still works.
@@ -269,7 +268,6 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
                 'Scan an Evabob code or a wallet address. Nothing was changed.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontFamily: 'Inter',
                   fontSize: 14,
                   height: 18 / 14,
                   color: EvabobColors.inkMuted,
@@ -322,7 +320,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
                   parsed.address,
                   style: const TextStyle(
                     fontFamily: 'monospace',
-                    fontSize: 10,
+                    fontSize: 12,
                     color: EvabobColors.navyMuted,
                   ),
                 ),
@@ -383,7 +381,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
                 const SizedBox(height: 8),
                 Text(
                   _error!,
-                  style: TextStyle(color: Colors.orange.shade800, fontSize: 10),
+                  style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
                 ),
               ],
               TextButton(

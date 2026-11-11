@@ -20,7 +20,9 @@ void main() {
     expect(fx.secondary(usd), r'$3.60');
   });
 
-  test('a request asked in naira reads exactly to a naira user, converted to a dollar user', () {
+  test(
+      'a request asked in naira reads exactly to a naira user, converted to a dollar user',
+      () {
     final fx = FxService();
     final usd = fx.toUsd(2500);
     expect(

@@ -86,4 +86,3 @@ class _NativeDynamicClient implements DynamicAuthClient {
     );
   }
 }
-

@@ -98,8 +98,7 @@ class OperatorReviewsApi {
       body: {
         'text': text,
         if (links.isNotEmpty) 'links': links,
-        if (photos.isNotEmpty)
-          'photos': photos.map((p) => p.toJson()).toList(),
+        if (photos.isNotEmpty) 'photos': photos.map((p) => p.toJson()).toList(),
       },
     );
     return OperatorReview.fromJson(

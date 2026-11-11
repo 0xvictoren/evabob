@@ -56,7 +56,7 @@ class SendActionButton extends StatelessWidget {
           'Usually arrives in a few seconds',
           style: TextStyle(
             color: EvabobColors.inkTertiary,
-            fontSize: 10,
+            fontSize: 12,
             height: 1.4,
             letterSpacing: .2,
           ),

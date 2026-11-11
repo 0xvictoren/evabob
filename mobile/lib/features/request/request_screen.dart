@@ -84,13 +84,17 @@ class _RequestScreenState extends State<RequestScreen>
                   controller: _tabs,
                   dividerHeight: 0,
                   indicatorSize: TabBarIndicatorSize.tab,
+                  // The chosen tab is a filled pill, as on Requests. It was
+                  // white on white, so nothing showed which tab was open.
                   indicator: BoxDecoration(
-                    color: EvabobColors.mint,
+                    color: EvabobColors.primary,
                     borderRadius: Radii.all(Radii.pill),
                   ),
-                  labelColor: EvabobColors.forest,
+                  labelColor: EvabobColors.onPrimary,
                   unselectedLabelColor: EvabobColors.navyMuted,
-                  labelStyle: Type.label,
+                  labelStyle: Type.body,
+                  unselectedLabelStyle: Type.body,
+                  splashBorderRadius: Radii.all(Radii.pill),
                   tabs: const [
                     Tab(text: 'Share details'),
                     Tab(text: 'Invoice'),
@@ -607,6 +611,7 @@ class _InvoiceTabState extends State<_InvoiceTab> {
                   labelText: 'Who pays? (optional)',
                   hintText: '@username or email',
                   border: InputBorder.none,
+                  filled: false,
                 ),
               ),
               const Divider(height: 1),
@@ -811,6 +816,7 @@ class _LineRow extends StatelessWidget {
                 hintText: 'What is it for?',
                 hintStyle: Type.body.copyWith(color: EvabobColors.chalk),
                 border: InputBorder.none,
+                filled: false,
               ),
             ),
           ),
@@ -822,7 +828,7 @@ class _LineRow extends StatelessWidget {
               textAlign: TextAlign.right,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: const [AmountInputFormatter()],
+              inputFormatters: const [AmountInputFormatter()],
               onChanged: (_) => onChanged(),
               style: Type.amount.copyWith(color: EvabobColors.nearBlack),
               decoration: InputDecoration(
@@ -832,6 +838,7 @@ class _LineRow extends StatelessWidget {
                 hintText: '0.00',
                 hintStyle: Type.amount.copyWith(color: EvabobColors.chalk),
                 border: InputBorder.none,
+                filled: false,
               ),
             ),
           ),
