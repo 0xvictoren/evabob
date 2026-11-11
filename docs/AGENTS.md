@@ -40,8 +40,11 @@ person), left, and when it refills. The server pushes an update on every
 payment, approval and pause; the app's meter moves while you watch.
 
 **Loop breaker.** More than 5 calls to one endpoint (origin + path, query
-ignored) within a minute pauses the agent and pushes the owner. Every call
-counts, paid or not. The agent stays paused until the owner resumes it.
+ignored) within a minute pauses the agent and pushes the owner. Calls that
+cost $0.001 or less are nanopayments — an RPC request at a hundredth of a
+cent — and paying one endpoint many times a minute is what they are for, so
+their ceiling is 60 a minute; so is the ceiling for calls whose price is not
+known (free or failed). The agent stays paused until the owner resumes it.
 
 **One tap freezes everything.** *Freeze all* on the Agents screen pauses every
 agent at once (Undo on the snackbar). Unfreezing leaves agents that were
@@ -109,7 +112,9 @@ tasks, and in the app.
 
 **Any x402 seller, no list to join.** An agent can pay any public HTTPS
 endpoint that answers `402` with an Arc Gateway-batched requirement: paste
-the URL into `POST /v1/x402/pay` and it pays. The site does not have to be
+the URL into `POST /v1/x402/pay` and it pays, by GET, POST, PUT, PATCH or
+DELETE, with the agent's own headers and body (256 KB at most; payment,
+routing and cookie headers are dropped). The site does not have to be
 added anywhere first. The marketplace (Evabob paywalls plus Circle's catalog,
 and `AGENT_RESOURCE_ORIGINS`) is now only what the app *shows*. What keeps
 open-web spending safe is the allowance (amount, categories inferred from
@@ -161,11 +166,31 @@ header kept server side, forwarding the caller's query), or their time.
 
 ## For whoever wires up an agent
 
+An agent key is not a private key — the wallet's key stays with Circle and
+Evabob signs for it — so software has to call Evabob. Three ways in, one
+payer behind them (`routes/agentConnect.ts`):
+
+- **Any script or tool:** `POST /v1/x402/pay`.
+- **Claude and other MCP clients:** `POST /v1/agent-api/mcp` (streamable
+  HTTP, stateless). Tools `evabob_pay`, `evabob_wallet`,
+  `evabob_find_services`.
+  `claude mcp add --transport http evabob <api>/v1/agent-api/mcp --header "Authorization: Bearer sk_evabob_…"`
+- **Any assistant:** tell it to read `GET /v1/public/agent-guide` (no key
+  needed; the instructions as text with this server's address filled in).
+
+The app copies all three, ready to paste, from the agent's screen and from
+the dialog that shows a new key (with the key filled in).
+
 All with `Authorization: Bearer sk_evabob_…`.
 
 ```http
-POST /v1/x402/pay            {"url": "...", "idempotencyKey": "16-100 chars"}
+POST /v1/x402/pay            {"url": "...", "method": "POST", "body": {...},
+                              "headers": {...}, "maxAmountUsdc": 0.05,
+                              "idempotencyKey": "16-100 chars"}
+                             only "url" is required; a key is made and
+                             returned when none is sent
 GET  /v1/agent-api/me        allowance, meter, paused, record
+GET  /v1/agent-api/services?query=rpc   sellers payable on this network
 GET  /v1/agent-api/marketplace
 GET  /v1/agent-api/approvals/:id
 POST /v1/agent-api/tasks     {"to": "@bola" | omit for open, "title", "description",
@@ -179,7 +204,8 @@ POST /v1/agent-api/tasks/:id/cancel
 `/v1/x402/pay` answers with `code` when refused: `AGENT_PAUSED`,
 `LOOP_BREAKER`, `NOT_ON_LIST`, `NEEDS_PROOF`, `OVER_ALLOWANCE`,
 `APPROVAL_PENDING` (202, with `approval.id`), `APPROVAL_DECLINED`,
-`NOT_CHARGED`, `PAID_NOT_DELIVERED`. Paid responses carry `evidenceId` and
+`NOT_CHARGED`, `PAID_NOT_DELIVERED`, `AGENT_NOT_READY` (no money ready in the
+wallet yet), `INVALID_REQUEST`. Paid responses carry `evidenceId` and
 `settlement` (`proof` or `direct`).
 
 ## Verified
@@ -212,6 +238,15 @@ POST /v1/agent-api/tasks/:id/cancel
     agent's own wallet on Arc, outside its spendable balance.
   - The run found one bug, fixed: a hire's fee row was counted as a paid call
     in the agent's record.
+- **Outside sellers, real money, 2026-11-11** (agent "Research agent",
+  `src/scripts/e2e-x402-outside.ts`, through the payer `/v1/x402/pay` uses):
+  BotPay `GET https://api.botpay.network/pay` — $0.01, 200, receipt returned;
+  QuickNode `POST https://x402.quicknode.com/arc-testnet/` with a JSON-RPC
+  body — $0.0001, 200, block number returned. Gateway balance 19.983123 →
+  19.973023. Before this the payer refused everything but a bare GET, which
+  ruled out 132 of the 134 Arc Testnet offers in Circle's catalog. The
+  script calls the payer directly, so the allowance, ledger and evidence
+  steps around it were covered by the unit tests, not by this run.
 - Not yet run with real money: a payout from the treasury (the $0.01 is below
   the payout threshold), a hire returned because nothing was delivered,
   income swept into a named agent, approvals and the loop breaker from a live

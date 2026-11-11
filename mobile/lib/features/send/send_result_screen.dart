@@ -12,6 +12,7 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/utils/text_safe.dart';
 import '../../core/widgets/bundle_avatar.dart';
+import '../../core/widgets/motion.dart';
 import '../../core/widgets/themed_svg.dart';
 
 /// What a finished send shows: who, how much, and the proof.
@@ -287,7 +288,11 @@ class _SuccessMark extends StatelessWidget {
                 width: 218, height: 218),
           ),
           ThemedSvg('assets/figma/success_disc.svg', width: 65, height: 65),
-          ThemedSvg('assets/figma/success_check.svg', width: 23, height: 23),
+          PopIn(
+            from: 0.4,
+            child: ThemedSvg('assets/figma/success_check.svg',
+                width: 23, height: 23),
+          ),
         ],
       ),
     );

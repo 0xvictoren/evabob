@@ -54,6 +54,8 @@ const PUBLIC_PATHS = new Set([
   "/v1/health",
   "/v1/config/public",
   "/v1/fx/rates",
+  // How to use an agent key, as text any assistant can read.
+  "/v1/public/agent-guide",
 ]);
 
 const PUBLIC_PREFIXES = [

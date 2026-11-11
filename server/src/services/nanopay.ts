@@ -54,6 +54,8 @@ export type NanopayOutcome = {
   error?: string;
   /** Which network and recipient the authorization was made out to. */
   payment?: { network?: string; payTo?: string; amountUsdc?: number };
+  /** The seller's settlement reference (PAYMENT-RESPONSE), when it sent one. */
+  settleReference?: string | null;
   /** The paid response exactly as it came back, for the evidence bundle. */
   rawText?: string;
   contentType?: string | null;
@@ -98,6 +100,19 @@ function parsePaymentRequired(
     ? (obj.resource as Record<string, unknown>)
     : undefined;
   return { x402Version, accepts, resource };
+}
+
+/** The transaction or batch id a seller reports once it has settled. */
+function settleReferenceFrom(headers: Record<string, string>): string | null {
+  const raw = headers["payment-response"] ?? headers["x-payment-response"];
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64").toString("utf-8")) as Record<string, unknown>;
+    const ref = parsed.transaction ?? parsed.txHash ?? parsed.id;
+    return typeof ref === "string" && ref ? ref.slice(0, 200) : null;
+  } catch {
+    return null;
+  }
 }
 
 const ADDRESS = /^0x[a-fA-F0-9]{40}$/;
@@ -161,6 +176,13 @@ export type Fetcher = (
   headers?: Record<string, string>,
 ) => Promise<{ status: number; text: string; headers: Record<string, string> }>;
 
+/** What the agent wants sent to the seller, besides the payment. */
+export type SellerRequest = {
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+};
+
 export async function nanopay(input: {
   walletId: string;
   address: Address;
@@ -173,10 +195,17 @@ export async function nanopay(input: {
    * paywall is served in-process instead (paywalls.ts).
    */
   fetcher?: Fetcher;
+  /** Method, headers and body for the seller. Defaults to a plain GET. */
+  request?: SellerRequest;
 }): Promise<NanopayOutcome> {
   const get: Fetcher = input.fetcher ?? (async (url, headers) => {
-    const { safeAgentGet } = await import("./safe-agent-http.js");
-    return safeAgentGet(url, input.allowedOrigins, headers);
+    const { safeAgentRequest } = await import("./safe-agent-http.js");
+    // The agent's headers first, so it can never overwrite the payment.
+    return safeAgentRequest(url, input.allowedOrigins, {
+      method: input.request?.method,
+      headers: { ...(input.request?.headers ?? {}), ...(headers ?? {}) },
+      body: input.request?.body,
+    });
   });
   // 1. Probe.
   let res: { status: number; text: string; headers: Record<string, string> };
@@ -308,6 +337,7 @@ export async function nanopay(input: {
     return {
       ok: paidRes.status >= 200 && paidRes.status < 300,
       status: paidRes.status,
+      settleReference: settleReferenceFrom(paidRes.headers),
       rawText: paidText,
       contentType: paidRes.headers["content-type"] ?? null,
       // Only treat it as spent when the seller accepted the authorization.

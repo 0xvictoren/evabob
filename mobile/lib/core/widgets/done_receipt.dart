@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'motion.dart';
 import '../../features/activity/activity_screen.dart';
 import '../theme/evabob_colors.dart';
 import '../theme/evabob_tokens.dart';
@@ -98,13 +99,16 @@ class DoneReceiptScreen extends StatelessWidget {
                     color: EvabobColors.white,
                     shape: BoxShape.circle,
                   ),
-                  child: Image.asset(
-                    'assets/figma/hero_check.png',
-                    width: 36,
-                    height: 36,
-                    // One solid colour: drawn in the chosen theme's.
-                    color: EvabobColors.blue,
-                    colorBlendMode: BlendMode.srcIn,
+                  child: PopIn(
+                    from: 0.4,
+                    child: Image.asset(
+                      'assets/figma/hero_check.png',
+                      width: 36,
+                      height: 36,
+                      // One solid colour: drawn in the chosen theme's.
+                      color: EvabobColors.blue,
+                      colorBlendMode: BlendMode.srcIn,
+                    ),
                   ),
                 ),
               ),

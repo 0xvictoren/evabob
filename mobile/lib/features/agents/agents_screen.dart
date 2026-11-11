@@ -12,6 +12,7 @@ import '../../core/wallet/circle_wallet_service.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/platform_fee_note.dart';
 import 'agent_allowance_widgets.dart';
+import 'agent_setup.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
 import 'package:evabob_mobile/core/utils/amount_input.dart';
 
@@ -359,6 +360,13 @@ class _AgentDetailState extends State<_AgentDetail> {
               'if you lose it, rotate to issue a new one.',
               style: TextStyle(fontSize: 10, color: EvabobColors.navyMuted),
             ),
+            const SizedBox(height: 12),
+            const Text(
+              'Or copy the setup, with this key already in it:',
+              style: TextStyle(fontSize: 10, color: EvabobColors.navy),
+            ),
+            const SizedBox(height: 6),
+            AgentSetupButtons(apiKey: key),
           ],
         ),
         actions: [
@@ -821,22 +829,11 @@ class _AgentDetailState extends State<_AgentDetail> {
               // because whoever wires up an agent needs it — but below the
               // explanation rather than instead of it.
               const Text(
-                'For whoever sets it up: POST /v1/x402/pay with',
+                'Copy the setup for whatever will use it:',
                 style: TextStyle(fontSize: 10, color: EvabobColors.chalk),
               ),
-              const Text(
-                'Authorization: Bearer <key>',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                  color: EvabobColors.chalk,
-                ),
-              ),
-              const Text(
-                'Hire a person: POST /v1/agent-api/tasks · '
-                'status: GET /v1/agent-api/me',
-                style: TextStyle(fontSize: 10, color: EvabobColors.chalk),
-              ),
+              const SizedBox(height: 6),
+              const AgentSetupButtons(),
             ],
           ),
         ),

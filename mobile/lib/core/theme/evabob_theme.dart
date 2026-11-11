@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/motion.dart';
 import 'package:flutter/services.dart';
 import 'evabob_colors.dart';
 import 'evabob_tokens.dart';
@@ -37,6 +39,16 @@ class EvabobTheme {
     return base.copyWith(
       visualDensity: VisualDensity.standard,
       splashFactory: InkSparkle.splashFactory,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: EvabobPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: EvabobPageTransitionsBuilder(),
+          TargetPlatform.linux: EvabobPageTransitionsBuilder(),
+          TargetPlatform.windows: EvabobPageTransitionsBuilder(),
+          // iPhones are left out on purpose: they keep their own slide
+          // and, with it, the swipe-back gesture.
+        },
+      ),
       textTheme: base.textTheme
           .apply(
             bodyColor: onSurface,

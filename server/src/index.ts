@@ -15,6 +15,7 @@ import {
   MONEY_MOVES,
   ONBOARDING,
   SENSITIVE,
+  AGENT_PAY,
   rateLimit,
 } from "./middleware/rate-limit.js";
 import { appKitConfigured } from "./services/appKit.js";
@@ -169,7 +170,8 @@ app.use("/v1/*", authMiddleware);
 app.use("/v1/notify/*", rateLimit(SENSITIVE));
 app.use("/v1/identity/link", rateLimit(SENSITIVE));
 app.use("/v1/users/handle", rateLimit(SENSITIVE));
-app.use("/v1/x402/*", rateLimit(SENSITIVE));
+app.use("/v1/x402/*", rateLimit(AGENT_PAY));
+app.use("/v1/agent-api/mcp", rateLimit(AGENT_PAY));
 app.use("/v1/synthra/*", rateLimit(SENSITIVE));
 app.use("/v1/escrow/protected/*", rateLimit(SENSITIVE));
 // Actions that move held money or open a review. POST only: the app polls
@@ -328,6 +330,11 @@ const [
 app.route("/v1", api);
 app.route("/v1", agentCommerceRoutes);
 app.route("/v1/agent-api", agentApiRoutes);
+{
+  const { agentGuideRoutes, agentMcpRoutes } = await import("./routes/agentConnect.js");
+  app.route("/v1", agentGuideRoutes);
+  app.route("/v1/agent-api", agentMcpRoutes);
+}
 // Software pays for a person's paywall here: plain HTTP 402, no session.
 app.route("/", paywallResource);
 app.route("/v1/agent", agentRoutes);
@@ -497,6 +504,27 @@ if (!process.env.VERCEL) {
     };
     setTimeout(tick, 20_000);
     setInterval(tick, 60_000);
+  }
+}
+
+// The first paid call should not wait for Circle's catalog.
+if (config.features.agentWallets && !process.env.VERCEL && config.nodeEnv !== "test") {
+  void import("./services/circle-x402.js").then((m) => m.warmCatalog());
+}
+
+// Free hosts put an idle service to sleep, and waking takes about a minute —
+// longer than most software waits, so the first agent payment after a quiet
+// spell failed before it began. A request through the public address every
+// few minutes counts as traffic and keeps it awake. KEEP_ALIVE=false turns
+// it off (a paid plan does not sleep).
+if (!process.env.VERCEL && config.nodeEnv !== "test" && process.env.KEEP_ALIVE !== "false") {
+  const target = (process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL || "").replace(/\/+$/, "");
+  if (/^https:\/\//.test(target)) {
+    const ping = () => {
+      fetch(`${target}/health/live`, { signal: AbortSignal.timeout(20_000) }).catch(() => undefined);
+    };
+    setInterval(ping, 10 * 60_000).unref();
+    console.log(`  Keep-alive: ${target} every 10 minutes`);
   }
 }
 

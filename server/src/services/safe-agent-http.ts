@@ -23,15 +23,90 @@ export function validateAgentUrl(raw: string, allowedOrigins: string[]): URL {
   return url;
 }
 
+/** The request an agent wants made for it: a method and, for writes, a body. */
+export type AgentRequest = {
+  method?: string;
+  /** Headers the agent supplied for the seller (never payment headers). */
+  headers?: Record<string, string>;
+  /** Already serialised. */
+  body?: string;
+};
+
+export const AGENT_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+export const MAX_AGENT_BODY_BYTES = 262_144;
+
+/**
+ * Headers an agent may not set: the ones that say where the request goes or
+ * how long it is, and the payment headers, which only the payer writes.
+ */
+const BLOCKED_HEADERS = new Set([
+  "host", "content-length", "connection", "transfer-encoding", "upgrade",
+  "expect", "te", "trailer", "proxy-authorization", "cookie",
+  "payment-signature", "x-payment", "payment-required", "payment-response",
+]);
+
+/** Checks and normalises what an agent asked for. Throws with a plain reason. */
+export function normalizeAgentRequest(input: {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+}): Required<Pick<AgentRequest, "method" | "headers">> & { body?: string } {
+  const method = (input.method || "GET").toUpperCase();
+  if (!(AGENT_METHODS as readonly string[]).includes(method)) {
+    throw new Error(`Method ${method} is not supported. Use ${AGENT_METHODS.join(", ")}.`);
+  }
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(input.headers || {})) {
+    const lower = name.toLowerCase().trim();
+    if (!/^[a-z0-9!#$%&'*+.^_`|~-]+$/.test(lower) || BLOCKED_HEADERS.has(lower)) continue;
+    if (typeof value !== "string" || /[\r\n]/.test(value) || value.length > 4_096) continue;
+    headers[lower] = value;
+  }
+  let body: string | undefined;
+  if (input.body != null && method !== "GET") {
+    body = typeof input.body === "string" ? input.body : JSON.stringify(input.body);
+    if (Buffer.byteLength(body, "utf8") > MAX_AGENT_BODY_BYTES) {
+      throw new Error("Request body is too large (256 KB at most).");
+    }
+    if (typeof input.body !== "string" && !headers["content-type"]) {
+      headers["content-type"] = "application/json";
+    }
+  } else if (input.body != null) {
+    throw new Error("A GET request cannot carry a body. Use POST.");
+  }
+  return { method, headers, body };
+}
+
 export function safeAgentGet(
   raw: string,
   allowedOrigins: string[],
   headers: Record<string, string> = {},
 ): Promise<{ status: number; text: string; headers: Record<string, string> }> {
+  return safeAgentRequest(raw, allowedOrigins, { headers });
+}
+
+/**
+ * One request to a public HTTPS seller, for an agent. The method, headers and
+ * body are the agent's; where it may go is not — exact origin, public IPv4
+ * only, no redirects, a size cap and a deadline.
+ */
+export function safeAgentRequest(
+  raw: string,
+  allowedOrigins: string[],
+  input: AgentRequest = {},
+): Promise<{ status: number; text: string; headers: Record<string, string> }> {
   const url = validateAgentUrl(raw, allowedOrigins);
+  const method = (input.method || "GET").toUpperCase();
+  const headers = input.headers || {};
+  const body = method === "GET" ? undefined : input.body;
   return new Promise((resolve, reject) => {
     const req = request(url, {
-      method: "GET", headers: { Accept: "application/json", ...headers },
+      method,
+      headers: {
+        Accept: "application/json",
+        ...headers,
+        ...(body != null ? { "Content-Length": String(Buffer.byteLength(body, "utf8")) } : {}),
+      },
       // Validation is performed by the actual socket lookup, not a separate
       // preflight lookup vulnerable to DNS rebinding.
       lookup(host, _options, callback) {
@@ -73,9 +148,10 @@ export function safeAgentGet(
         });
       });
     });
-    const deadline = setTimeout(() => req.destroy(new Error("Request timed out")), 15_000);
+    const deadline = setTimeout(() => req.destroy(new Error("Request timed out")), 30_000);
     req.on("close", () => clearTimeout(deadline));
     req.on("error", reject);
+    if (body != null) req.write(body);
     req.end();
   });
 }

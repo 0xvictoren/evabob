@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
+import '../../core/widgets/glass.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/config/app_features.dart';
 import 'package:provider/provider.dart';
@@ -40,63 +41,73 @@ Future<HomeMenuAction?> showHomeMenu(BuildContext context) {
   );
 }
 
+/// One thing the menu opens: what it is called, its picture, and the line
+/// that explains it (read out by a screen reader, shown on a long press).
+typedef _MenuItem = ({
+  HomeMenuAction action,
+  IconData icon,
+  String label,
+  String hint,
+});
+
 class _Menu extends StatelessWidget {
   const _Menu();
 
-  static const _items = [
+  // The order is the product owner's. Keep it when adding or moving items.
+  static const List<_MenuItem> _items = [
     (
-      HomeMenuAction.request,
-      Icons.request_quote_outlined,
-      'Request',
-      'Ask someone to pay you'
+      action: HomeMenuAction.request,
+      icon: Icons.request_quote_rounded,
+      label: 'Request',
+      hint: 'Ask someone to pay you',
     ),
     (
-      HomeMenuAction.sellWithLink,
-      Icons.add_link_rounded,
-      'Sell with a link',
-      "Buyers' money is set aside until their order arrives"
+      action: HomeMenuAction.sellWithLink,
+      icon: Icons.storefront_rounded,
+      label: 'Sell with a link',
+      hint: "Buyers' money is set aside until their order arrives",
     ),
     (
-      HomeMenuAction.groups,
-      Icons.groups_2_outlined,
-      'Circles and collections',
-      'Save together, or raise money for something'
+      action: HomeMenuAction.groups,
+      icon: Icons.diversity_3_rounded,
+      label: 'Circles and collections',
+      hint: 'Save together, or raise money for something',
     ),
     (
-      HomeMenuAction.paywalls,
-      Icons.sell_outlined,
-      'Get paid by agents',
-      'Charge software for a dataset, photos, your API or your time'
+      action: HomeMenuAction.paywalls,
+      icon: Icons.sell_rounded,
+      label: 'Get paid by agents',
+      hint: 'Charge software for a dataset, photos, your API or your time',
     ),
     (
-      HomeMenuAction.agentTasks,
-      Icons.handshake_outlined,
-      'Work for agents',
-      'Tasks software will pay you for, money set aside first'
+      action: HomeMenuAction.agentTasks,
+      icon: Icons.work_rounded,
+      label: 'Work for agents',
+      hint: 'Tasks software will pay you for, money set aside first',
     ),
     (
-      HomeMenuAction.convert,
-      Icons.swap_horiz_rounded,
-      'Convert',
-      'Change dollars to euros, or back'
+      action: HomeMenuAction.convert,
+      icon: Icons.currency_exchange_rounded,
+      label: 'Convert',
+      hint: 'Change dollars to euros, or back',
     ),
     (
-      HomeMenuAction.ga,
-      Icons.account_balance_wallet_outlined,
-      'Gateway Account',
-      'The balance you spend from'
+      action: HomeMenuAction.ga,
+      icon: Icons.account_balance_wallet_rounded,
+      label: 'Gateway Account',
+      hint: 'The balance you spend from',
     ),
     (
-      HomeMenuAction.moveMoney,
-      Icons.alt_route_rounded,
-      'Move money',
-      'Between the networks you hold money on'
+      action: HomeMenuAction.moveMoney,
+      icon: Icons.multiple_stop_rounded,
+      label: 'Move money',
+      hint: 'Between the networks you hold money on',
     ),
     (
-      HomeMenuAction.agent,
-      Icons.smart_toy_outlined,
-      'Agent wallets',
-      'Money set aside for software to spend'
+      action: HomeMenuAction.agent,
+      icon: Icons.smart_toy_rounded,
+      label: 'Agent wallets',
+      hint: 'Money set aside for software to spend',
     ),
   ];
 
@@ -104,7 +115,7 @@ class _Menu extends StatelessWidget {
   Widget build(BuildContext context) {
     final features = context.watch<AppFeatures>();
     final visible = _items.where((item) {
-      return switch (item.$1) {
+      return switch (item.action) {
         HomeMenuAction.request => features.requests,
         HomeMenuAction.sellWithLink => true,
         HomeMenuAction.paywalls => true,
@@ -116,6 +127,9 @@ class _Menu extends StatelessWidget {
         HomeMenuAction.agent => features.agentWallets,
       };
     }).toList(growable: false);
+    // Large-text settings would push two-line labels out of their tiles.
+    final scaler = MediaQuery.textScalerOf(context)
+        .clamp(minScaleFactor: 1, maxScaleFactor: 1.3);
     return SafeArea(
       top: false,
       child: Container(
@@ -126,40 +140,101 @@ class _Menu extends StatelessWidget {
           border: Border.all(color: EvabobColors.hairline),
           boxShadow: Shadows.raised,
         ),
-        padding: const EdgeInsets.symmetric(vertical: Space.sm),
+        padding: const EdgeInsets.fromLTRB(Space.md, Space.sm, Space.md, Space.lg),
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.8,
         ),
-        child: ListView(
-          shrinkWrap: true,
-          padding: EdgeInsets.zero,
-          children: [
-            for (var i = 0; i < visible.length; i++)
-              RiseIn(
-                index: i,
-                child: ListTile(
-                  leading: Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: EvabobColors.sand,
-                      borderRadius: Radii.all(Radii.sm),
-                    ),
-                    child: Icon(visible[i].$2,
-                        size: 19, color: EvabobColors.nearBlack),
-                  ),
-                  title: Text(
-                    visible[i].$3,
-                    style: Type.label.copyWith(color: EvabobColors.nearBlack),
-                  ),
-                  subtitle: Text(
-                    visible[i].$4,
-                    style: Type.caption.copyWith(color: EvabobColors.navyMuted),
-                  ),
-                  onTap: () => Navigator.pop(context, visible[i].$1),
+        child: MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: scaler),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: EvabobColors.hairline,
+                  borderRadius: Radii.all(Radii.pill),
                 ),
               ),
-          ],
+              const SizedBox(height: Space.md),
+              Flexible(
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisExtent: 76 + scaler.scale(12) * 2 * 1.25,
+                    crossAxisSpacing: Space.sm,
+                    mainAxisSpacing: Space.sm,
+                  ),
+                  itemCount: visible.length,
+                  itemBuilder: (context, i) => PopIn(
+                    index: i,
+                    child: _Tile(
+                      item: visible[i],
+                      onTap: () => Navigator.pop(context, visible[i].action),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Tile extends StatelessWidget {
+  const _Tile({required this.item, required this.onTap});
+
+  final _MenuItem item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: item.hint,
+      child: Semantics(
+        button: true,
+        label: item.label,
+        hint: item.hint,
+        excludeSemantics: true,
+        child: PressScale(
+          onTap: onTap,
+          scale: 0.92,
+          child: ColoredBox(
+            // Makes the whole tile, not only the picture, take the tap.
+            color: Colors.transparent,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: EvabobColors.pageBg,
+                    borderRadius: Radii.all(Radii.md),
+                  ),
+                  child: Icon(item.icon, size: 26, color: EvabobColors.primary),
+                ),
+                const SizedBox(height: Space.sm),
+                Text(
+                  item.label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.25,
+                    letterSpacing: -0.1,
+                    color: EvabobColors.nearBlack,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

@@ -91,15 +91,12 @@ export async function sellerFor(url: string): Promise<Seller | null> {
   }
   if (parsed.protocol !== "https:") return null;
   const origin = parsed.origin;
-  const { resolvedAgentOrigins, payableServices } = await import("./circle-x402.js");
-  let catalog: Awaited<ReturnType<typeof payableServices>> = [];
-  try {
-    catalog = await payableServices();
-  } catch {
-    /* catalog down: every seller is still payable, just uncategorised */
-  }
-  const entry = catalog.find((s) => s.origin === origin);
-  const listed = Boolean(entry) || (await resolvedAgentOrigins()).includes(origin);
+  // Never waits on Circle's catalog: a payment needs it only for a name and
+  // a category, and every seller is payable without either.
+  const { payableServicesNow } = await import("./circle-x402.js");
+  const { config } = await import("../config.js");
+  const entry = payableServicesNow().find((s) => s.origin === origin);
+  const listed = Boolean(entry) || config.agents.resourceOrigins.includes(origin);
   return {
     id: origin,
     name: entry?.provider || parsed.hostname,

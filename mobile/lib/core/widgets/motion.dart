@@ -108,3 +108,87 @@ class SpringPageRoute<T> extends PageRouteBuilder<T> {
 
   final Widget page;
 }
+
+/// Pops into place: grows from a little small with a slight overshoot while
+/// fading in. For things that should feel placed rather than loaded — a grid
+/// of choices, the check on a receipt.
+class PopIn extends StatelessWidget {
+  const PopIn({
+    super.key,
+    required this.child,
+    this.index = 0,
+    this.from = 0.8,
+  });
+
+  final Widget child;
+  final int index;
+
+  /// The scale it starts at.
+  final double from;
+
+  @override
+  Widget build(BuildContext context) {
+    if (Motion.reduced(context)) return child;
+    final delay = Motion.stagger * (index.clamp(0, 12));
+    final total = Motion.base + delay;
+    final start =
+        (delay.inMilliseconds / total.inMilliseconds).clamp(0.0, 0.9);
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: total,
+      builder: (context, t, child) {
+        final fade = Interval(start, 1, curve: Motion.smooth).transform(t);
+        final grow = Interval(start, 1, curve: Motion.spring).transform(t);
+        return Opacity(
+          opacity: fade.clamp(0.0, 1.0),
+          child: Transform.scale(scale: from + (1 - from) * grow, child: child),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+/// The transition every ordinary screen push uses on Android: the same rise
+/// and fade as [SpringPageRoute], so opening a screen feels the same wherever
+/// it is opened from. iPhones keep their own slide, and with it the
+/// swipe-back gesture.
+class EvabobPageTransitionsBuilder extends PageTransitionsBuilder {
+  const EvabobPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    if (Motion.reduced(context)) {
+      return FadeTransition(opacity: animation, child: child);
+    }
+    final rise = CurvedAnimation(
+      parent: animation,
+      curve: Motion.spring,
+      reverseCurve: Motion.smooth,
+    );
+    final fade = CurvedAnimation(parent: animation, curve: Motion.smooth);
+    // The screen underneath eases back a touch, so the new one reads as
+    // arriving on top of it.
+    final under = CurvedAnimation(
+      parent: secondaryAnimation,
+      curve: Motion.smooth,
+    );
+    return FadeTransition(
+      opacity: fade,
+      child: SlideTransition(
+        position: Tween(begin: const Offset(0, 0.05), end: Offset.zero)
+            .animate(rise),
+        child: ScaleTransition(
+          scale: Tween(begin: 1.0, end: 0.98).animate(under),
+          child: child,
+        ),
+      ),
+    );
+  }
+}

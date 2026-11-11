@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   LOOP_LIMIT,
+  LOOP_LIMIT_SMALL,
+  SMALL_CALL_USDC,
+  loopTrips,
   LOOP_WINDOW_MS,
   allowanceOf,
   decide,
@@ -170,5 +173,23 @@ describe("categories and wording", () => {
     assert.match(validateAllowance({ ...weekly, askAboveUsdc: 30 }, 1000)!, /more than the allowance/);
     assert.match(validateAllowance({ ...weekly, amountUsdc: 0 }, 1000)!, /between/);
     assert.equal(validateAllowance(weekly, 1000), null);
+  });
+});
+
+describe("loop breaker by price", () => {
+  it("stops an ordinary paid call after the usual limit", () => {
+    assert.equal(loopTrips(LOOP_LIMIT, 0.01), false);
+    assert.equal(loopTrips(LOOP_LIMIT + 1, 0.01), true);
+  });
+
+  it("lets nanopayments repeat, up to their own ceiling", () => {
+    assert.equal(loopTrips(LOOP_LIMIT + 1, SMALL_CALL_USDC), false);
+    assert.equal(loopTrips(LOOP_LIMIT_SMALL, 0.0001), false);
+    assert.equal(loopTrips(LOOP_LIMIT_SMALL + 1, 0.0001), true);
+  });
+
+  it("applies only the high ceiling while the price is unknown", () => {
+    assert.equal(loopTrips(LOOP_LIMIT + 1, null), false);
+    assert.equal(loopTrips(LOOP_LIMIT_SMALL + 1, null), true);
   });
 });

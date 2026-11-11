@@ -3982,17 +3982,20 @@ api.get("/agents/services", async (c) => {
 });
 
 api.post("/x402/pay", async (c) => {
-  const body = z
-    .object({
-      url: z.string().url().optional(),
-      query: z.string().optional(),
-      method: z.string().optional(),
-      headers: z.record(z.string()).optional(),
-      body: z.unknown().optional(),
-      maxAmountUsdc: z.number().positive().optional(),
-      idempotencyKey: z.string().min(16).max(100).optional(),
-    })
-    .parse(await c.req.json().catch(() => ({})));
+  const { payBody, payStatus, runAgentPay } = await import("./agentConnect.js");
+  const parsed = payBody.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return c.json(
+      {
+        ok: false,
+        error: `Invalid request: ${parsed.error.issues.map((i) => `${i.path.join(".") || "body"} ${i.message}`).join("; ")}`,
+        code: "INVALID_REQUEST",
+        hint: 'Send JSON like {"url": "https://seller.example/resource"}. Guide: GET /v1/public/agent-guide',
+      },
+      400,
+    );
+  }
+  const body = parsed.data;
   const principal = getAuth(c);
   if (principal.principal !== "agent" || !principal.agentId) {
     return c.json(
@@ -4004,35 +4007,16 @@ api.post("/x402/pay", async (c) => {
       401,
     );
   }
-  const { x402PayForAgent, x402DiscoverAndPay } =
-    await import("../services/x402Pay.js");
   const agent = store.getAgentById(principal.agentId);
   if (!agent) {
     return c.json({ error: "Invalid API key", code: "INVALID_API_KEY" }, 401);
   }
   try {
-    const result = body.url
-      ? await x402PayForAgent({
-          agent,
-          url: body.url,
-          method: body.method,
-          headers: body.headers,
-          body: body.body,
-          maxAmountUsdc: body.maxAmountUsdc,
-          idempotencyKey:
-            c.req.header("idempotency-key") || body.idempotencyKey,
-        })
-      : await x402DiscoverAndPay({
-          agent,
-          query: body.query || "polymarket",
-        });
-    return c.json(
-      result,
-      result.ok ? 200 : result.reconciliationRequired ? 202 : 400,
-    );
+    const result = await runAgentPay(agent, body, c.req.header("idempotency-key"));
+    return c.json(jsonSafe(result) as object, payStatus(result));
   } catch (e) {
     return c.json(
-      { error: clientError(e, "x402 pay failed") },
+      { ok: false, error: clientError(e, "x402 pay failed") },
       400,
     );
   }

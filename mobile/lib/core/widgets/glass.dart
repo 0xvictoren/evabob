@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/evabob_colors.dart';
 import '../theme/evabob_tokens.dart';
 
@@ -87,7 +88,13 @@ class _PressScaleState extends State<PressScale> {
       onTapDown: reduced ? null : (_) => setState(() => _down = true),
       onTapUp: reduced ? null : (_) => setState(() => _down = false),
       onTapCancel: reduced ? null : () => setState(() => _down = false),
-      onTap: widget.onTap,
+      onTap: widget.onTap == null
+          ? null
+          : () {
+              // A light tick, so a press is felt as well as seen.
+              HapticFeedback.selectionClick();
+              widget.onTap!();
+            },
       child: reduced
           ? widget.child
           : AnimatedScale(

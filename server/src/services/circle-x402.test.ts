@@ -40,10 +40,16 @@ const catalog = [
     metadata: { method: "GET", provider: { name: "AIsa" } },
   },
   {
-    // POST: the payer only makes GET requests.
+    // POST sellers are payable too: the payer sends the agent's method and body.
     resource: "https://2captcha.x402.paysponge.com/createTask",
     accepts: [gatewayOffer(ARC_MAINNET, "10000")],
     metadata: { method: "POST", provider: { name: "Sponge" } },
+  },
+  {
+    // A method the payer does not send.
+    resource: "https://odd.example.com/trace",
+    accepts: [gatewayOffer(ARC_MAINNET, "10000")],
+    metadata: { method: "TRACE", provider: { name: "Odd" } },
   },
   {
     // Plain x402 on Base, no Gateway batching.
@@ -66,12 +72,16 @@ const catalog = [
 ];
 
 describe("payable catalog sellers", () => {
-  it("keeps only GET, Gateway-batched, HTTPS offers on the agent's network", () => {
+  it("keeps only Gateway-batched, HTTPS offers on the agent's network", () => {
     const payable = payableFromCatalog(catalog, ARC_MAINNET);
-    assert.equal(payable.length, 1);
-    assert.equal(payable[0]!.origin, "https://api.aisa.one");
+    assert.deepEqual(payable.map((p) => p.origin), [
+      "https://api.aisa.one",
+      "https://2captcha.x402.paysponge.com",
+    ]);
     assert.equal(payable[0]!.provider, "AIsa");
     assert.equal(payable[0]!.category, "Financial Analysis");
+    assert.equal(payable[0]!.method, "GET");
+    assert.equal(payable[1]!.method, "POST");
   });
 
   it("uses the cheapest offer when a resource is listed more than once", () => {

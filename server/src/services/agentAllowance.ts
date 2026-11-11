@@ -35,6 +35,21 @@ export type Allowance = {
 /** More calls than this to one endpoint inside the window pauses the agent. */
 export const LOOP_LIMIT = 5;
 export const LOOP_WINDOW_MS = 60_000;
+/**
+ * Calls at or below this price are nanopayments: paying one endpoint many
+ * times a minute is what they are for (a fraction of a cent per RPC request),
+ * so they get a higher ceiling. The allowance still caps the total.
+ */
+export const SMALL_CALL_USDC = 0.001;
+export const LOOP_LIMIT_SMALL = 60;
+
+/** Whether this many calls in the window trips the breaker at this price. */
+export function loopTrips(count: number, costUsdc: number | null): boolean {
+  if (count > LOOP_LIMIT_SMALL) return true;
+  // Price unknown (free, failed or not yet read): only the high ceiling applies.
+  if (costUsdc == null) return false;
+  return costUsdc > SMALL_CALL_USDC + 1e-12 && count > LOOP_LIMIT;
+}
 /** An owner who has not answered by then has said no. */
 export const APPROVAL_TTL_MS = 30 * 60_000;
 

@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import { store, type AgentWallet } from "../store/db.js";
-import { allowanceOf, decide, describeAllowance, noteCall, type RefusalCode } from "./agentAllowance.js";
+import { allowanceOf, decide, describeAllowance, loopTrips, noteCall, type RefusalCode } from "./agentAllowance.js";
 import {
   findApproval,
   liveMeter,
@@ -23,7 +23,7 @@ import type { Fetcher } from "./nanopay.js";
 import { alertUser } from "./notifyUser.js";
 import { onSaleOutcome } from "./paywalls.js";
 import { flushPrimaryStore } from "./primary-store.js";
-import { safeAgentGet } from "./safe-agent-http.js";
+import { normalizeAgentRequest, safeAgentRequest } from "./safe-agent-http.js";
 
 export type X402PayResult = {
   ok: boolean;
@@ -33,7 +33,7 @@ export type X402PayResult = {
   body?: unknown;
   error?: string;
   /** Why it was refused, for software to act on without parsing words. */
-  code?: RefusalCode | "LOOP_BREAKER" | "APPROVAL_PENDING" | "NOT_CHARGED" | "PAID_NOT_DELIVERED";
+  code?: RefusalCode | "LOOP_BREAKER" | "APPROVAL_PENDING" | "NOT_CHARGED" | "PAID_NOT_DELIVERED" | "AGENT_NOT_READY";
   payment?: { payTo?: string; amountUsdc?: number; network?: string; rail?: string };
   agentId?: string;
   reconciliationRequired?: boolean;
@@ -42,6 +42,11 @@ export type X402PayResult = {
   /** The seller holds the money until the response checks out. */
   settlement?: "proof" | "direct";
   evidenceId?: string;
+  /**
+   * The key this payment is recorded under. Sent back so a caller that did
+   * not choose one can ask about, or safely retry, the same payment.
+   */
+  idempotencyKey?: string;
 };
 
 export function findAgentByApiKey(rawKey: string): AgentWallet | undefined {
@@ -121,9 +126,11 @@ export async function x402PayForAgent(input: {
   const agent = input.agent;
   const base = { costUsdc: 0, paid: false, agentId: agent.id };
   if (agent.revokedAt) return { ...base, ok: false, error: "Agent key revoked" };
-  if ((input.method || "GET").toUpperCase() !== "GET" || input.body != null ||
-      Object.keys(input.headers || {}).length) {
-    return { ...base, ok: false, error: "Agent resources currently support GET without caller-supplied headers" };
+  let request: ReturnType<typeof normalizeAgentRequest>;
+  try {
+    request = normalizeAgentRequest({ method: input.method, headers: input.headers, body: input.body });
+  } catch (error) {
+    return { ...base, ok: false, error: error instanceof Error ? error.message : "Invalid request" };
   }
 
   // Stopped means stopped: before any request, free or paid.
@@ -141,15 +148,13 @@ export async function x402PayForAgent(input: {
   // The loop breaker counts every call, because a runaway loop is expensive
   // long before any one call is.
   const loop = noteCall(agent.id, input.url);
-  if (loop.trip) {
+  const loopMessage = `Paused: this agent called the same endpoint ${loop.count} times in a minute. Its owner has been told and can resume it.`;
+  // Before the price is known only the high ceiling applies; a call that
+  // turns out to cost more than a nanopayment is checked again below.
+  if (loopTrips(loop.count, null)) {
     tripLoopBreaker(agent, loop.endpoint, loop.count);
     await flushPrimaryStore();
-    return {
-      ...base,
-      ok: false,
-      code: "LOOP_BREAKER",
-      error: `Paused: this agent called the same endpoint ${loop.count} times in a minute. Its owner has been told and can resume it.`,
-    };
+    return { ...base, ok: false, code: "LOOP_BREAKER", error: loopMessage };
   }
 
   const seller = await sellerFor(input.url);
@@ -161,7 +166,13 @@ export async function x402PayForAgent(input: {
     };
   }
 
-  const key = input.idempotencyKey?.trim() || "";
+  if (seller.paywallId && (request.method !== "GET" || request.body != null)) {
+    return { ...base, ok: false, error: "Evabob paywalls are read with GET." };
+  }
+
+  // A caller that sends no key gets one, so a plain {"url": ...} works. The key
+  // comes back in the answer; only a caller that reuses it is safe to retry.
+  const key = input.idempotencyKey?.trim() || `auto-${randomUUID()}`;
   const fetcher = seller.paywallId
     ? paywallFetcher(seller.paywallId, { agentId: agent.id, paymentKey: key })
     : undefined;
@@ -172,7 +183,7 @@ export async function x402PayForAgent(input: {
   const readiness = paidReady(agent);
   if (readiness) {
     try {
-      const response = fetcher ? await fetcher(input.url) : await safeAgentGet(input.url, origins);
+      const response = fetcher ? await fetcher(input.url) : await safeAgentRequest(input.url, origins, request);
       if (response.status !== 402) {
         return {
           ...base,
@@ -184,7 +195,13 @@ export async function x402PayForAgent(input: {
     } catch (error) {
       return { ...base, ok: false, error: error instanceof Error ? error.message : "Discovery failed" };
     }
-    return { ...base, ok: false, status: 402, error: `${readiness}. No funds were spent.` };
+    return {
+      ...base,
+      ok: false,
+      status: 402,
+      code: "AGENT_NOT_READY",
+      error: `${readiness}. No funds were spent.`,
+    };
   }
 
   // Gateway is the source of truth for what can be authorized. Reconcile a
@@ -215,6 +232,7 @@ export async function x402PayForAgent(input: {
     }
     return {
       ...base,
+      idempotencyKey: key,
       ok: prior.status === "settled",
       paid: prior.status === "settled",
       costUsdc: prior.amountUsdc,
@@ -241,9 +259,16 @@ export async function x402PayForAgent(input: {
     url: input.url,
     allowedOrigins: origins,
     fetcher,
+    request,
     async authorize(costUsdc) {
-      if (!key || key.length < 16 || key.length > 100) {
-        return "A 16-100 character idempotency key is required before payment";
+      if (key.length < 16 || key.length > 100) {
+        return "The idempotency key must be 16-100 characters (or leave it out and one is made for you)";
+      }
+      if (loopTrips(loop.count, costUsdc)) {
+        tripLoopBreaker(agent, loop.endpoint, loop.count);
+        await flushPrimaryStore();
+        refusal = { code: "LOOP_BREAKER" };
+        return loopMessage;
       }
       if (!(costUsdc > 0) || !/^\d+(\.\d{1,6})?$/.test(String(costUsdc))) {
         return "Seller returned an invalid USDC price";
@@ -328,6 +353,7 @@ export async function x402PayForAgent(input: {
     return {
       ...outcome,
       agentId: agent.id,
+      idempotencyKey: key,
       ...refusal,
       ...(refusal.code === "APPROVAL_PENDING" ? { ok: false, status: 202 } : {}),
       payment: outcome.payment ? { ...outcome.payment, rail: "circle-gateway-batching" } : undefined,
@@ -339,6 +365,7 @@ export async function x402PayForAgent(input: {
     seller,
     key,
     url: input.url,
+    method: request.method,
     outcome,
     tier,
     approval: usedApproval,
@@ -365,6 +392,7 @@ async function finishPayment(input: {
   seller: Seller;
   key: string;
   url: string;
+  method: string;
   outcome: Awaited<ReturnType<typeof import("./nanopay.js")["nanopay"]>>;
   tier: "silent" | "approved";
   approval: { id: string; decidedAt?: string } | null;
@@ -374,6 +402,7 @@ async function finishPayment(input: {
   const settlement: "proof" | "direct" = seller.waitsForProof ? "proof" : "direct";
   const common = {
     agentId: agent.id,
+    idempotencyKey: key,
     costUsdc: outcome.costUsdc,
     settlement,
     payment: outcome.payment ? { ...outcome.payment, rail: "circle-gateway-batching" } : undefined,
@@ -420,7 +449,7 @@ async function finishPayment(input: {
     ownerId: agent.userId,
     paymentKey: key,
     authorised: authorisedPart(agent, input.tier, input.approval, input.remainingBefore),
-    asked: { method: "GET", url: input.url, at: new Date().toISOString() },
+    asked: { method: input.method, url: input.url, at: new Date().toISOString() },
     cameBack: cameBackFrom({
       status: outcome.status,
       contentType: outcome.contentType,
@@ -433,7 +462,7 @@ async function finishPayment(input: {
       network: outcome.payment?.network ?? null,
       settlement,
       outcome: evidenceOutcome,
-      settleReference: null,
+      settleReference: outcome.settleReference ?? null,
     },
   });
 

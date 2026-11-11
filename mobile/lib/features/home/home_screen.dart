@@ -906,8 +906,11 @@ class _RecentActivity extends StatelessWidget {
               : Column(
                   children: [
                     for (var i = 0; i < items.length; i++) ...[
-                      _ActivityRow(
-                          entry: items[i], onTap: () => onOpen(items[i])),
+                      RiseIn(
+                        index: i,
+                        child: _ActivityRow(
+                            entry: items[i], onTap: () => onOpen(items[i])),
+                      ),
                       if (i != items.length - 1)
                         const Padding(
                           padding: EdgeInsets.only(left: 68),

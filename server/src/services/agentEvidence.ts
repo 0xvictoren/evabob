@@ -46,7 +46,7 @@ export type EvidenceBundle = {
     remainingBeforeUsdc: number;
     at: string;
   };
-  asked: { method: "GET"; url: string; at: string };
+  asked: { method: string; url: string; at: string };
   cameBack: {
     at: string;
     status: number | null;

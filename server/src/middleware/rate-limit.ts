@@ -166,6 +166,17 @@ export const SENSITIVE: RateLimitRule = {
 };
 
 /**
+ * Paid calls by an agent wallet. Nanopayments are many small calls — an RPC
+ * request at a hundredth of a cent — so this is far above SENSITIVE. What
+ * bounds the money is the allowance and the loop breaker, not this.
+ */
+export const AGENT_PAY: RateLimitRule = {
+  name: "agent-pay",
+  limit: 120,
+  windowMs: 60_000,
+};
+
+/**
  * Moves that can spend the ops wallet's gas or a server signature: starting
  * and finishing bridges, and Gateway payments. Its own bucket so a normal
  * bridge plus a payment never trips SENSITIVE, while scripted loops stop.

@@ -5,11 +5,13 @@
  *
  * What an Evabob agent wallet can pay for is narrower than the catalog. The
  * payer (nanopay.ts) signs Circle Gateway batched authorizations on the
- * agent's own network, for GET requests with no caller headers. A seller is
- * payable only if it offers exactly that. In September 2026 the catalog held
- * 1,143 endpoints; 323 of them fit — all on Arc mainnet — and none on Arc
- * Testnet. So on testnet the honest list is empty, and the app says so rather
- * than showing a paid-agent feature that has nothing to pay.
+ * agent's own network. A seller is payable only if it offers exactly that.
+ * In November 2026 the catalog held 2,650 endpoints; 134 offers were on Arc
+ * Testnet (QuickNode's RPCs, which are POST, and BotPay).
+ *
+ * The catalog is never fetched while a payment waits: it is 27 pages, and a
+ * payment only needs it to name and categorise a seller. Lookups read the
+ * last copy and refresh it in the background.
  *
  * The allowlist (AGENT_RESOURCE_ORIGINS) may name exact origins, and may
  * include the token `circle-marketplace` to add every origin in the catalog
@@ -43,6 +45,8 @@ export type PayableService = {
   category: string;
   priceUsdc: number;
   network: string;
+  /** How the seller is called. */
+  method: string;
 };
 
 type CatalogItem = Record<string, unknown>;
@@ -81,9 +85,10 @@ export function agentPaymentNetwork(): string {
 }
 
 /**
- * Catalog entries the payer can settle: GET, the `exact` scheme with Gateway
- * batching, on `network`. Pure, so the rule can be tested against a saved
- * catalog. One entry per resource, cheapest matching offer.
+ * Catalog entries the payer can settle: the `exact` scheme with Gateway
+ * batching, on `network`, by a method the payer can send. Pure, so the rule
+ * can be tested against a saved catalog. One entry per resource, cheapest
+ * matching offer.
  */
 export function payableFromCatalog(
   items: CatalogItem[],
@@ -101,7 +106,7 @@ export function payableFromCatalog(
     if (url.protocol !== "https:") continue;
     const meta = (item.metadata as Record<string, unknown>) || {};
     const method = String(meta.method || "GET").toUpperCase();
-    if (method !== "GET") continue;
+    if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) continue;
     const accepts = Array.isArray(item.accepts)
       ? (item.accepts as Array<Record<string, unknown>>)
       : [];
@@ -132,6 +137,7 @@ export function payableFromCatalog(
         : existing?.category ?? "General",
       priceUsdc: existing ? Math.min(existing.priceUsdc, price) : price,
       network,
+      method,
     });
   }
   return [...out.values()];
@@ -140,30 +146,88 @@ export function payableFromCatalog(
 let catalogCache: { atMs: number; items: CatalogItem[] } | null = null;
 const CATALOG_TTL_MS = 60 * 60 * 1000;
 
-/** The whole public catalog, paged, cached for an hour. */
+const CATALOG_PAGE = 100;
+const CATALOG_PARALLEL = 6;
+const CATALOG_MAX_ITEMS = 10_000;
+let catalogRefresh: Promise<CatalogItem[]> | null = null;
+
+async function catalogPage(offset: number): Promise<CatalogItem[]> {
+  const res = await fetch(
+    `https://api.circle.com/v2/x402/discovery/resources?limit=${CATALOG_PAGE}&offset=${offset}`,
+    { headers: headers(), signal: AbortSignal.timeout(15_000) },
+  );
+  if (!res.ok) throw new Error(`discovery HTTP ${res.status}`);
+  const body = (await res.json()) as { items?: CatalogItem[] };
+  return body.items ?? [];
+}
+
+/** Downloads every page, several at a time. One download runs at once. */
+function refreshCatalog(): Promise<CatalogItem[]> {
+  if (catalogRefresh) return catalogRefresh;
+  catalogRefresh = (async () => {
+    const items: CatalogItem[] = [];
+    for (let offset = 0; offset < CATALOG_MAX_ITEMS; offset += CATALOG_PAGE * CATALOG_PARALLEL) {
+      const pages = await Promise.all(
+        Array.from({ length: CATALOG_PARALLEL }, (_, i) => catalogPage(offset + i * CATALOG_PAGE)),
+      );
+      for (const page of pages) items.push(...page);
+      if (pages.some((page) => page.length < CATALOG_PAGE)) break;
+    }
+    catalogCache = { atMs: Date.now(), items };
+    payableCache = null;
+    return items;
+  })().finally(() => {
+    catalogRefresh = null;
+  });
+  return catalogRefresh;
+}
+
+/**
+ * The whole public catalog. A copy under an hour old is returned as is; an
+ * older one is returned at once and refreshed behind it; only the very first
+ * call waits for the download.
+ */
 export async function fetchCatalog(): Promise<CatalogItem[]> {
-  if (catalogCache && Date.now() - catalogCache.atMs < CATALOG_TTL_MS) {
+  if (catalogCache) {
+    if (Date.now() - catalogCache.atMs >= CATALOG_TTL_MS) {
+      void refreshCatalog().catch((e) =>
+        console.warn("[x402] catalog refresh failed:", e instanceof Error ? e.message : e));
+    }
     return catalogCache.items;
   }
-  const items: CatalogItem[] = [];
-  for (let offset = 0; offset < 5_000; offset += 100) {
-    const res = await fetch(
-      `https://api.circle.com/v2/x402/discovery/resources?limit=100&offset=${offset}`,
-      { headers: headers(), signal: AbortSignal.timeout(15_000) },
-    );
-    if (!res.ok) throw new Error(`discovery HTTP ${res.status}`);
-    const body = (await res.json()) as { items?: CatalogItem[] };
-    const page = body.items ?? [];
-    items.push(...page);
-    if (page.length < 100) break;
-  }
-  catalogCache = { atMs: Date.now(), items };
-  return items;
+  return refreshCatalog();
 }
+
+let payableCache: PayableService[] | null = null;
 
 /** Services an Evabob agent wallet can pay for on this deployment's network. */
 export async function payableServices(): Promise<PayableService[]> {
-  return payableFromCatalog(await fetchCatalog(), agentPaymentNetwork());
+  const items = await fetchCatalog();
+  payableCache ??= payableFromCatalog(items, agentPaymentNetwork());
+  return payableCache;
+}
+
+/**
+ * The same list without ever waiting on Circle: what is known right now,
+ * empty until the first download lands. For the payment path, where the
+ * catalog only names and categorises a seller and must not hold a payment up.
+ */
+export function payableServicesNow(): PayableService[] {
+  if (!catalogCache) {
+    void refreshCatalog().catch(() => undefined);
+    return [];
+  }
+  if (Date.now() - catalogCache.atMs >= CATALOG_TTL_MS) {
+    void refreshCatalog().catch(() => undefined);
+  }
+  payableCache ??= payableFromCatalog(catalogCache.items, agentPaymentNetwork());
+  return payableCache;
+}
+
+/** Starts the first download at boot, so the first payment finds it ready. */
+export function warmCatalog(): void {
+  void refreshCatalog().catch((e) =>
+    console.warn("[x402] catalog warm-up failed:", e instanceof Error ? e.message : e));
 }
 
 /**

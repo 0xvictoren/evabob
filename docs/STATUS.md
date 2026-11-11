@@ -31,6 +31,22 @@ and other public testnets. Do not read "live" below as "in production" — it me
 
 ---
 
+## Agent payments to outside sellers, menu grid — 2026-11-11
+
+Server 477 tests, Flutter 76 tests, typecheck and analyze clean. Not yet run
+on a phone; not yet deployed.
+
+| Area | What changed |
+|------|--------------|
+| Agent payments | `/v1/x402/pay` sends any of GET, POST, PUT, PATCH, DELETE with the agent's headers and body (was: bare GET only). The idempotency key is optional — one is made and returned. Two real payments on Arc Testnet: BotPay (GET, $0.01) and QuickNode (POST, $0.0001). |
+| Ways in | An MCP endpoint for Claude (`/v1/agent-api/mcp`), a text guide any assistant can read (`/v1/public/agent-guide`), and copy-ready setup in the app. See `docs/AGENTS.md`. |
+| Speed | Circle's catalog (27 pages) is no longer fetched while a payment waits; it is warmed at boot, read from memory and refreshed behind. The API pings its own public address every 10 minutes so the free host does not put it to sleep (a cold start took 72 s). `KEEP_ALIVE=false` turns it off. |
+| Limits | Loop breaker: 60 a minute for calls of $0.001 or less, 5 otherwise. `/v1/x402/*` rate limit 120 a minute (was 10). |
+| Home menu | A three-column grid of icons in the same fixed order; the explanation of each is on a long press and read by screen readers. |
+| Motion | Screens rise and fade in on Android (iPhones keep their slide and swipe-back); a light tick on every press; the receipt check pops in; recent activity rises in. All off when the phone asks for reduced motion. |
+
+---
+
 ## cirBTC, flat fee, web terms — 2026-09-25
 
 Server 456 tests, Flutter 69 tests, typecheck and analyze clean. Not yet run
