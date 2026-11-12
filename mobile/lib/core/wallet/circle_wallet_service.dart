@@ -1915,12 +1915,13 @@ class CircleWalletService extends ChangeNotifier {
     );
   }
 
-  /// Converts on Arc: Circle App Kit first, Synthra when App Kit could not
-  /// run the swap at all.
+  /// Converts on Arc: Synthra first, Circle App Kit when Synthra could not
+  /// start the swap at all.
   ///
   /// [from] and [to] are symbols (USDC, EURC, CIRBTC) or 0x token addresses.
-  /// Synthra is used only when App Kit's attempt ended before any PIN was
-  /// entered. Falling back after a PIN once swapped the money twice.
+  /// App Kit is used only when Synthra's attempt ended before a PIN was
+  /// asked for: no quote, no route, the service down. Falling back after a
+  /// PIN once swapped the money twice, so anything past that point is final.
   Future<Map<String, dynamic>> swap({
     required BuildContext context,
     required String from,
@@ -1935,23 +1936,7 @@ class CircleWalletService extends ChangeNotifier {
     }
     String token(String t) =>
         RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(t) ? t : t.toUpperCase();
-    final kit = await appKitSwap(
-      context: context,
-      tokenIn: token(from),
-      tokenOut: token(to),
-      amountIn: amountIn,
-    );
-    if (kit['ok'] == true) return kit;
-    final nothingSigned =
-        (kit['jobId']?.toString() ?? '').isEmpty || kit['noPinEntered'] == true;
-    if (!nothingSigned) return kit;
-    // Too little money is the same answer on any rail.
-    if ((kit['error']?.toString() ?? '').startsWith('Not enough money')) {
-      return kit;
-    }
-    debugPrint('appKit swap did not start → synthra: ${kit['error']}');
-    if (!context.mounted) return kit;
-    return _synthraSwap(
+    final first = await _synthraSwap(
       context: context,
       from: from,
       to: to,
@@ -1959,6 +1944,21 @@ class CircleWalletService extends ChangeNotifier {
       slippageBps: slippageBps,
       fromDecimals: fromDecimals,
       toDecimals: toDecimals,
+    );
+    if (first['ok'] == true || first['notStarted'] != true) return first;
+    // Too little money is the same answer on any rail.
+    final why = first['error']?.toString() ?? '';
+    if (why.startsWith('Not enough money') ||
+        first['code'] == 'INSUFFICIENT_BALANCE') {
+      return first;
+    }
+    debugPrint('synthra swap did not start → app kit: $why');
+    if (!context.mounted) return first;
+    return appKitSwap(
+      context: context,
+      tokenIn: token(from),
+      tokenOut: token(to),
+      amountIn: amountIn,
     );
   }
 
@@ -1982,6 +1982,9 @@ class CircleWalletService extends ChangeNotifier {
     }
     // Always refresh Circle session — tokens expire and break PIN / txs.
     await refreshSessionOnly();
+    // Whether the person has been shown a PIN prompt. Until then nothing
+    // can have moved, and another rail may safely try.
+    var prompted = false;
     final decimals = fromDecimals ??
         (from.toUpperCase() == 'CIRBTC'
             ? 8
@@ -2011,12 +2014,13 @@ class CircleWalletService extends ChangeNotifier {
             'No swap challenges returned';
         status = err;
         notifyListeners();
-        return {...res, 'ok': false, 'error': err};
+        return {...res, 'ok': false, 'error': err, 'notStarted': true};
       }
       status = challengeIds.length > 1
           ? 'Confirm approve + swap PIN…'
           : 'Confirm swap PIN…';
       notifyListeners();
+      prompted = true;
       final pinOk = await executeChallengeResponse(
         context,
         res,
@@ -2096,7 +2100,7 @@ class CircleWalletService extends ChangeNotifier {
           'error': 'Your session ended. Start again from Move money.',
         };
       }
-      return {'ok': false, 'error': msg};
+      return {'ok': false, 'error': msg, if (!prompted) 'notStarted': true};
     }
   }
 

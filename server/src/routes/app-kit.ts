@@ -598,34 +598,37 @@ appKitRoutes.post("/swap/quote", async (c) => {
     if (body.from.toLowerCase() === body.to.toLowerCase()) {
       return c.json({ error: "from and to must differ" }, 400);
     }
-    try {
-      return c.json(
-        await estimateAppKitSwap({
-          tokenIn: body.from,
-          tokenOut: body.to,
+    // Synthra prices and runs swaps first; App Kit is the fallback when
+    // Synthra has no rate, which is also the order the app swaps in.
+    const { synthraQuote, synthraConfigured } = await import("../services/synthra.js");
+    if (synthraConfigured() && body.chain === "Arc_Testnet") {
+      try {
+        const res = await synthraQuote({
+          fromToken: body.from,
+          toToken: body.to,
           amountIn: body.amountIn,
-          chain: body.chain,
-        }),
-      );
-    } catch (appKitError) {
-      // App Kit had no rate: price it with Synthra, which is also the swap
-      // the app falls back to when App Kit cannot start one.
-      const { synthraQuote, synthraConfigured } = await import("../services/synthra.js");
-      if (!synthraConfigured()) throw appKitError;
-      const res = await synthraQuote({
-        fromToken: body.from,
-        toToken: body.to,
-        amountIn: body.amountIn,
-      });
-      if (!res.ok || !(Number(res.amountOut) > 0)) throw appKitError;
-      return c.json({
-        source: "synthra",
-        from: body.from,
-        to: body.to,
-        amountIn: body.amountIn,
-        amountOut: Number(res.amountOut),
-      });
+        });
+        if (res.ok && Number(res.amountOut) > 0) {
+          return c.json({
+            source: "synthra",
+            from: body.from,
+            to: body.to,
+            amountIn: body.amountIn,
+            amountOut: Number(res.amountOut),
+          });
+        }
+      } catch (error) {
+        console.warn("[swap quote] synthra had no rate:", error instanceof Error ? error.message : error);
+      }
     }
+    return c.json(
+      await estimateAppKitSwap({
+        tokenIn: body.from,
+        tokenOut: body.to,
+        amountIn: body.amountIn,
+        chain: body.chain,
+      }),
+    );
   } catch (e) {
     return c.json({ error: clientError(e, "No rate for that swap right now") }, 400);
   }
