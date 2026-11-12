@@ -92,12 +92,12 @@ class IncompleteJobsBanner extends StatelessWidget {
                       children: [
                         Text(
                           'Incomplete ${_label(job)}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w400,
                             color: EvabobColors.navy,
                           ),
                         ),
-                        const Text(
+                        Text(
                           'PIN was started. Continue to finish so funds are not stuck.',
                           style: TextStyle(
                             fontSize: 12,

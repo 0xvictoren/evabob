@@ -172,7 +172,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                   tooltip: 'Back',
                   icon: const Icon(Icons.chevron_left_rounded),
                 ),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Agents',
                   style: TextStyle(
@@ -203,7 +203,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
             children: [
-              const Text(
+              Text(
                 'Set money aside for a piece of software to spend on your '
                 'behalf, without giving it your main balance.',
                 style: TextStyle(
@@ -225,7 +225,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text(
+                      Text(
                         'No agent wallet yet',
                         style: TextStyle(
                           fontWeight: FontWeight.w400,
@@ -234,7 +234,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      const Text(
+                      Text(
                         'The key is how the software proves it is allowed to '
                         'spend. Put money in the wallet so it has something '
                         'to spend.',
@@ -265,7 +265,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                               children: [
                                 Text(
                                   w.label,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.w400,
                                     color: EvabobColors.navy,
                                   ),
@@ -273,7 +273,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
                                 const SizedBox(height: 4),
                                 Text(
                                   formatTokenAmount(w.balanceUsdc),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 22,
                                     fontWeight: FontWeight.w400,
                                     color: EvabobColors.navy,
@@ -355,13 +355,13 @@ class _AgentDetailState extends State<_AgentDetail> {
               style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             ),
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'Copy this now. It is not stored and cannot be shown again — '
               'if you lose it, rotate to issue a new one.',
               style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'Or copy the setup, with this key already in it:',
               style: TextStyle(fontSize: 12, color: EvabobColors.navy),
             ),
@@ -502,7 +502,7 @@ class _AgentDetailState extends State<_AgentDetail> {
             Text(
               'Available ${formatTokenAmount(balanceUsdc)}. '
               'Goes back to your own wallet.',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 color: EvabobColors.navyMuted,
               ),
@@ -565,7 +565,7 @@ class _AgentDetailState extends State<_AgentDetail> {
               decoration: const InputDecoration(labelText: 'Amount in dollars'),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Moves money from your balance into this agent wallet.',
               style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
             ),
@@ -696,7 +696,7 @@ class _AgentDetailState extends State<_AgentDetail> {
             Expanded(
               child: Text(
                 w.label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w400,
                   color: EvabobColors.navy,
@@ -712,14 +712,14 @@ class _AgentDetailState extends State<_AgentDetail> {
             children: [
               Text(
                 formatTokenAmount(w.balanceUsdc),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 48,
                   fontWeight: FontWeight.w400,
                   color: EvabobColors.navy,
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Its key',
                 style: TextStyle(
                   fontWeight: FontWeight.w400,
@@ -809,7 +809,7 @@ class _AgentDetailState extends State<_AgentDetail> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Give this key to your software',
                 style: TextStyle(
                   fontWeight: FontWeight.w400,
@@ -818,7 +818,7 @@ class _AgentDetailState extends State<_AgentDetail> {
                 ),
               ),
               const SizedBox(height: 4),
-              const Text(
+              Text(
                 'It can spend from this wallet only — never your main '
                 'balance — and stops at its allowance. Pause it, freeze '
                 'everything, or revoke the key any time.',
@@ -828,7 +828,7 @@ class _AgentDetailState extends State<_AgentDetail> {
               // The one genuinely developer-facing line on this screen. Kept,
               // because whoever wires up an agent needs it — but below the
               // explanation rather than instead of it.
-              const Text(
+              Text(
                 'Copy the setup for whatever will use it:',
                 style: TextStyle(fontSize: 12, color: EvabobColors.chalk),
               ),
@@ -877,7 +877,7 @@ class _PayableServicesState extends State<_PayableServices> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'What an agent can pay for here',
             style: TextStyle(
               fontWeight: FontWeight.w400,
@@ -893,7 +893,7 @@ class _PayableServicesState extends State<_PayableServices> {
                   : '${s?.note ?? 'Nothing yet.'} People here can sell to '
                       'agents from Get paid by agents. An agent wallet can '
                       'still hold money, and you can take it out any time.',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 color: EvabobColors.navyMuted,
               ),
@@ -913,7 +913,7 @@ class _PayableServicesState extends State<_PayableServices> {
                         ].join(' · '),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           color: EvabobColors.navyMuted,
                         ),
@@ -921,7 +921,7 @@ class _PayableServicesState extends State<_PayableServices> {
                     ),
                     Text(
                       formatTokenAmount(item.priceUsdc),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         color: EvabobColors.navy,
                       ),
@@ -985,7 +985,7 @@ class _AllowanceCard extends StatelessWidget {
                       ? 'Allowance'
                       : w.allowance.summary,
                   style:
-                      const TextStyle(fontSize: 14, color: EvabobColors.navy),
+                      TextStyle(fontSize: 14, color: EvabobColors.navy),
                 ),
               ),
               TextButton(
@@ -997,7 +997,7 @@ class _AllowanceCard extends StatelessWidget {
               'Asks you above ${formatTokenAmount(w.allowance.askAboveUsdc)}',
               if (w.allowance.proofOnly) 'pays only after proof',
             ].join(' · '),
-            style: const TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
+            style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
           const SizedBox(height: 10),
           AllowanceMeter(meter: w.meter),

@@ -31,11 +31,11 @@ class EvabobPageHeader extends StatelessWidget {
               child: Semantics(
                 button: true,
                 label: 'Back',
-                child: const SizedBox.square(
+                child: SizedBox.square(
                   dimension: 44,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: EvabobColors.white,
+                      color: EvabobColors.sheet,
                       shape: BoxShape.circle,
                       boxShadow: Shadows.card,
                     ),

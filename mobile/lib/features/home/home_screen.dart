@@ -505,8 +505,10 @@ class _Hero extends StatelessWidget {
                                                         .substring(dot),
                                                     style:
                                                         Type.balance.copyWith(
+                                                      // On the brand colour: the same in
+                                                      // light and dark.
                                                       color: EvabobColors
-                                                          .lightDark,
+                                                          .palette.lightDark,
                                                     ),
                                                   ),
                                               ],
@@ -560,7 +562,7 @@ class _MenuButton extends StatelessWidget {
         height: 10,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: EvabobColors.pageBg,
+            color: EvabobColors.palette.light,
             shape: BoxShape.circle,
           ),
         ),
@@ -927,8 +929,8 @@ class _MoneyCard extends StatelessWidget {
     ];
 
     return Container(
-      decoration: const BoxDecoration(
-        color: EvabobColors.white,
+      decoration: BoxDecoration(
+        color: EvabobColors.sheet,
         borderRadius: BorderRadius.all(Radius.circular(12)),
         boxShadow: Shadows.card,
       ),
@@ -977,8 +979,8 @@ class _RecentActivity extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Container(
-          decoration: const BoxDecoration(
-            color: EvabobColors.white,
+          decoration: BoxDecoration(
+            color: EvabobColors.sheet,
             borderRadius: BorderRadius.all(Radius.circular(12)),
             boxShadow: Shadows.card,
           ),

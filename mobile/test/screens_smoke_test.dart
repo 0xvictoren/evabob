@@ -57,8 +57,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:evabob_mobile/core/theme/evabob_colors.dart';
 
 final _shotDir = Platform.environment['SCREENSHOT_DIR'];
+
+/// SCREENSHOT_DARK=1 renders every screen in dark mode instead.
+final _dark = Platform.environment['SCREENSHOT_DARK'] == '1';
 
 Future<void> _loadFonts() async {
   final numans = FontLoader('Numans')
@@ -77,10 +81,11 @@ Future<void> _loadFonts() async {
 }
 
 void main() {
+  EvabobColors.dark = _dark;
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({if (_dark) 'evabob_theme_mode': 'dark'});
     await _loadFonts();
   });
 
@@ -126,7 +131,7 @@ void main() {
           debugShowCheckedModeBanner: false,
           theme: EvabobTheme.light(),
           // Tab screens sit inside the shell's Scaffold in the app.
-          home: Material(color: const Color(0xFFF0FAFF), child: screen),
+          home: Material(color: EvabobColors.pageBg, child: screen),
         ),
       ),
     );

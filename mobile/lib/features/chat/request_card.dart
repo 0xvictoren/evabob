@@ -119,7 +119,7 @@ class RequestCard extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   headline,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 40,
                     color: EvabobColors.navy,
                     fontFeatures: [FontFeature.tabularFigures()],
@@ -141,7 +141,7 @@ class RequestCard extends StatelessWidget {
                       Expanded(
                         child: SelectableText(
                           it['description']?.toString() ?? 'Item',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
                             color: EvabobColors.navy,
                           ),
@@ -151,7 +151,7 @@ class RequestCard extends StatelessWidget {
                       Text(
                         formatMoney(
                             (it['amount'] as num?)?.toDouble() ?? 0, token),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           color: EvabobColors.navy,
                         ),
@@ -163,7 +163,7 @@ class RequestCard extends StatelessWidget {
                 const Divider(height: 12),
                 Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Text(
                         'Total',
                         style:
@@ -172,7 +172,7 @@ class RequestCard extends StatelessWidget {
                     ),
                     Text(
                       headline,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 13, color: EvabobColors.navy),
                     ),
                   ],
@@ -192,7 +192,7 @@ class RequestCard extends StatelessWidget {
                   if (due != null && open)
                     'due ${DateFormat('d MMM').format(due.toLocal())}',
                 ].join(' · '),
-                style: const TextStyle(fontSize: 12, color: EvabobColors.chalk),
+                style: TextStyle(fontSize: 12, color: EvabobColors.chalk),
               ),
               if (open && !mine) ...[
                 const SizedBox(height: 12),

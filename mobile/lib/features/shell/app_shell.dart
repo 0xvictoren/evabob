@@ -465,8 +465,8 @@ class _AppShellState extends State<AppShell> {
       child: Container(
         height: 87,
         padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
-        decoration: const BoxDecoration(
-          color: EvabobColors.white,
+        decoration: BoxDecoration(
+          color: EvabobColors.sheet,
           borderRadius: BorderRadius.all(Radius.circular(16)),
           boxShadow: Shadows.card,
         ),

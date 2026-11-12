@@ -96,7 +96,7 @@ class _PaymentProofCardState extends State<PaymentProofCard> {
         children: [
           Text(
             pending ? 'Where is it?' : 'Paid ✓',
-            style: const TextStyle(fontSize: 16, color: EvabobColors.navy),
+            style: TextStyle(fontSize: 16, color: EvabobColors.navy),
           ),
           const SizedBox(height: 4),
           Text(
@@ -104,7 +104,7 @@ class _PaymentProofCardState extends State<PaymentProofCard> {
                 ? 'Share a link that shows Sending → On the way → Done, '
                     'so they can follow it without asking.'
                 : 'Show this to the seller — they can check it themselves.',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               height: 1.35,
               color: EvabobColors.navyMuted,
@@ -131,7 +131,7 @@ class _PaymentProofCardState extends State<PaymentProofCard> {
               child: Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: EvabobColors.sheet,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: EvabobColors.hairline),
                 ),

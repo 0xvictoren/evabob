@@ -128,7 +128,7 @@ class _PostSignupOnboardingState extends State<PostSignupOnboarding> {
       return const AppShell();
     }
     return Scaffold(
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       body: SafeArea(
         child: _checking
             ? Center(

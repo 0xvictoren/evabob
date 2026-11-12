@@ -183,7 +183,7 @@ Future<void> showAvatarPicker(
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     foregroundColor: EvabobColors.nearBlack,
-                    side: const BorderSide(color: EvabobColors.hairline),
+                    side: BorderSide(color: EvabobColors.hairline),
                     shape: RoundedRectangleBorder(
                       borderRadius: Radii.all(Radii.pill),
                     ),

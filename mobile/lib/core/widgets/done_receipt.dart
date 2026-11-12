@@ -95,8 +95,8 @@ class DoneReceiptScreen extends StatelessWidget {
                   width: 88,
                   height: 88,
                   alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: EvabobColors.white,
+                  decoration: BoxDecoration(
+                    color: EvabobColors.sheet,
                     shape: BoxShape.circle,
                   ),
                   child: PopIn(
@@ -139,8 +139,8 @@ class DoneReceiptScreen extends StatelessWidget {
               const SizedBox(height: 26),
               Container(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                decoration: const BoxDecoration(
-                  color: EvabobColors.white,
+                decoration: BoxDecoration(
+                  color: EvabobColors.sheet,
                   borderRadius: BorderRadius.all(Radius.circular(12)),
                   boxShadow: [
                     BoxShadow(
@@ -154,7 +154,7 @@ class DoneReceiptScreen extends StatelessWidget {
                   children: [
                     for (var i = 0; i < rows.length; i++) ...[
                       if (i > 0)
-                        const Divider(height: 1, color: EvabobColors.hairline),
+                        Divider(height: 1, color: EvabobColors.hairline),
                       row(rows[i].$1, rows[i].$2),
                     ],
                   ],
@@ -165,7 +165,7 @@ class DoneReceiptScreen extends StatelessWidget {
                 child: Image.asset('assets/logo.png', width: 20, height: 20),
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'EVABOB RECEIPT',
                 textAlign: TextAlign.center,
                 style: TextStyle(

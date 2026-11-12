@@ -238,7 +238,7 @@ class _CopyRow extends StatelessWidget {
             Container(
               width: 38,
               height: 38,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: EvabobColors.mint,
                 shape: BoxShape.circle,
               ),
@@ -274,7 +274,7 @@ class _CopyRow extends StatelessWidget {
               // unreachable by a screen reader.
               Row(
                 children: [
-                  const Icon(Icons.copy_rounded,
+                  Icon(Icons.copy_rounded,
                       size: 18, color: EvabobColors.navyMuted),
                   if (onQr != null)
                     IconButton(
@@ -282,7 +282,7 @@ class _CopyRow extends StatelessWidget {
                       constraints:
                           const BoxConstraints(minWidth: 44, minHeight: 44),
                       onPressed: onQr,
-                      icon: const Icon(Icons.qr_code_2_rounded,
+                      icon: Icon(Icons.qr_code_2_rounded,
                           size: 20, color: EvabobColors.navyMuted),
                     ),
                   IconButton(
@@ -292,7 +292,7 @@ class _CopyRow extends StatelessWidget {
                     onPressed: () => SharePlus.instance.share(
                       ShareParams(text: copyable!),
                     ),
-                    icon: const Icon(Icons.ios_share_rounded,
+                    icon: Icon(Icons.ios_share_rounded,
                         size: 18, color: EvabobColors.navyMuted),
                   ),
                 ],
@@ -392,8 +392,8 @@ class _InvoiceTabState extends State<_InvoiceTab> {
           Space.page,
           Space.page + MediaQuery.paddingOf(sheetContext).bottom,
         ),
-        decoration: const BoxDecoration(
-          color: EvabobColors.white,
+        decoration: BoxDecoration(
+          color: EvabobColors.sheet,
           borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.xl)),
           boxShadow: Shadows.sheet,
         ),
@@ -746,7 +746,7 @@ class _InvoiceTabState extends State<_InvoiceTab> {
         // Every request, both ways, lives on its own screen (Figma
         // "Request · history").
         Material(
-          color: EvabobColors.white,
+          color: EvabobColors.sheet,
           borderRadius: BorderRadius.circular(12),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
@@ -769,7 +769,7 @@ class _InvoiceTabState extends State<_InvoiceTab> {
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right_rounded,
+                  Icon(Icons.chevron_right_rounded,
                       color: EvabobColors.navyMuted),
                 ],
               ),
@@ -850,14 +850,14 @@ class _LineRow extends StatelessWidget {
             IconButton(
               tooltip: 'Remove this line',
               onPressed: onRemove,
-              icon: const Icon(Icons.close_rounded,
+              icon: Icon(Icons.close_rounded,
                   size: 18, color: EvabobColors.navyMuted),
             ),
           if (onAdd != null)
             IconButton(
               tooltip: 'Add another line',
               onPressed: onAdd,
-              icon: const Icon(Icons.add_circle_outline_rounded,
+              icon: Icon(Icons.add_circle_outline_rounded,
                   size: 22, color: EvabobColors.forest),
             ),
         ],

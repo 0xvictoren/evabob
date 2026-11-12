@@ -428,7 +428,7 @@ class _CircleChallengeScreenState extends State<CircleChallengeScreen> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close_rounded, color: EvabobColors.ink),
+          icon: Icon(Icons.close_rounded, color: EvabobColors.ink),
           tooltip: 'Close',
           onPressed: () => Navigator.of(context).pop(false),
         ),

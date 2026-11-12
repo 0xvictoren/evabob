@@ -631,8 +631,8 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
                         if (rows.isNotEmpty)
                           Container(
                             padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                            decoration: const BoxDecoration(
-                              color: EvabobColors.white,
+                            decoration: BoxDecoration(
+                              color: EvabobColors.sheet,
                               borderRadius:
                                   BorderRadius.all(Radius.circular(12)),
                               boxShadow: [
@@ -647,7 +647,7 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
                               children: [
                                 for (var i = 0; i < rows.length; i++) ...[
                                   if (i > 0)
-                                    const Divider(
+                                    Divider(
                                         height: 1,
                                         color: EvabobColors.hairline),
                                   row(
@@ -816,7 +816,7 @@ class _FigmaHeader extends StatelessWidget {
                       children: [
                         SvgPicture.asset('assets/figma/btn_back.svg',
                             width: 44, height: 44),
-                        const Icon(
+                        Icon(
                           Icons.chevron_left_rounded,
                           size: 24,
                           color: EvabobColors.ink,
@@ -1063,7 +1063,7 @@ class _ClaimLinkScreenState extends State<ClaimLinkScreen> {
   void _how() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1243,8 +1243,8 @@ class _ClaimLinkScreenState extends State<ClaimLinkScreen> {
                         if (pending)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
-                            decoration: const BoxDecoration(
-                              color: EvabobColors.white,
+                            decoration: BoxDecoration(
+                              color: EvabobColors.sheet,
                               borderRadius:
                                   BorderRadius.all(Radius.circular(12)),
                               boxShadow: [
@@ -1261,11 +1261,11 @@ class _ClaimLinkScreenState extends State<ClaimLinkScreen> {
                                 // two: they are signed in and have a PIN.
                                 step(1, 'Set up Evabob with your email',
                                     done: true),
-                                const Divider(
+                                Divider(
                                     height: 1, color: EvabobColors.hairline),
                                 step(2, 'Pick a PIN so only you can spend it',
                                     done: true),
-                                const Divider(
+                                Divider(
                                     height: 1, color: EvabobColors.hairline),
                                 step(3, 'The $money lands straight away',
                                     done: false),

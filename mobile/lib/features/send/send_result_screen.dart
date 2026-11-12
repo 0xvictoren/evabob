@@ -184,7 +184,7 @@ class SendSentScreen extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
                     decoration: BoxDecoration(
-                      color: EvabobColors.white,
+                      color: EvabobColors.sheet,
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: Shadows.card,
                     ),
@@ -200,7 +200,7 @@ class SendSentScreen extends StatelessWidget {
                             hash == null || hash.isEmpty
                                 ? '—'
                                 : shortHash(hash, head: 5, tail: 4)),
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.symmetric(vertical: 4),
                           child:
                               Divider(height: 1, color: EvabobColors.hairline),
@@ -408,13 +408,13 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
       );
     }
 
-    const sep = Padding(
+    final sep = Padding(
       padding: EdgeInsets.only(left: 52),
       child: Divider(height: 1, color: EvabobColors.hairline),
     );
 
     return Scaffold(
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, box) => SingleChildScrollView(
@@ -476,7 +476,7 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: EvabobColors.white,
+                      color: EvabobColors.sheet,
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: Shadows.card,
                     ),
@@ -526,7 +526,7 @@ class _SendOnTheWayScreenState extends State<SendOnTheWayScreen>
                     child: TextButton(
                       onPressed: () => Navigator.of(context).pop(),
                       style: TextButton.styleFrom(
-                        backgroundColor: EvabobColors.white,
+                        backgroundColor: EvabobColors.sheet,
                         shape: const StadiumBorder(),
                       ),
                       child: Text('Done', style: Type.body),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'evabob_colors.dart';
@@ -20,6 +21,8 @@ class ThemeController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       EvabobColors.palette =
           EvabobPalette.fromName(prefs.getString(_paletteKey));
+      // Dark or light before the first frame too, so it never flashes.
+      EvabobColors.dark = _darkFor(_modeFrom(prefs.getString(_key)));
     } catch (_) {
       // Stay on the default; the picker still works.
     }
@@ -46,32 +49,79 @@ class ThemeController extends ChangeNotifier {
     await prefs.setString(_paletteKey, palette.name);
   }
 
-  ThemeMode _mode = ThemeMode.system;
+  /// Light unless the person chose dark, or chose to follow their phone.
+  ThemeMode _mode = ThemeMode.light;
   ThemeMode get mode => _mode;
 
-  bool get isDark {
-    if (_mode == ThemeMode.dark) return true;
-    if (_mode == ThemeMode.light) return false;
+  static ThemeMode _modeFrom(String? saved) => switch (saved) {
+        'dark' => ThemeMode.dark,
+        'system' => ThemeMode.system,
+        _ => ThemeMode.light,
+      };
+
+  static bool _darkFor(ThemeMode mode) {
+    if (mode == ThemeMode.dark) return true;
+    if (mode == ThemeMode.light) return false;
     return WidgetsBinding.instance.platformDispatcher.platformBrightness ==
         Brightness.dark;
   }
 
+  bool get isDark => _darkFor(_mode);
+
+  /// "Light", "Dark" or "Same as this phone".
+  String get modeLabel => switch (_mode) {
+        ThemeMode.dark => 'Dark',
+        ThemeMode.system => 'Same as this phone',
+        ThemeMode.light => 'Light',
+      };
+
+  /// Dark icons in the status bar on a light page, light ones on a dark page.
+  static void applySystemBars() {
+    final icons = EvabobColors.dark ? Brightness.light : Brightness.dark;
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: icons,
+      statusBarBrightness: EvabobColors.dark ? Brightness.dark : Brightness.light,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness: icons,
+    ));
+  }
+
+  /// Points every colour at the chosen mode and redraws what is on screen:
+  /// colours are read while widgets build, and many are kept from earlier
+  /// frames.
+  void _apply() {
+    final dark = isDark;
+    if (EvabobColors.dark == dark) return;
+    EvabobColors.dark = dark;
+    applySystemBars();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      void redraw(Element element) {
+        element.markNeedsBuild();
+        element.visitChildren(redraw);
+      }
+
+      WidgetsBinding.instance.rootElement?.visitChildren(redraw);
+    });
+  }
+
+  /// The phone switched between light and dark while the app follows it.
+  void platformBrightnessChanged() {
+    if (_mode != ThemeMode.system) return;
+    _apply();
+    notifyListeners();
+  }
+
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
-    switch (raw) {
-      case 'dark':
-        _mode = ThemeMode.dark;
-      case 'light':
-        _mode = ThemeMode.light;
-      default:
-        _mode = ThemeMode.system;
-    }
+    _mode = _modeFrom(prefs.getString(_key));
+    _apply();
     notifyListeners();
   }
 
   Future<void> setMode(ThemeMode mode) async {
     _mode = mode;
+    _apply();
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     final value = switch (mode) {

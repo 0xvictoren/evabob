@@ -22,7 +22,7 @@ Future<void> showReceiveQr(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: EvabobColors.white,
+    backgroundColor: EvabobColors.sheet,
     showDragHandle: true,
     builder: (_) =>
         _ReceiveQrSheet(address: address, network: network, handle: handle),
@@ -77,7 +77,7 @@ class _ReceiveQrSheet extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(Space.md),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: EvabobColors.sheet,
                 borderRadius: Radii.all(Radii.md),
                 border: Border.all(color: EvabobColors.hairline),
               ),

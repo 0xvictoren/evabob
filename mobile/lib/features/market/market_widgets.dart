@@ -315,7 +315,7 @@ class SellerCard extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.only(top: 2, right: 6),
                     child: Icon(Icons.check_circle_outline_rounded,
                         size: 14, color: EvabobColors.inkMuted),
@@ -332,7 +332,7 @@ class SellerCard extends StatelessWidget {
             const SizedBox(height: 2),
             Row(
               children: [
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(right: 6),
                   child: Icon(Icons.place_outlined,
                       size: 14, color: EvabobColors.inkMuted),

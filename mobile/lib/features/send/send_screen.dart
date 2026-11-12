@@ -240,7 +240,7 @@ class _SendScreenState extends State<SendScreen> {
               'balance now.',
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'If they do not claim it within a week, it comes back to you '
               'automatically.',
               style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
@@ -289,8 +289,8 @@ class _SendScreenState extends State<SendScreen> {
           20,
           20 + MediaQuery.paddingOf(sheetContext).bottom,
         ),
-        decoration: const BoxDecoration(
-          color: EvabobColors.white,
+        decoration: BoxDecoration(
+          color: EvabobColors.sheet,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
@@ -319,7 +319,7 @@ class _SendScreenState extends State<SendScreen> {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 height: 32 / 24,
                 color: EvabobColors.ink,
@@ -329,7 +329,7 @@ class _SendScreenState extends State<SendScreen> {
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 height: 18 / 14,
                 color: EvabobColors.inkMuted,
@@ -496,7 +496,7 @@ class _SendScreenState extends State<SendScreen> {
   Future<void> _pickCurrency() async {
     final selected = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -508,7 +508,7 @@ class _SendScreenState extends State<SendScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Choose currency',
                 style: TextStyle(fontSize: 22, color: EvabobColors.ink),
               ),
@@ -576,11 +576,11 @@ class _SendScreenState extends State<SendScreen> {
                   onBack: widget.onBack,
                   trailing: PressScale(
                     onTap: _pickCurrency,
-                    child: const SizedBox.square(
+                    child: SizedBox.square(
                       dimension: 44,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: EvabobColors.white,
+                          color: EvabobColors.sheet,
                           shape: BoxShape.circle,
                         ),
                         child: Icon(Icons.more_vert_rounded, size: 20),
@@ -598,7 +598,7 @@ class _SendScreenState extends State<SendScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Send to',
                               style: TextStyle(
                                 fontSize: 12,
@@ -620,7 +620,7 @@ class _SendScreenState extends State<SendScreen> {
                                       filled: false,
                                       isDense: true,
                                     ),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 14,
                                       color: EvabobColors.navy,
                                     ),
@@ -676,7 +676,7 @@ class _SendScreenState extends State<SendScreen> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          const Text(
+                                          Text(
                                             'No saved match',
                                             style: TextStyle(
                                               fontSize: 14,
@@ -689,7 +689,7 @@ class _SendScreenState extends State<SendScreen> {
                                                     query.startsWith('0x')
                                                 ? 'You can still continue with what you entered.'
                                                 : 'Try a handle, email, or wallet address.',
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 12,
                                               color: EvabobColors.inkTertiary,
                                             ),
@@ -713,7 +713,7 @@ class _SendScreenState extends State<SendScreen> {
                                           c.name.isEmpty
                                               ? '?'
                                               : c.name[0].toUpperCase(),
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             color: EvabobColors.ink,
                                           ),
                                         ),
@@ -729,7 +729,7 @@ class _SendScreenState extends State<SendScreen> {
                                             : _shortAddress(c.address),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 12,
                                           color: EvabobColors.inkTertiary,
                                         ),
@@ -784,7 +784,7 @@ class _SendScreenState extends State<SendScreen> {
                                 ),
                                 child: Text(
                                   '${_secondaryLabel(fx)} · tap to change currency',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 12,
                                     color: EvabobColors.inkTertiary,
                                     letterSpacing: .2,
@@ -866,7 +866,7 @@ class _SendScreenState extends State<SendScreen> {
                                           : _quickLabel(fx, q),
                                       maxLines: 1,
                                       textAlign: TextAlign.center,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w400,
                                         color: EvabobColors.navyMuted,
@@ -915,7 +915,7 @@ class _SendScreenState extends State<SendScreen> {
                                     focusedBorder: InputBorder.none,
                                     contentPadding: EdgeInsets.zero,
                                   ),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 14,
                                     color: EvabobColors.ink,
                                   ),
@@ -943,7 +943,7 @@ class _SendScreenState extends State<SendScreen> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
+                                    Text(
                                       'Paying from your balance',
                                       style: TextStyle(
                                         fontSize: 15,
@@ -952,7 +952,7 @@ class _SendScreenState extends State<SendScreen> {
                                     ),
                                     Text(
                                       '$balLabel available',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 12,
                                         color: EvabobColors.inkTertiary,
                                       ),
@@ -960,7 +960,7 @@ class _SendScreenState extends State<SendScreen> {
                                   ],
                                 ),
                               ),
-                              const Icon(
+                              Icon(
                                 Icons.chevron_right_rounded,
                                 color: EvabobColors.inkTertiary,
                               ),
@@ -1305,7 +1305,7 @@ class _SendScreenState extends State<SendScreen> {
                             : 'Pay anyone by @username or email. If they are not '
                                 'on Evabob yet, we hold it until they join.',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           color: EvabobColors.chalk,
                         ),

@@ -84,7 +84,7 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
+                Text(
                   'Contacts',
                   style: TextStyle(
                     fontSize: 22,
@@ -93,7 +93,7 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   'Pick an email. Phone numbers are not payees.',
                   style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
                 ),
@@ -120,7 +120,7 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                         child: Text(
                           _error!,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: EvabobColors.navyMuted),
+                          style: TextStyle(color: EvabobColors.navyMuted),
                         ),
                       ),
                     ),

@@ -228,7 +228,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            Text(
               'Attach',
               style: TextStyle(
                 fontWeight: FontWeight.w400,
@@ -775,7 +775,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   Future<void> _openThreadMenu(ChatThread thread, String myId) async {
     final action = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -933,7 +933,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                             thread.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontWeight: FontWeight.w400,
                               fontSize: 22,
                               color: EvabobColors.navy,
@@ -943,7 +943,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                             '@${thread.handle ?? (thread.isAgent ? 'evabob' : thread.title)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               color: EvabobColors.navyMuted,
                             ),
@@ -1284,7 +1284,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Confirm action',
                   style: TextStyle(
                     fontWeight: FontWeight.w400,
@@ -1294,7 +1294,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 const SizedBox(height: 6),
                 Text(
                   m.text ?? '',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     color: EvabobColors.navyMuted,
                   ),
@@ -1338,7 +1338,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
         child: Text(
           m.text ?? '',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 12, color: EvabobColors.chalk),
+          style: TextStyle(fontSize: 12, color: EvabobColors.chalk),
         ),
       );
     }
@@ -1381,7 +1381,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 const SizedBox(height: 10),
                 Text(
                   r.amountLabel,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 48,
                     fontWeight: FontWeight.w400,
                     color: EvabobColors.navy,
@@ -1390,7 +1390,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 ),
                 Text(
                   r.fxLabel,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     color: EvabobColors.navyMuted,
                   ),
@@ -1399,7 +1399,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 if (r.description.isNotEmpty)
                   Text(
                     r.description,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
                       color: EvabobColors.navy,
                     ),
@@ -1408,7 +1408,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 if (r.sender != null && r.sender!.isNotEmpty)
                   Text(
                     'From ${r.sender}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: EvabobColors.chalk,
                     ),
@@ -1416,7 +1416,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 if ((r.receiver ?? r.peerName) != null)
                   Text(
                     'To ${r.receiver ?? r.peerName}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: EvabobColors.chalk,
                     ),
@@ -1427,7 +1427,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                         ? r.dateLabel!
                         : DateFormat('d MMM yyyy, HH:mm')
                             .format(DateTime.parse(r.dateLabel!).toLocal()),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: EvabobColors.chalk,
                     ),
@@ -1437,7 +1437,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                 if (r.hash != null && r.hash!.startsWith('0x'))
                   SelectableText(
                     'Tx ${r.hash!.length > 18 ? '${r.hash!.substring(0, 10)}…${r.hash!.substring(r.hash!.length - 6)}' : r.hash}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontFamily: 'monospace',
                       color: EvabobColors.navyMuted,
@@ -1488,7 +1488,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                   const SizedBox(height: 10),
                   Text(
                     '${m.meta?['status'] ?? r.statusLabel}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
                       color: EvabobColors.navyMuted,
@@ -1579,7 +1579,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
         ),
         child: SelectableText(
           text,
-          style: const TextStyle(
+          style: TextStyle(
             color: EvabobColors.nearBlack,
             fontSize: 14,
             height: 1.35,

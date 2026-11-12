@@ -92,7 +92,7 @@ class _AssetsScreenState extends State<AssetsScreen> {
     final address = network['address']?.toString() ?? '';
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         top: false,
@@ -290,7 +290,7 @@ class _TotalCard extends StatelessWidget {
                     TextSpan(
                       text: amount.substring(dot),
                       style:
-                          Type.balance.copyWith(color: EvabobColors.lightDark),
+                          Type.balance.copyWith(color: EvabobColors.palette.lightDark),
                     ),
                 ],
               ),
@@ -336,8 +336,8 @@ class _RowCard extends StatelessWidget {
             ],
           ];
     return Container(
-      decoration: const BoxDecoration(
-        color: EvabobColors.white,
+      decoration: BoxDecoration(
+        color: EvabobColors.sheet,
         borderRadius: BorderRadius.all(Radius.circular(12)),
         boxShadow: Shadows.card,
       ),

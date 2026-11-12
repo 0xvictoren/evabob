@@ -242,7 +242,7 @@ class _CircleRow extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 color: EvabobColors.inkTertiary),
           ],
         ),

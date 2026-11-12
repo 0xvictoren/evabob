@@ -232,7 +232,7 @@ class _Row extends StatelessWidget {
               style: Type.amount.copyWith(color: EvabobColors.nearBlack),
             ),
             const SizedBox(width: Space.xs),
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 size: 18, color: EvabobColors.navyMuted),
           ],
         ),

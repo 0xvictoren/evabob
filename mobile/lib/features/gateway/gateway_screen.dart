@@ -461,14 +461,14 @@ class _GatewayScreenState extends State<GatewayScreen> {
                   Text(
                     'Gateway Account',
                     style:
-                        TextStyle(color: EvabobColors.lightDark, fontSize: 12),
+                        TextStyle(color: EvabobColors.palette.lightDark, fontSize: 12),
                   ),
                   // The one invented term the app keeps, so it gets defined
                   // where it is used rather than in a help page nobody opens.
                   Text(
                     'Money you have moved here, ready to spend anywhere.',
                     style:
-                        TextStyle(color: EvabobColors.lightDark, fontSize: 12),
+                        TextStyle(color: EvabobColors.palette.lightDark, fontSize: 12),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -493,7 +493,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
-                      color: EvabobColors.lightDark,
+                      color: EvabobColors.palette.lightDark,
                     ),
                   ),
                   Text(
@@ -502,7 +502,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     'Wallet ${formatTokenAmount(wallet.usdcWallet)} · '
                     'Total ${formatTokenAmount(wallet.totalUsdc)}',
                     style:
-                        TextStyle(fontSize: 12, color: EvabobColors.lightDark),
+                        TextStyle(fontSize: 12, color: EvabobColors.palette.lightDark),
                   ),
                   const SizedBox(height: 10),
                   Text(
@@ -510,7 +510,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
-                      color: EvabobColors.lightDark,
+                      color: EvabobColors.palette.lightDark,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -551,7 +551,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                               Expanded(
                                 child: Text(
                                   b.name ?? 'Another network',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 12,
                                     color: EvabobColors.navy,
                                   ),
@@ -600,7 +600,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text(
+                    Text(
                       'Top up your Gateway Account',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
@@ -612,7 +612,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                       'Move money you hold on another network into the '
                       'balance you spend from. You confirm with your PIN, and '
                       'we tell you when it has arrived.',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: EvabobColors.navyMuted,
                         fontSize: 12,
                         height: 1.35,
@@ -624,7 +624,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                     Text(
                       'You have ${formatTokenAmount(sourceBal)} there'
                       '${_sourceDomain == 26 ? ' (Arc wallet)' : ''}',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         color: EvabobColors.navyMuted,
                       ),
@@ -656,7 +656,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text(
+                    Text(
                       'Pay from your Gateway Account',
                       style: TextStyle(
                         fontWeight: FontWeight.w400,
@@ -670,7 +670,7 @@ class _GatewayScreenState extends State<GatewayScreen> {
                       'where to take it from, so you do not have to pick. The '
                       'first payment to a new network asks you to confirm once '
                       'more. Money still arriving cannot be spent yet.',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: EvabobColors.navyMuted,
                         fontSize: 12,
                         height: 1.35,

@@ -131,7 +131,7 @@ class ProfileScreen extends StatelessWidget {
   Future<void> _exportAccount(BuildContext context) async {
     final format = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -222,7 +222,7 @@ class ProfileScreen extends StatelessWidget {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -267,7 +267,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 'Your profile, chats and Evabob history will be removed, and you will not be able to sign in again. Send out any money in your wallet first: once the account is deleted you cannot reach it from Evabob.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -339,7 +339,7 @@ class ProfileScreen extends StatelessWidget {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -384,7 +384,7 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 body,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   height: 20 / 14,
                   color: EvabobColors.ink,
@@ -399,7 +399,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 child: Text(
                   footnote,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     height: 16 / 12,
                     color: EvabobColors.inkMuted,
@@ -521,7 +521,7 @@ class ProfileScreen extends StatelessWidget {
                   tooltip: 'Back',
                   icon: const Icon(Icons.chevron_left_rounded),
                 ),
-                const Text(
+                Text(
                   'Profile',
                   style: TextStyle(
                     fontSize: 22,
@@ -532,7 +532,7 @@ class ProfileScreen extends StatelessWidget {
               ],
             )
           else
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 8, bottom: 4),
               child: Text(
                 'Profile',
@@ -573,14 +573,14 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   'Tap to change',
                   style: TextStyle(fontSize: 12, color: EvabobColors.chalk),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w400,
                     color: EvabobColors.navy,
@@ -597,7 +597,7 @@ class ProfileScreen extends StatelessWidget {
                 if (email.isNotEmpty)
                   Text(
                     email,
-                    style: const TextStyle(color: EvabobColors.navyMuted),
+                    style: TextStyle(color: EvabobColors.navyMuted),
                   ),
                 const SizedBox(height: 8),
                 Container(
@@ -644,7 +644,7 @@ class ProfileScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Wallet',
                   style: TextStyle(
                     fontSize: 12,
@@ -658,7 +658,7 @@ class ProfileScreen extends StatelessWidget {
                     Expanded(
                       child: Text(
                         shortWallet.isEmpty ? 'Not linked yet' : shortWallet,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: 'monospace',
                           fontWeight: FontWeight.w400,
                           color: EvabobColors.navy,
@@ -686,7 +686,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 Text(
                   'Arc',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     color: EvabobColors.chalk,
                   ),
@@ -736,6 +736,21 @@ class ProfileScreen extends StatelessWidget {
                       'App theme',
                       theme.palette.label,
                       () => _pickTheme(context),
+                    );
+                  },
+                ),
+                Divider(
+                    height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+                Builder(
+                  builder: (context) {
+                    final theme = context.watch<ThemeController>();
+                    return _tile(
+                      theme.isDark
+                          ? Icons.dark_mode_outlined
+                          : Icons.light_mode_outlined,
+                      'Light or dark',
+                      theme.modeLabel,
+                      () => _pickMode(context),
                     );
                   },
                 ),
@@ -924,7 +939,7 @@ class ProfileScreen extends StatelessWidget {
             child: const Text('Delete account'),
           ),
           const SizedBox(height: 12),
-          const Text(
+          Text(
             'Evabob',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: EvabobColors.chalk),
@@ -951,7 +966,7 @@ class ProfileScreen extends StatelessWidget {
           child: ListView(
             shrinkWrap: true,
             children: [
-              const Padding(
+              Padding(
                 padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Text(
                   'Every amount is shown and typed in the currency you '
@@ -965,7 +980,7 @@ class ProfileScreen extends StatelessWidget {
                     width: 44,
                     child: Text(
                       c.symbol.trim(),
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 16, color: EvabobColors.navy),
                     ),
                   ),
@@ -1017,6 +1032,38 @@ class ProfileScreen extends StatelessWidget {
     await theme.setPalette(picked);
   }
 
+  /// Light, dark, or whatever the phone is set to. Kept on this phone.
+  Future<void> _pickMode(BuildContext context) async {
+    final theme = context.read<ThemeController>();
+    final choices = [
+      (ThemeMode.light, Icons.light_mode_outlined, 'Light', 'Bright background'),
+      (ThemeMode.dark, Icons.dark_mode_outlined, 'Dark', 'Dark background, easier at night'),
+      (ThemeMode.system, Icons.phone_iphone_rounded, 'Same as this phone', 'Follows the setting on your phone'),
+    ];
+    final picked = await showModalBottomSheet<ThemeMode>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final c in choices)
+              ListTile(
+                leading: Icon(c.$2, color: EvabobColors.emeraldDeep),
+                title: Text(c.$3),
+                subtitle: Text(c.$4),
+                trailing: theme.mode == c.$1
+                    ? Icon(Icons.check_rounded, color: EvabobColors.blue)
+                    : null,
+                onTap: () => Navigator.pop(ctx, c.$1),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    await theme.setMode(picked);
+  }
+
   Widget _tile(
     IconData icon,
     String title,
@@ -1028,17 +1075,17 @@ class ProfileScreen extends StatelessWidget {
       leading: Icon(icon, color: EvabobColors.emeraldDeep),
       title: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontWeight: FontWeight.w400,
           color: EvabobColors.navy,
         ),
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
+        style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
       ),
       trailing:
-          const Icon(Icons.chevron_right_rounded, color: EvabobColors.chalk),
+          Icon(Icons.chevron_right_rounded, color: EvabobColors.chalk),
       onTap: onTap,
     );
   }
@@ -1073,18 +1120,18 @@ class _OperatorReviewsTileState extends State<_OperatorReviewsTile> {
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: Icon(Icons.gavel_rounded, color: EvabobColors.emeraldDeep),
-          title: const Text(
+          title: Text(
             'Held-payment reviews',
             style: TextStyle(
               fontWeight: FontWeight.w400,
               color: EvabobColors.navy,
             ),
           ),
-          subtitle: const Text(
+          subtitle: Text(
             'Jobs cancelled after delivery, waiting for a decision',
             style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
-          trailing: const Icon(Icons.chevron_right_rounded,
+          trailing: Icon(Icons.chevron_right_rounded,
               color: EvabobColors.chalk),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
@@ -1097,18 +1144,18 @@ class _OperatorReviewsTileState extends State<_OperatorReviewsTile> {
           contentPadding: EdgeInsets.zero,
           leading:
               Icon(Icons.verified_outlined, color: EvabobColors.emeraldDeep),
-          title: const Text(
+          title: Text(
             'Marketplace account checks',
             style: TextStyle(
               fontWeight: FontWeight.w400,
               color: EvabobColors.navy,
             ),
           ),
-          subtitle: const Text(
+          subtitle: Text(
             'Instagram, X and other accounts sellers say are theirs',
             style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
-          trailing: const Icon(Icons.chevron_right_rounded,
+          trailing: Icon(Icons.chevron_right_rounded,
               color: EvabobColors.chalk),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
@@ -1168,7 +1215,7 @@ class _BiometricConfirmTileState extends State<_BiometricConfirmTile> {
           onChanged: _busy ? null : _toggle,
           secondary:
               Icon(Icons.fingerprint_rounded, color: EvabobColors.emeraldDeep),
-          title: const Text(
+          title: Text(
             'Confirm with fingerprint or Face ID',
             style: TextStyle(
               fontWeight: FontWeight.w400,
@@ -1179,7 +1226,7 @@ class _BiometricConfirmTileState extends State<_BiometricConfirmTile> {
             on
                 ? 'Payments ask for your fingerprint or face. Your PIN still works.'
                 : 'Instead of typing your PIN each time. You set it up once with your PIN.',
-            style: const TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
+            style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
         ),
       ],
@@ -1254,7 +1301,7 @@ class _NotificationDetailsTileState extends State<_NotificationDetailsTile> {
             _hidden
                 ? 'Notifications only say you have a new private update.'
                 : 'Notifications show who paid and how much.',
-            style: const TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
+            style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),
         ),
       ],
@@ -1319,7 +1366,7 @@ class _ExternalAiTileState extends State<_ExternalAiTile> {
             color: EvabobColors.emeraldDeep,
           ),
           title: const Text('External AI assistant'),
-          subtitle: const Text(
+          subtitle: Text(
             'Off by default. Core wallet and payment features still work.',
             style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
           ),

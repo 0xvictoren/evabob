@@ -71,7 +71,7 @@ class HomeActionRow extends StatelessWidget {
             child: _ActionPill(
               label: 'Send',
               icon: Icons.north_east_rounded,
-              foreground: EvabobColors.ink,
+              foreground: EvabobColors.black,
               background: EvabobColors.white,
               shadow: Shadows.card,
               onTap: onSend,

@@ -57,6 +57,7 @@ Future<void> main() async {
     ),
   );
   await ThemeController.preloadPalette();
+  ThemeController.applySystemBars();
   runApp(const EvabobApp());
 }
 
@@ -257,6 +258,12 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
       ),
       Theme.of(nav.context),
     );
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    // Only matters to someone who chose "Same as this phone".
+    _theme.platformBrightnessChanged();
   }
 
   @override
@@ -499,7 +506,7 @@ class _SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       body: SafeArea(
         child: Stack(
           children: [

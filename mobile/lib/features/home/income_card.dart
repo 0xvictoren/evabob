@@ -37,8 +37,8 @@ class IncomeCard extends StatelessWidget {
         Container(
           height: 150,
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-          decoration: const BoxDecoration(
-            color: EvabobColors.white,
+          decoration: BoxDecoration(
+            color: EvabobColors.sheet,
             borderRadius: BorderRadius.all(Radius.circular(12)),
             boxShadow: Shadows.card,
           ),

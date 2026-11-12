@@ -63,43 +63,67 @@ class EvabobColors {
   /// The theme in use. Set by `ThemeService`; the getters below follow it.
   static EvabobPalette palette = EvabobPalette.blue;
 
+  /// Dark mode. Set by `ThemeController`; every neutral below follows it,
+  /// so a screen that reads its colours from here is dark without knowing.
+  ///
+  /// Names say what a colour is for, not what it looks like: [ink] is text,
+  /// [sheet] is a card, [pageBg] is the page. [white] and [black] are the
+  /// two that never change — white is what sits on the brand colour.
+  static bool dark = false;
+
   // Primitive colors. [blue] and [blueSoft] keep their names for the existing
   // call sites but follow the chosen theme.
   static Color get blue => palette.base;
-  static Color get blueSoft => palette.lightDark;
+  static Color get blueSoft => dark
+      ? Color.alphaBlend(palette.base.withAlpha(0x38), _darkSheet)
+      : palette.lightDark;
   static const white = Color(0xFFFFFFFF);
   static const black = Color(0xFF0B1620);
-  static const slate = Color(0xFF5A6B78);
+  static Color get slate => dark ? _darkMuted : _slate;
+
+  static const _slate = Color(0xFF5A6B78);
+  static const _darkPage = Color(0xFF0B1620);
+  static const _darkSheet = Color(0xFF15232E);
+  static const _darkInk = Color(0xFFF1F6F9);
+  static const _darkMuted = Color(0xFFA3B3BE);
+  static const _darkTertiary = Color(0xFF8A9BA7);
+  static const _darkHairline = Color(0xFF243541);
 
   // Semantic colors.
   static Color get primary => blue;
   static const onPrimary = white;
-  static Color get pageBg => palette.light;
-  static const sheet = white;
-  static const ink = black;
-  static const inkMuted = slate;
-  static const inkTertiary = Color(0xFF64727E);
-  static const hairline = Color(0xFFE6EBEF);
+  static Color get pageBg => dark ? _darkPage : palette.light;
+  static Color get sheet => dark ? _darkSheet : white;
+  static Color get ink => dark ? _darkInk : black;
+  static Color get inkMuted => slate;
+  static Color get inkTertiary => dark ? _darkTertiary : const Color(0xFF64727E);
+  static Color get hairline => dark ? _darkHairline : const Color(0xFFE6EBEF);
   static Color get lightDark => blueSoft;
   static const moneyIn = Color(0xFF01FFA6);
 
   // Surface aliases used by the existing feature layer.
-  static const mint = white;
+  static Color get mint => sheet;
   static Color get creamDeep => pageBg;
-  static const sand = Color(0xFFD8E4EA);
-  static const panel = white;
+  static Color get sand => dark ? const Color(0xFF2B3D4A) : const Color(0xFFD8E4EA);
+  static Color get panel => sheet;
   static Color get cream => pageBg;
-  static const glass = Color(0xF2FFFFFF);
-  static const glassSoft = Color(0xD9FFFFFF);
-  static const glassTint = Color(0xBFFFFFFF);
+  static Color get glass => dark ? const Color(0xF215232E) : const Color(0xF2FFFFFF);
+  static Color get glassSoft =>
+      dark ? const Color(0xD915232E) : const Color(0xD9FFFFFF);
+  static Color get glassTint =>
+      dark ? const Color(0xBF15232E) : const Color(0xBFFFFFFF);
 
   // Foreground aliases.
-  static const nearBlack = black;
-  static const navy = black;
-  static const navyMuted = slate;
-  static const chalk = inkTertiary;
-  static const forest = black;
-  static Color get emeraldDeep => palette.deep;
+  static Color get nearBlack => ink;
+  static Color get navy => ink;
+  static Color get navyMuted => slate;
+  static Color get chalk => inkTertiary;
+  static Color get forest => ink;
+
+  /// Text and icons on a soft brand fill: darker than the brand colour on a
+  /// light page, lighter than it on a dark one.
+  static Color get emeraldDeep =>
+      dark ? Color.lerp(palette.base, white, 0.35)! : palette.deep;
 
   // Accent aliases. These keep older call sites on the approved blue.
   static Color get lime => primary;

@@ -417,7 +417,7 @@ class _MarketPostFormState extends State<MarketPostForm> {
                                 top: 0,
                                 child: GestureDetector(
                                   onTap: () => setState(() => _photos.remove(p)),
-                                  child: const CircleAvatar(
+                                  child: CircleAvatar(
                                     radius: 11,
                                     backgroundColor: EvabobColors.ink,
                                     child: Icon(Icons.close, size: 14,

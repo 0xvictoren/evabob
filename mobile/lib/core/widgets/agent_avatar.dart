@@ -20,7 +20,7 @@ class EvabobAgentAvatar extends StatelessWidget {
         height: size,
         padding: EdgeInsets.all(size * .08),
         decoration: BoxDecoration(
-          color: EvabobColors.white,
+          color: EvabobColors.sheet,
           shape: BoxShape.circle,
           border: Border.all(color: EvabobColors.hairline),
         ),

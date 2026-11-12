@@ -61,8 +61,8 @@ class AssetThumbnail extends StatelessWidget {
         width: size,
         height: size,
         padding: EdgeInsets.all(size * .08),
-        decoration: const BoxDecoration(
-          color: EvabobColors.white,
+        decoration: BoxDecoration(
+          color: EvabobColors.sheet,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(

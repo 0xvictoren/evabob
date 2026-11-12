@@ -137,7 +137,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         ? const <ActivityEntry>[]
         : items.where((e) => e.createdAt.isAfter(seen)).toList();
     final earlier = items.where((e) => !fresh.contains(e)).toList();
-    const section = TextStyle(
+    final section = TextStyle(
       fontSize: 12,
       height: 14 / 10,
       letterSpacing: .8,
@@ -146,8 +146,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
     Widget card(List<ActivityEntry> list, {required bool unread}) {
       return Container(
-        decoration: const BoxDecoration(
-          color: EvabobColors.white,
+        decoration: BoxDecoration(
+          color: EvabobColors.sheet,
           borderRadius: BorderRadius.all(Radius.circular(12)),
           boxShadow: Shadows.card,
         ),
@@ -162,7 +162,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 onTap: () => ReceiptSheet.open(context, list[i]),
               ),
               if (i < list.length - 1)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(left: 76, right: 16),
                   child: Divider(height: 1, color: EvabobColors.hairline),
                 ),
@@ -203,7 +203,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                               children: [
                                 SvgPicture.asset('assets/figma/btn_back.svg',
                                     width: 44, height: 44),
-                                const Icon(
+                                Icon(
                                   Icons.chevron_left_rounded,
                                   size: 24,
                                   color: EvabobColors.ink,
@@ -257,7 +257,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 )
               else ...[
                 if (fresh.isNotEmpty) ...[
-                  const Text('NEW', style: section),
+                  Text('NEW', style: section),
                   const SizedBox(height: 10),
                   card(fresh, unread: true),
                   const SizedBox(height: 32),
@@ -286,8 +286,8 @@ class _PermissionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
-        color: EvabobColors.white,
+      decoration: BoxDecoration(
+        color: EvabobColors.sheet,
         borderRadius: BorderRadius.all(Radius.circular(12)),
         boxShadow: Shadows.card,
       ),

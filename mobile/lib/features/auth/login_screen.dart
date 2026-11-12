@@ -109,7 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final circle = context.watch<CircleWalletService>();
     final loading = _busy || auth.isLoading || circle.busy;
     return Scaffold(
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       body: SafeArea(
         child: AnimatedSwitcher(
           duration: Motion.fast,
@@ -212,8 +212,8 @@ class _EmailView extends StatelessWidget {
         Container(
           height: 64,
           alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: EvabobColors.white,
+          decoration: BoxDecoration(
+            color: EvabobColors.sheet,
             borderRadius: BorderRadius.all(Radius.circular(12)),
             boxShadow: Shadows.card,
           ),
@@ -369,7 +369,7 @@ class _CodeView extends StatelessWidget {
                             borderRadius: BorderRadius.circular(14),
                             child: Center(
                               child: key == '⌫'
-                                  ? const Icon(
+                                  ? Icon(
                                       Icons.backspace_outlined,
                                       color: EvabobColors.inkMuted,
                                       size: 20,

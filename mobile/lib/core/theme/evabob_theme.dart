@@ -16,15 +16,15 @@ class EvabobTheme {
 
   static ThemeData _build() {
     final surface = EvabobColors.pageBg;
-    const onSurface = EvabobColors.nearBlack;
+    final onSurface = EvabobColors.nearBlack;
 
     final base = ThemeData(
       useMaterial3: true,
-      brightness: Brightness.light,
+      brightness: EvabobColors.dark ? Brightness.dark : Brightness.light,
       scaffoldBackgroundColor: surface,
       fontFamily: 'Numans',
       colorScheme: ColorScheme(
-        brightness: Brightness.light,
+        brightness: EvabobColors.dark ? Brightness.dark : Brightness.light,
         primary: EvabobColors.emerald,
         onPrimary: EvabobColors.onPrimary,
         secondary: EvabobColors.emeraldSoft,
@@ -55,7 +55,7 @@ class EvabobTheme {
             displayColor: onSurface,
           )
           .copyWith(
-            titleLarge: const TextStyle(
+            titleLarge: TextStyle(
               fontSize: 22,
               height: 28 / 22,
               letterSpacing: -0.2,
@@ -63,7 +63,7 @@ class EvabobTheme {
               color: onSurface,
               fontFamily: 'Numans',
             ),
-            headlineSmall: const TextStyle(
+            headlineSmall: TextStyle(
               fontSize: 22,
               height: 28 / 22,
               letterSpacing: -0.2,
@@ -72,13 +72,15 @@ class EvabobTheme {
               fontFamily: 'Numans',
             ),
           ),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        systemOverlayStyle: EvabobColors.dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
         titleTextStyle: TextStyle(
           fontSize: 22,
           height: 28 / 22,
@@ -116,10 +118,10 @@ class EvabobTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: EvabobColors.creamDeep,
-        hintStyle: const TextStyle(color: EvabobColors.chalk),
-        labelStyle: const TextStyle(color: EvabobColors.navyMuted),
+        hintStyle: TextStyle(color: EvabobColors.chalk),
+        labelStyle: TextStyle(color: EvabobColors.navyMuted),
         floatingLabelStyle: TextStyle(color: EvabobColors.emeraldDeep),
-        helperStyle: const TextStyle(
+        helperStyle: TextStyle(
           color: EvabobColors.chalk,
           fontSize: 12,
           height: 16 / 12,
@@ -149,7 +151,7 @@ class EvabobTheme {
               : Colors.transparent,
         ),
         checkColor: const WidgetStatePropertyAll(EvabobColors.onPrimary),
-        side: const BorderSide(color: EvabobColors.navyMuted),
+        side: BorderSide(color: EvabobColors.navyMuted),
       ),
       segmentedButtonTheme: SegmentedButtonThemeData(
         style: ButtonStyle(
@@ -197,14 +199,14 @@ class EvabobTheme {
           borderRadius: BorderRadius.all(Radius.circular(14)),
         ),
       ),
-      dialogTheme: const DialogThemeData(
+      dialogTheme: DialogThemeData(
         backgroundColor: EvabobColors.sheet,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(20)),
         ),
       ),
-      listTileTheme: const ListTileThemeData(
+      listTileTheme: ListTileThemeData(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(12)),
         ),
@@ -239,23 +241,23 @@ class EvabobTheme {
           fontFamily: 'Numans',
         ),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
+      bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: EvabobColors.sheet,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
       ),
-      dividerTheme: const DividerThemeData(
+      dividerTheme: DividerThemeData(
         color: EvabobColors.hairline,
         thickness: 1,
         space: 1,
       ),
-      iconTheme: const IconThemeData(color: EvabobColors.ink, size: 22),
+      iconTheme: IconThemeData(color: EvabobColors.ink, size: 22),
     );
   }
 
-  static TextStyle get amountDisplay => const TextStyle(
+  static TextStyle get amountDisplay => TextStyle(
         fontSize: 48,
         fontWeight: FontWeight.w400,
         color: EvabobColors.nearBlack,
@@ -265,7 +267,7 @@ class EvabobTheme {
         letterSpacing: -1,
       );
 
-  static TextStyle get monoRate => const TextStyle(
+  static TextStyle get monoRate => TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w400,
         color: EvabobColors.navyMuted,

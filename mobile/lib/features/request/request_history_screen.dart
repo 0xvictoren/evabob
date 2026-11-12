@@ -153,7 +153,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
   Widget build(BuildContext context) {
     final waiting = _rows.where(_waiting).toList();
     final done = _rows.where((r) => !_waiting(r)).toList();
-    const section = TextStyle(
+    final section = TextStyle(
       fontSize: 12,
       height: 14 / 10,
       letterSpacing: .8,
@@ -181,8 +181,8 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
         );
 
     Widget card(List<Map<String, dynamic>> list) => Container(
-          decoration: const BoxDecoration(
-            color: EvabobColors.white,
+          decoration: BoxDecoration(
+            color: EvabobColors.sheet,
             borderRadius: BorderRadius.all(Radius.circular(12)),
             boxShadow: Shadows.card,
           ),
@@ -198,7 +198,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
                   onTap: () => _open(list[i]),
                 ),
                 if (i < list.length - 1)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.only(left: 68, right: 20),
                     child: Divider(height: 1, color: EvabobColors.hairline),
                   ),
@@ -233,7 +233,7 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
                               children: [
                                 SvgPicture.asset('assets/figma/btn_back.svg',
                                     width: 44, height: 44),
-                                const Icon(
+                                Icon(
                                   Icons.chevron_left_rounded,
                                   size: 24,
                                   color: EvabobColors.ink,
@@ -308,13 +308,13 @@ class _RequestHistoryScreenState extends State<RequestHistoryScreen> {
                       )
                     else ...[
                       if (waiting.isNotEmpty) ...[
-                        const Text('WAITING', style: section),
+                        Text('WAITING', style: section),
                         const SizedBox(height: 10),
                         card(waiting),
                         const SizedBox(height: 32),
                       ],
                       if (done.isNotEmpty) ...[
-                        const Text('DONE', style: section),
+                        Text('DONE', style: section),
                         const SizedBox(height: 10),
                         card(done),
                       ],

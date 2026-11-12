@@ -149,8 +149,8 @@ class _AppLockScreenState extends State<AppLockScreen> {
           Space.page,
           Space.page + MediaQuery.paddingOf(sheetContext).bottom,
         ),
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        decoration: BoxDecoration(
+          color: EvabobColors.sheet,
           borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.xl)),
           boxShadow: Shadows.sheet,
         ),
@@ -303,7 +303,7 @@ class _AppLockScreenState extends State<AppLockScreen> {
                     letterSpacing: 12,
                   ),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: EvabobColors.sheet,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(Radii.md),
                     borderSide: BorderSide.none,
@@ -481,7 +481,7 @@ class _LockedOutViewState extends State<_LockedOutView> {
   void _help() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -532,7 +532,7 @@ class _LockedOutViewState extends State<_LockedOutView> {
     final n = lock.failedAttempts;
     final count = n >= 0 && n < _words.length ? _words[n] : '$n';
     return Scaffold(
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -575,7 +575,7 @@ class _LockedOutViewState extends State<_LockedOutView> {
                 style: Type.hero,
               ),
               const SizedBox(height: 10),
-              const Text(
+              Text(
                 'UNTIL YOU CAN TRY AGAIN',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -588,8 +588,8 @@ class _LockedOutViewState extends State<_LockedOutView> {
               const SizedBox(height: 40),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: const BoxDecoration(
-                  color: EvabobColors.white,
+                decoration: BoxDecoration(
+                  color: EvabobColors.sheet,
                   borderRadius: BorderRadius.all(Radius.circular(12)),
                   boxShadow: [
                     BoxShadow(
@@ -611,7 +611,7 @@ class _LockedOutViewState extends State<_LockedOutView> {
                         ),
                       ),
                     ),
-                    const Divider(height: 1, color: EvabobColors.hairline),
+                    Divider(height: 1, color: EvabobColors.hairline),
                     SizedBox(
                       height: 71,
                       child: Align(

@@ -219,7 +219,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
   Future<void> _showBadCode() {
     return showModalBottomSheet<void>(
       context: context,
-      backgroundColor: EvabobColors.white,
+      backgroundColor: EvabobColors.sheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -246,7 +246,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
                   color: EvabobColors.blueSoft,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.qr_code_2_rounded,
                   color: EvabobColors.ink,
                   size: 40,
@@ -264,7 +264,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'Scan an Evabob code or a wallet address. Nothing was changed.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -307,7 +307,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
+                Text(
                   'Choose network',
                   style: TextStyle(
                     fontWeight: FontWeight.w400,
@@ -318,7 +318,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
                 const SizedBox(height: 4),
                 Text(
                   parsed.address,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 12,
                     color: EvabobColors.navyMuted,
@@ -361,7 +361,7 @@ class _AddressScanSheetState extends State<AddressScanSheet> {
             children: [
               Text(
                 widget.title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w400,
                   fontSize: 14,
                   color: EvabobColors.navy,

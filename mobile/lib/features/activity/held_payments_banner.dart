@@ -109,7 +109,7 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
                             h.isPayer
                                 ? '${formatMoney(h.amountUsdc)} to ${h.counterparty}'
                                 : '${formatMoney(h.amountUsdc)} from ${h.counterparty}',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontWeight: FontWeight.w400,
                               color: EvabobColors.navy,
                             ),
@@ -117,7 +117,7 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
                           const SizedBox(height: 2),
                           Text(
                             _line(h),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               color: EvabobColors.navyMuted,
                             ),
@@ -125,7 +125,7 @@ class _HeldPaymentsBannerState extends State<HeldPaymentsBanner> {
                         ],
                       ),
                     ),
-                    const Icon(
+                    Icon(
                       Icons.chevron_right_rounded,
                       color: EvabobColors.inkTertiary,
                     ),

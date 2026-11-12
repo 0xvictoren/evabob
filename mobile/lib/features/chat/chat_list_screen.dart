@@ -51,7 +51,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
+                Text(
                   'New conversation',
                   style: TextStyle(
                     fontSize: 22,
@@ -60,7 +60,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Find someone by their @username.',
                   style: TextStyle(
                     fontSize: 12,
@@ -214,7 +214,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             fontWeight: FontWeight.w900,
                             fontSize: 20,
                             height: 26 / 20,
-                            color: EvabobColors.pageBg,
+                            color: EvabobColors.palette.light,
                           ),
                         ),
                       ],
@@ -230,7 +230,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             height: 44,
             padding: const EdgeInsets.symmetric(horizontal: 20),
             decoration: BoxDecoration(
-              color: EvabobColors.white,
+              color: EvabobColors.sheet,
               borderRadius: BorderRadius.circular(999),
             ),
             alignment: Alignment.centerLeft,
@@ -248,7 +248,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 hintText: '@handle, email or wallet address',
-                hintStyle: Type.body.copyWith(color: EvabobColors.blueSoft),
+                hintStyle: Type.body.copyWith(color: EvabobColors.dark ? EvabobColors.inkTertiary : EvabobColors.blueSoft),
               ),
             ),
           ),
@@ -259,7 +259,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
               child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 22, 16, 22),
                 decoration: BoxDecoration(
-                  color: EvabobColors.white,
+                  color: EvabobColors.sheet,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -320,7 +320,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: EvabobColors.white,
+                color: EvabobColors.sheet,
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: Shadows.card,
               ),
@@ -335,7 +335,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
             Container(
               padding: const EdgeInsets.fromLTRB(16, 4, 20, 20),
               decoration: BoxDecoration(
-                color: EvabobColors.white,
+                color: EvabobColors.sheet,
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: Shadows.card,
               ),
@@ -343,7 +343,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 children: [
                   for (var i = 0; i < people.length; i++) ...[
                     if (i > 0)
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.only(left: 56),
                         child: Divider(height: 1, color: EvabobColors.hairline),
                       ),

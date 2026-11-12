@@ -482,7 +482,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                       'You have ${formatTokenAmount(wallet.usdcWallet)} · '
                       '${formatTokenAmount(wallet.eurcWallet, 'EURC')} · '
                       '${formatTokenAmount(wallet.cirbtcWallet, 'CIRBTC')}',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: EvabobColors.navyMuted,
                         fontSize: 12,
                       ),
@@ -525,7 +525,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                             filled: false,
                             hintText: '0',
                             suffixText: _label(_fromPreset, _fromCa),
-                            suffixStyle: const TextStyle(
+                            suffixStyle: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w400,
                               color: EvabobColors.navyMuted,
@@ -539,7 +539,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                         if (['USDC', 'EURC', 'CIRBTC'].contains(_fromPreset))
                           Text(
                             'Available ${avail.toStringAsFixed(_fromPreset == 'CIRBTC' ? 6 : 2)}',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               color: EvabobColors.chalk,
                             ),
@@ -659,7 +659,7 @@ class _ExchangeScreenState extends State<ExchangeScreen> {
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
                               _quoteLine!,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: EvabobColors.chalk,
                                 fontSize: 12,
                               ),

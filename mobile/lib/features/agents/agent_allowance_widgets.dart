@@ -410,7 +410,7 @@ class AgentNameCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'People and software can pay it by this name, and wherever it '
               'appears you are shown as its owner. Names are permanent.',
               style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
@@ -449,7 +449,7 @@ class AgentNameCard extends StatelessWidget {
     return Glass(
       child: Row(
         children: [
-          const Icon(Icons.badge_outlined, color: EvabobColors.navy),
+          Icon(Icons.badge_outlined, color: EvabobColors.navy),
           const SizedBox(width: Space.md),
           Expanded(
             child: Column(

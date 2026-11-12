@@ -513,8 +513,8 @@ class _BridgeScreenState extends State<BridgeScreen> {
           20,
           20 + MediaQuery.paddingOf(sheetContext).bottom,
         ),
-        decoration: const BoxDecoration(
-          color: EvabobColors.white,
+        decoration: BoxDecoration(
+          color: EvabobColors.sheet,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
@@ -539,7 +539,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               'Done',
               style: TextStyle(fontSize: 24, color: EvabobColors.ink),
             ),
@@ -547,7 +547,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 height: 18 / 14,
                 color: EvabobColors.inkMuted,
@@ -702,7 +702,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
+                  Text(
                     'From',
                     style: TextStyle(
                       fontSize: 12,
@@ -752,7 +752,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
+                  Text(
                     'To',
                     style: TextStyle(
                       fontSize: 12,
@@ -963,7 +963,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
                     _routeNote ??
                         'Only dollars can move between networks. The same amount arrives on the other side.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: EvabobColors.chalk,
                     ),
@@ -993,7 +993,7 @@ class _HashRow extends StatelessWidget {
       children: [
         Text(
           '$label ',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w400,
             color: EvabobColors.navyMuted,
@@ -1002,7 +1002,7 @@ class _HashRow extends StatelessWidget {
         Expanded(
           child: Text(
             short,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontFamily: 'monospace',
               color: EvabobColors.navy,

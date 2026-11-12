@@ -264,12 +264,12 @@ class _ActivityScreenState extends State<ActivityScreen> {
       groups.putIfAbsent(label, () => []).add(entry);
     }
 
-    const card = BoxDecoration(
-      color: EvabobColors.white,
+    final card = BoxDecoration(
+      color: EvabobColors.sheet,
       borderRadius: BorderRadius.all(Radius.circular(12)),
       boxShadow: Shadows.card,
     );
-    const sectionStyle = TextStyle(
+    final sectionStyle = TextStyle(
       fontSize: 12,
       height: 14 / 10,
       letterSpacing: .8,
@@ -316,7 +316,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                           children: [
                             SvgPicture.asset('assets/figma/btn_filter.svg',
                                 width: 44, height: 44),
-                            const Text(
+                            Text(
                               '≡',
                               style: TextStyle(
                                 fontWeight: FontWeight.w900,
@@ -373,7 +373,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                                 width: c.$3,
                                 height: 36,
                                 selected: _f.show == c.$1,
-                                idle: EvabobColors.white,
+                                idle: EvabobColors.sheet,
                                 onTap: () => setState(
                                     () => _f = _f.copyWith(show: c.$1)),
                               ),
@@ -383,7 +383,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      const Text('THIS MONTH', style: sectionStyle),
+                      Text('THIS MONTH', style: sectionStyle),
                       const SizedBox(height: 8),
                       Container(
                         height: 92,
@@ -448,7 +448,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                               for (var i = 0; i < group.value.length; i++) ...[
                                 _row(context, group.value[i]),
                                 if (i < group.value.length - 1)
-                                  const Padding(
+                                  Padding(
                                     padding:
                                         EdgeInsets.only(left: 68, right: 20),
                                     child: Divider(
@@ -543,8 +543,8 @@ class _Pill extends StatelessWidget {
           softWrap: false,
           style: Type.body.copyWith(
             color: selected
-                ? (idle == EvabobColors.white
-                    ? EvabobColors.pageBg
+                ? (idle == EvabobColors.sheet
+                    ? EvabobColors.palette.light
                     : EvabobColors.white)
                 : EvabobColors.slate,
           ),
@@ -601,7 +601,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
 
   @override
   Widget build(BuildContext context) {
-    const section = TextStyle(
+    final section = TextStyle(
       fontSize: 12,
       height: 14 / 10,
       letterSpacing: .8,
@@ -667,8 +667,8 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
     }
 
     return Container(
-      decoration: const BoxDecoration(
-        color: EvabobColors.white,
+      decoration: BoxDecoration(
+        color: EvabobColors.sheet,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         boxShadow: [
           BoxShadow(
@@ -709,7 +709,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
               ],
             ),
             const SizedBox(height: 20),
-            const Text('SHOW', style: section),
+            Text('SHOW', style: section),
             const SizedBox(height: 10),
             chips(
               const [
@@ -721,7 +721,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
               (v) => setState(() => _f = _f.copyWith(show: v)),
             ),
             const SizedBox(height: 28),
-            const Text('WHEN', style: section),
+            Text('WHEN', style: section),
             const SizedBox(height: 10),
             chips(
               const [
@@ -734,7 +734,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
               (v) => setState(() => _f = _f.copyWith(when: v)),
             ),
             const SizedBox(height: 28),
-            const Text('PEOPLE', style: section),
+            Text('PEOPLE', style: section),
             const SizedBox(height: 10),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -772,7 +772,7 @@ class _ActivityFilterSheetState extends State<ActivityFilterSheet> {
               ),
             ),
             const SizedBox(height: 24),
-            const Text('HOW IT ENDED', style: section),
+            Text('HOW IT ENDED', style: section),
             const SizedBox(height: 10),
             chips(
               const [
@@ -841,14 +841,14 @@ class _ActivityEmptyState extends StatelessWidget {
               color: EvabobColors.blueSoft,
               shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.receipt_long_rounded,
               color: EvabobColors.ink,
               size: 40,
             ),
           ),
           const SizedBox(height: 44),
-          const Text(
+          Text(
             'Nothing here yet',
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -860,7 +860,7 @@ class _ActivityEmptyState extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
             child: Text(
               'Every payment and receipt shows up here, the moment money moves.',
@@ -890,7 +890,7 @@ class _ActivityEmptyState extends StatelessWidget {
           const SizedBox(height: 6),
           TextButton(
             onPressed: onTopUp,
-            child: const Text(
+            child: Text(
               'Top up your balance',
               style: TextStyle(color: EvabobColors.ink),
             ),
@@ -915,12 +915,12 @@ class _ActivityOfflineState extends StatelessWidget {
           Container(
             width: 88,
             height: 88,
-            decoration: const BoxDecoration(
-              color: EvabobColors.white,
+            decoration: BoxDecoration(
+              color: EvabobColors.sheet,
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Icon(
+            child: Icon(
               Icons.cloud_off_rounded,
               size: 32,
               color: EvabobColors.ink,
@@ -954,7 +954,7 @@ class _ActivityOfflineState extends StatelessWidget {
             height: 56,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: EvabobColors.white,
+              color: EvabobColors.sheet,
               borderRadius: BorderRadius.circular(12),
               boxShadow: const [
                 BoxShadow(
@@ -982,7 +982,7 @@ class _ActivityOfflineState extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          const Text(
+          Text(
             "Nothing you started is lost. We'll finish it when you're back.",
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -1070,7 +1070,7 @@ class _ActivityLoadingStateState extends State<_ActivityLoadingState>
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: EvabobColors.white,
+                color: EvabobColors.sheet,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
@@ -1091,7 +1091,7 @@ class _ActivityLoadingStateState extends State<_ActivityLoadingState>
               ),
             ),
             const SizedBox(height: 28),
-            const Text(
+            Text(
               'Updating your activity…',
               textAlign: TextAlign.center,
               style: TextStyle(
