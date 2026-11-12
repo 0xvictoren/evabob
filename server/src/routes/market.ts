@@ -11,6 +11,7 @@
 import { randomBytes } from "node:crypto";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+import { config } from "../config.js";
 import { getUserId } from "../middleware/auth.js";
 import { requireOperator } from "../middleware/authorization.js";
 import { store } from "../store/db.js";
@@ -65,7 +66,13 @@ marketRoutes.get("/market/posts", (c) => {
     .parse(c.req.query());
   const uid = userId(c);
   const items = market.browse({ viewerId: uid, kind: q.kind, type: q.type, category: q.category, query: q.q, sort: q.sort });
-  return c.json({ items: items.map(market.postCard), hasPlace: Boolean(market.placeOf(uid)) });
+  const mine = market.placeOf(uid);
+  return c.json({
+    items: items.map(market.postCard),
+    hasPlace: Boolean(mine),
+    // Whether distances are measured (a shared position) or compared by name.
+    hasPoint: mine?.lat != null && mine?.lng != null,
+  });
 });
 
 marketRoutes.get("/market/mine", (c) => {
@@ -407,6 +414,7 @@ marketRoutes.post("/market/me/socials/:platform/check", async (c) => {
   const uid = userId(c);
   const platform = z.enum(market.SOCIAL_PLATFORMS).parse(c.req.param("platform"));
   return act(c, async () => {
+    const before = market.myProfile(uid).socials.find((s) => s.platform === platform)?.status;
     let link = market.requestSocialCheck(uid, platform);
     if (platform === "website" && link.status === "pending" && link.code) {
       try {
@@ -419,6 +427,19 @@ marketRoutes.post("/market/me/socials/:platform/check", async (c) => {
         }
       } catch {
         /* unreachable for now: stays pending, they can try again */
+      }
+    }
+    // A person has to look at this one: tell the people who do the looking,
+    // once per request rather than on every tap.
+    if (link.status === "pending" && before !== "pending" && platform !== "website") {
+      const who = store.getUser(uid)?.handle;
+      for (const operator of config.auth.operatorUserIds) {
+        alertUser(operator, {
+          kind: "market_review",
+          title: `${market.socialName(platform)} account to check`,
+          body: `${who ? `@${who}` : "Someone"} says ${link.handle} is theirs. Look for ${link.code} in the bio.`,
+          link: "evabob://market/checks",
+        });
       }
     }
     return {

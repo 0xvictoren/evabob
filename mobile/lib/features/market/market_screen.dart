@@ -15,6 +15,8 @@ import 'market_mine_screen.dart';
 import 'market_post_form.dart';
 import 'market_post_screen.dart';
 import 'market_widgets.dart';
+import '../../core/platform/locator.dart';
+import '../../core/widgets/top_snack.dart';
 
 /// The marketplace: what people near you sell, and what people near you need.
 ///
@@ -47,7 +49,8 @@ class _MarketScreenState extends State<MarketScreen>
   String? _category;
   String _sort = 'best';
   List<MarketPost>? _items;
-  bool _hasPlace = true;
+  bool _hasPoint = true;
+  bool _locating = false;
   String? _error;
   int _loadId = 0;
 
@@ -67,6 +70,39 @@ class _MarketScreenState extends State<MarketScreen>
     super.dispose();
   }
 
+  void _say(String text) => showTopSnack(
+        context,
+        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+      );
+
+  /// One tap to be ranked by real distance: keeps the state and area the
+  /// person already gave and adds a position rounded to about a kilometre.
+  Future<void> _useMyLocation() async {
+    if (_locating) return;
+    setState(() => _locating = true);
+    try {
+      final point = await DeviceLocation.here();
+      final me = await _api.me();
+      final place = me['place'];
+      await _api.saveMe(
+        place: DeviceLocation.place(
+          state: place is Map ? place['state']?.toString() : null,
+          area: place is Map ? place['area']?.toString() : null,
+          point: point,
+        ),
+      );
+      if (!mounted) return;
+      _say('Now showing who is nearest to you.');
+      await _load();
+    } on LocationProblem catch (e) {
+      if (mounted) _say(e.message);
+    } catch (e) {
+      if (mounted) _say(friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
   Future<void> _load() async {
     final id = ++_loadId;
     setState(() => _error = null);
@@ -80,7 +116,7 @@ class _MarketScreenState extends State<MarketScreen>
       if (!mounted || id != _loadId) return;
       setState(() {
         _items = res.items;
-        _hasPlace = res.hasPlace;
+        _hasPoint = res.hasPoint;
       });
     } catch (e) {
       if (!mounted || id != _loadId) return;
@@ -238,12 +274,45 @@ class _MarketScreenState extends State<MarketScreen>
                           child: Text(
                             items == null
                                 ? ''
-                                : '${items.length} ${_tabs.index == 0 ? 'for sale' : 'wanted'}'
-                                    '${_hasPlace ? '' : ' · say where you are to see who is near'}',
+                                : '${items.length} ${_tabs.index == 0 ? 'for sale' : 'wanted'}',
                             style: Type.label
                                 .copyWith(color: EvabobColors.inkMuted),
                           ),
                         ),
+                        if (items != null && !_hasPoint)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: PressScale(
+                              onTap: _useMyLocation,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: EvabobColors.primary
+                                      .withValues(alpha: 0.08),
+                                  borderRadius: Radii.all(Radii.pill),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _locating
+                                          ? Icons.hourglass_top_rounded
+                                          : Icons.my_location_rounded,
+                                      size: 14,
+                                      color: EvabobColors.primary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _locating ? 'Finding you…' : 'Near me',
+                                      style: Type.label.copyWith(
+                                          color: EvabobColors.primary),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                         PopupMenuButton<String>(
                           tooltip: 'Sort',
                           initialValue: _sort,

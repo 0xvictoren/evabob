@@ -15,6 +15,7 @@ import '../../core/widgets/top_snack.dart';
 import '../request/payment_link_screen.dart';
 import 'market_post_screen.dart';
 import 'market_widgets.dart';
+import '../../core/platform/locator.dart';
 
 /// Everything of the person's own on the market: their posts, their deals,
 /// and the profile buyers see — with the record behind their score and the
@@ -354,6 +355,7 @@ class _ProfileEditorState extends State<_ProfileEditor> {
   late final _area = TextEditingController(
       text: (widget.me['place'] as Map?)?['area']?.toString() ?? '');
   late String? _state = (widget.me['place'] as Map?)?['state']?.toString();
+  late MapPoint? _point = DeviceLocation.fromPlace(widget.me['place']);
   late final Map<String, TextEditingController> _handles = {
     for (final p in _platforms) p.$1: TextEditingController(text: _social(p.$1)?['handle']?.toString() ?? ''),
   };
@@ -382,7 +384,7 @@ class _ProfileEditorState extends State<_ProfileEditor> {
     try {
       await widget.api.saveMe(
         bio: _bio.text.trim(),
-        place: {'state': _state ?? '', 'area': _area.text.trim()},
+        place: DeviceLocation.place(state: _state, area: _area.text, point: _point),
         socials: [
           for (final p in _platforms)
             if (_handles[p.$1]!.text.trim().isNotEmpty)
@@ -503,7 +505,13 @@ class _ProfileEditorState extends State<_ProfileEditor> {
               ),
               Text('Where you are', style: Type.body.copyWith(color: EvabobColors.ink)),
               const SizedBox(height: Space.sm),
-              PlaceFields(state: _state, area: _area, onState: (v) => setState(() => _state = v)),
+              PlaceFields(
+                state: _state,
+                area: _area,
+                onState: (v) => setState(() => _state = v),
+                point: _point,
+                onPoint: (p) => setState(() => _point = p),
+              ),
             ],
           ),
         ),

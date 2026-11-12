@@ -43,6 +43,7 @@ dependencies:
   # Browser APIs for the web-app build (sessionStorage, downloads, iframes).
   # Pure Dart; unused on Android and iOS.
   web: ^1.1.1
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:

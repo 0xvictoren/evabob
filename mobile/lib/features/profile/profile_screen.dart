@@ -35,6 +35,7 @@ import 'family_check_screen.dart';
 import '../wallet/circle_onboard_sheet.dart';
 import 'package:evabob_mobile/core/widgets/top_snack.dart';
 import '../../core/theme/theme_controller.dart';
+import '../market/market_checks_screen.dart';
 
 /// Profile: identity, wallet, appearance, sign out.
 class ProfileScreen extends StatelessWidget {
@@ -1075,6 +1076,30 @@ class _OperatorReviewsTileState extends State<_OperatorReviewsTile> {
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => const OperatorReviewsScreen(),
+            ),
+          ),
+        ),
+        Divider(height: 1, color: EvabobColors.sand.withValues(alpha: 0.8)),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading:
+              Icon(Icons.verified_outlined, color: EvabobColors.emeraldDeep),
+          title: const Text(
+            'Marketplace account checks',
+            style: TextStyle(
+              fontWeight: FontWeight.w400,
+              color: EvabobColors.navy,
+            ),
+          ),
+          subtitle: const Text(
+            'Instagram, X and other accounts sellers say are theirs',
+            style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded,
+              color: EvabobColors.chalk),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const MarketChecksScreen(),
             ),
           ),
         ),

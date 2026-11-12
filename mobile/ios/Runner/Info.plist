@@ -75,6 +75,8 @@
 	<string>Evabob uses your contacts so you can quickly send money to people you know.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a profile picture or attach evidence and chat photos you decide to share.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Find sellers and buyers near you in the marketplace. Asked only when you tap Use my location; only your rough area is used.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan wallet QR codes or take evidence and chat photos when you choose.</string>
 	<key>NSFaceIDUsageDescription</key>

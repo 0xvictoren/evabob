@@ -38,6 +38,7 @@ import '../market/market_mine_screen.dart';
 import '../market/market_post_screen.dart';
 import '../market/market_screen.dart';
 import '../../core/platform/web_phone_frame.dart';
+import '../market/market_checks_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -187,7 +188,9 @@ class _AppShellState extends State<AppShell> {
               ? const MarketScreen()
               : rest == 'me'
                   ? const MarketMineScreen(startOnProfile: true)
-                  : MarketPostScreen(postId: rest),
+                  : rest == 'checks'
+                      ? const MarketChecksScreen()
+                      : MarketPostScreen(postId: rest),
         ),
       );
       return;

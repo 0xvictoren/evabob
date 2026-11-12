@@ -48,6 +48,16 @@ test("a shared point is rounded so it cannot find a door", () => {
   assert.equal(market.cleanPlace({ state: "", area: "" }), undefined);
 });
 
+test("a position alone is a place, so one tap ranks by distance before anything is typed", () => {
+  const here = market.cleanPlace({ lat: 6.4474, lng: 3.4723 });
+  assert.deepEqual(here, { country: "Nigeria", state: "", area: "", lat: 6.45, lng: 3.47 });
+  assert.equal(market.cleanPlace({}), undefined);
+  assert.equal(market.cleanPlace({ lat: 0, lng: 0 }), undefined);
+  const near = market.nearness(here, market.cleanPlace({ state: "Lagos", area: "Ikoyi", lat: 6.45, lng: 3.44 }));
+  assert.ok(near.km != null && near.km > 2 && near.km < 5);
+  assert.match(near.label ?? "", /km away/);
+});
+
 test("reputation: nothing yet is 'new', delivery and paid reviews raise it, refunds cost", () => {
   const fresh = market.scoreReputation({ record: noRecord, ratingSum: 0, reviews: 0, dealsPaid: 0, verifiedSocials: 0, ageDays: 0 });
   assert.equal(fresh.tier, "new");

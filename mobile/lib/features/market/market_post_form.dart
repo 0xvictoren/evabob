@@ -14,6 +14,7 @@ import '../../core/utils/text_safe.dart';
 import '../../core/widgets/evabob_ui.dart';
 import '../../core/widgets/glass.dart';
 import 'market_widgets.dart';
+import '../../core/platform/locator.dart';
 
 /// Posting to the market: something to sell, or something needed.
 ///
@@ -40,6 +41,7 @@ class _MarketPostFormState extends State<MarketPostForm> {
   final _price = TextEditingController();
   final _area = TextEditingController();
   String? _state;
+  MapPoint? _point;
   bool _remote = false;
   int _days = 7;
   final List<String> _photos = [];
@@ -71,6 +73,7 @@ class _MarketPostFormState extends State<MarketPostForm> {
         setState(() {
           _state = place['state']?.toString();
           _area.text = place['area']?.toString() ?? '';
+          _point = DeviceLocation.fromPlace(place);
         });
       }
     } catch (_) {
@@ -160,7 +163,7 @@ class _MarketPostFormState extends State<MarketPostForm> {
         priceUsd: fx.toUsd(typed!),
         display: {'currency': fx.isNaira ? 'NGN' : 'USD', 'amount': typed},
         photos: _photos,
-        place: {'state': _state ?? '', 'area': _area.text.trim()},
+        place: DeviceLocation.place(state: _state, area: _area.text, point: _point),
         remote: _remote,
         deliveryDays: _days,
       );
@@ -363,6 +366,8 @@ class _MarketPostFormState extends State<MarketPostForm> {
                       state: _state,
                       area: _area,
                       onState: (v) => setState(() => _state = v),
+                      point: _point,
+                      onPoint: (p) => setState(() => _point = p),
                     ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,

@@ -225,11 +225,13 @@ export function cleanPlace(input: Partial<MarketPlace> | undefined): MarketPlace
   if (!input) return undefined;
   const state = clean(input.state, 40);
   const area = clean(input.area, 60);
-  if (!state && !area) return undefined;
-  const lat = Number(input.lat);
-  const lng = Number(input.lng);
+  const lat = input.lat == null ? NaN : Number(input.lat);
+  const lng = input.lng == null ? NaN : Number(input.lng);
   const hasPoint = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 &&
     !(lat === 0 && lng === 0);
+  // A point alone is a place too: someone who tapped "Use my location"
+  // before typing where they are still gets ranked by distance.
+  if (!state && !area && !hasPoint) return undefined;
   return {
     country: clean(input.country, 40) || "Nigeria",
     state,
@@ -605,7 +607,10 @@ export function createPost(
   }
   const description = clean(input.description, 1_500);
   const place = cleanPlace(input.place) ?? placeOf(ownerId);
-  if (!place) throw new MarketError("Say where you are, so people near you can find this.", 400, "PLACE_REQUIRED");
+  // A post shows its area by name; a position alone ranks but tells a reader nothing.
+  if (!place || (!place.state && !place.area)) {
+    throw new MarketError("Say where you are, so people near you can find this.", 400, "PLACE_REQUIRED");
+  }
   const category = input.category && CATEGORY_IDS.includes(input.category)
     ? (input.category as MarketCategory)
     : guessCategory(`${title} ${description}`);

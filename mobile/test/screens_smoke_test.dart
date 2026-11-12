@@ -41,6 +41,7 @@ import 'package:evabob_mobile/features/groups/groups_screen.dart';
 import 'package:evabob_mobile/features/hold_links/hold_links_screen.dart';
 import 'package:evabob_mobile/features/home/home_menu.dart';
 import 'package:evabob_mobile/features/home/home_screen.dart';
+import 'package:evabob_mobile/features/market/market_checks_screen.dart';
 import 'package:evabob_mobile/features/market/market_mine_screen.dart';
 import 'package:evabob_mobile/features/market/market_post_form.dart';
 import 'package:evabob_mobile/features/market/market_screen.dart';
@@ -176,6 +177,7 @@ void main() {
     'market': () => const MarketScreen(),
     'market_post_form': () => const MarketPostForm(want: true),
     'market_mine': () => const MarketMineScreen(),
+    'market_checks': () => const MarketChecksScreen(),
   };
 
   for (final entry in screens.entries) {

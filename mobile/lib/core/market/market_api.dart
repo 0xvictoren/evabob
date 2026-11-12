@@ -258,7 +258,7 @@ class MarketApi {
       .map((r) => MarketPost.fromJson(Map<String, dynamic>.from(r)))
       .toList(growable: false);
 
-  Future<({List<MarketPost> items, bool hasPlace})> browse({
+  Future<({List<MarketPost> items, bool hasPlace, bool hasPoint})> browse({
     required String kind,
     String? category,
     String? query,
@@ -270,7 +270,11 @@ class MarketApi {
       if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
       if (sort != null) 'sort': sort,
     });
-    return (items: _posts(res['items']), hasPlace: res['hasPlace'] == true);
+    return (
+      items: _posts(res['items']),
+      hasPlace: res['hasPlace'] == true,
+      hasPoint: res['hasPoint'] == true,
+    );
   }
 
   /// The whole answer for one post: the card, the seller, and — for the
@@ -388,6 +392,27 @@ class MarketApi {
   /// Asks for an outside account to be checked; returns what to do next.
   Future<Map<String, dynamic>> checkSocial(String platform) =>
       _api.post('/v1/market/me/socials/$platform/check');
+
+  /// Operators only: outside accounts waiting for a person to look.
+  Future<List<Map<String, dynamic>>> socialChecks() async {
+    final res = await _api.get('/v1/operator/market/socials');
+    return [
+      for (final e in (res['items'] as List?) ?? const [])
+        if (e is Map) Map<String, dynamic>.from(e),
+    ];
+  }
+
+  /// Operators only: the code was found on the account, or it was not.
+  Future<void> decideSocialCheck({
+    required String userId,
+    required String platform,
+    required bool verified,
+  }) =>
+      _api.post('/v1/operator/market/socials', body: {
+        'userId': userId,
+        'platform': platform,
+        'verified': verified,
+      });
 
   Future<Map<String, dynamic>> person(String idOrHandle) =>
       _api.get('/v1/market/people/${Uri.encodeComponent(idOrHandle)}');

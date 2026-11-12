@@ -8,6 +8,7 @@ import '../../core/theme/evabob_colors.dart';
 import '../../core/theme/evabob_tokens.dart';
 import '../../core/widgets/bundle_avatar.dart';
 import '../../core/widgets/glass.dart';
+import '../../core/platform/locator.dart';
 
 /// A full address for a photo the server stores (`/uploads/…`).
 String marketPhotoUrl(String path) {
@@ -467,17 +468,125 @@ class HowPaymentWorks extends StatelessWidget {
 }
 
 /// State and area fields, shared by the post form and the profile.
-class PlaceFields extends StatelessWidget {
+class PlaceFields extends StatefulWidget {
   const PlaceFields({
     super.key,
     required this.state,
     required this.area,
     required this.onState,
+    this.point,
+    this.onPoint,
   });
 
   final String? state;
   final TextEditingController area;
   final ValueChanged<String?> onState;
+
+  /// The position the person shared, rounded to about a kilometre.
+  final MapPoint? point;
+
+  /// Given, the fields offer "Use my location". Called with null to remove it.
+  final ValueChanged<MapPoint?>? onPoint;
+
+  @override
+  State<PlaceFields> createState() => _PlaceFieldsState();
+}
+
+class _PlaceFieldsState extends State<PlaceFields> {
+  bool _finding = false;
+  String? _problem;
+
+  String? get state => widget.state;
+  TextEditingController get area => widget.area;
+  ValueChanged<String?> get onState => widget.onState;
+
+  Future<void> _find() async {
+    setState(() => (_finding = true, _problem = null));
+    try {
+      final point = await DeviceLocation.here();
+      widget.onPoint?.call(point);
+    } on LocationProblem catch (e) {
+      if (mounted) setState(() => _problem = e.message);
+    } finally {
+      if (mounted) setState(() => _finding = false);
+    }
+  }
+
+  Widget _locationRow() {
+    final on = widget.point != null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PressScale(
+            onTap: _finding
+                ? null
+                : on
+                    ? () => widget.onPoint?.call(null)
+                    : _find,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: on
+                    ? EvabobColors.primary.withValues(alpha: 0.08)
+                    : EvabobColors.pageBg,
+                borderRadius: Radii.all(12),
+              ),
+              child: Row(
+                children: [
+                  if (_finding)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Icon(
+                      on
+                          ? Icons.my_location_rounded
+                          : Icons.location_searching_rounded,
+                      size: 18,
+                      color: EvabobColors.primary,
+                    ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _finding
+                          ? 'Finding where you are…'
+                          : on
+                              ? 'Using your location, to the nearest kilometre'
+                              : 'Use my location',
+                      style: Type.body.copyWith(color: EvabobColors.ink),
+                    ),
+                  ),
+                  if (on && !_finding)
+                    Text('Remove',
+                        style: Type.label
+                            .copyWith(color: EvabobColors.inkMuted)),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _problem ??
+                  (on
+                      ? 'People see how far away you are, never the spot itself.'
+                      : 'Optional. It ranks people by real distance. We ask '
+                          'once, when you tap, and never follow you.'),
+              style: Type.label.copyWith(
+                color: _problem != null
+                    ? EvabobColors.danger
+                    : EvabobColors.inkMuted,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -503,6 +612,7 @@ class PlaceFields extends StatelessWidget {
             hintText: 'Area or town, e.g. Lekki, Wuse 2, Bodija',
           ),
         ),
+        if (widget.onPoint != null) _locationRow(),
       ],
     );
   }
