@@ -17,6 +17,7 @@ import { requireOperator } from "../middleware/authorization.js";
 import { store } from "../store/db.js";
 import * as market from "../services/market.js";
 import { alertUser } from "../services/notifyUser.js";
+import { marketFeeBpsNow } from "../services/marketFee.js";
 import { pingSellers } from "../services/marketPings.js";
 import { createInvoice, getPaymentRequest, invoiceCardMeta, requestAmountLabel } from "../services/payment-requests.js";
 import { flushPrimaryStore } from "../services/primary-store.js";
@@ -147,6 +148,8 @@ marketRoutes.get("/market/posts/:id", (c) => {
       buyer: market.personCard(x.buyerId).name,
     }));
   }
+  // Evabob's share of a deal made now, so a seller sees it before invoicing.
+  body.marketFeeBps = marketFeeBpsNow();
   // Invoices already sent between this viewer and the other side of this post.
   body.deals = market.dealsFor(uid).filter((d) => d.postId === post.id).map((d) => market.dealView(d, uid));
   return c.json(body);
@@ -431,6 +434,7 @@ marketRoutes.post("/market/contacts/:id/invoice", async (c) => {
       title: post.title,
       priceUsd: request.total,
       requestId: request.id,
+      ...(marketFeeBpsNow() ? { feeBps: marketFeeBpsNow() } : {}),
     });
     const msg = store.addMessage({
       threadId: thread.id,
@@ -464,7 +468,8 @@ function openDeal(input: { postId: string; proposalId?: string; sellerId: string
     allowedStructures: ["escrow", "split", "full"],
     expiresInMs: 3 * 24 * 60 * 60 * 1000,
   });
-  const deal = market.recordDeal({ ...input, requestId: request.id });
+  const feeBps = marketFeeBpsNow();
+  const deal = market.recordDeal({ ...input, requestId: request.id, ...(feeBps ? { feeBps } : {}) });
   alertUser(input.sellerId, {
     kind: "market_deal",
     title: "You have a buyer",

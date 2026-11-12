@@ -116,6 +116,7 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
             amountUsdc: amount,
             token: token,
             memo: invoice['note']?.toString(),
+            paymentRequestId: widget.requestId,
           );
       if (!mounted) return;
       if (result['ok'] != true) {

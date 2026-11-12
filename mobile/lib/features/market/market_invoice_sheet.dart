@@ -23,7 +23,11 @@ class MarketInvoiceSheet extends StatefulWidget {
     required this.suggestedUsd,
     required this.deliveryDays,
     this.buyerBudget = false,
+    this.feeBps = 0,
   });
+
+  /// Evabob's share of the deal in basis points (100 = 1%); 0 for none.
+  final int feeBps;
 
   final MarketApi api;
   final String contactId;
@@ -46,6 +50,7 @@ class MarketInvoiceSheet extends StatefulWidget {
     required double suggestedUsd,
     required int deliveryDays,
     bool buyerBudget = false,
+    int feeBps = 0,
   }) async {
     final sent = await showModalBottomSheet<bool>(
       context: context,
@@ -58,6 +63,7 @@ class MarketInvoiceSheet extends StatefulWidget {
         suggestedUsd: suggestedUsd,
         deliveryDays: deliveryDays,
         buyerBudget: buyerBudget,
+        feeBps: feeBps,
       ),
     );
     return sent == true;
@@ -113,6 +119,10 @@ class _MarketInvoiceSheetState extends State<MarketInvoiceSheet> {
       double.tryParse(l.amount.text.replaceAll(',', '')) ?? 0;
 
   double get _total => _lines.fold(0, (sum, l) => sum + _typed(l));
+
+  /// 100 → "1%", 150 → "1.5%".
+  static String _percent(int bps) =>
+      '${(bps / 100).toStringAsFixed(bps % 100 == 0 ? 0 : 1)}%';
 
   Future<void> _send() async {
     final fx = context.read<FxService>();
@@ -284,6 +294,18 @@ class _MarketInvoiceSheetState extends State<MarketInvoiceSheet> {
                   alignment: Alignment.centerRight,
                   child: Text(
                     '≈ ${fx.secondary(fx.toUsd(_total))}',
+                    style: Type.label.copyWith(color: EvabobColors.inkMuted),
+                  ),
+                ),
+              if (widget.feeBps > 0 && _total > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: Space.sm),
+                  child: Text(
+                    'You receive '
+                    '${fx.isDollar ? fx.primary(_total * (1 - widget.feeBps / 10000)) : fx.format(_total * (1 - widget.feeBps / 10000))} '
+                    'after the ${_percent(widget.feeBps)} Evabob fee. It is '
+                    'taken only when you are paid, and they pay exactly the '
+                    'total above.',
                     style: Type.label.copyWith(color: EvabobColors.inkMuted),
                   ),
                 ),

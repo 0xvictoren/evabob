@@ -217,6 +217,20 @@ export type ProtectedEscrowRecord = {
 
   /** Last error from an automatic release, so it is visible, not silent. */
   lastAutoError?: string;
+
+  /**
+   * The marketplace's 1%, locked beside this hold in the same transaction
+   * (services/marketFee.ts). Paid to Evabob when this hold is paid out,
+   * returned to the payer when this hold is returned.
+   */
+  marketFee?: {
+    transferId: string;
+    amountUsdc: number;
+    status: "held" | "taken" | "returned";
+    tx?: string;
+    settledAt?: string;
+    lastError?: string;
+  };
 };
 
 let client: MongoClient | null = null;

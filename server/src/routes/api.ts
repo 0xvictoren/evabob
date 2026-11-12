@@ -1151,6 +1151,24 @@ api.post("/escrow/protected/record", async (c) => {
       ),
     });
 
+    // A marketplace deal locks Evabob's 1% in the same transaction. Note it
+    // on this record so it is paid out, or returned, with the hold itself.
+    if (body.purpose === "job") {
+      try {
+        const { readCreatedTransferIds } = await import("../services/protectedEscrow.js");
+        const { feeHoldAmong, marketFeeAccount } = await import("../services/marketFee.js");
+        const { updateTracked } = await import("../services/escrow-jobs.js");
+        const account = marketFeeAccount();
+        const created = account ? await readCreatedTransferIds(body.createTx) : [];
+        const feeHold = account && created.length > 1
+          ? feeHoldAmong(created, onChain, escrowRecipientKey(`@${account.handle}`).key)
+          : null;
+        if (feeHold) updateTracked(record.id, { marketFee: feeHold });
+      } catch (error) {
+        console.warn("[market fee] could not note the fee hold:", error instanceof Error ? error.message : error);
+      }
+    }
+
     let emailed = false;
     if (kind === "email" && body.purpose === "claim_link") {
       try {
@@ -2157,14 +2175,19 @@ api.post("/payment-requests/:id/mark", async (c) => {
       const payer = store.getUser(userId(c));
       const issuer = store.getUser(requested.userId);
       const { verifyPaymentEvidence } = await import("../services/payment-evidence.js");
-      const verified = await verifyPaymentEvidence({
+      const { sellerShareOf } = await import("../services/marketFee.js");
+      const evidence = {
         txHash: body.paidTxHash,
         sender: payer?.evmAddress || "",
         recipient: issuer?.evmAddress || "",
-        amount: requestRemaining(requested),
         token: requested.token,
         notBefore: requested.createdAt,
-      });
+      };
+      // A marketplace deal reaches the seller less Evabob's 1%.
+      const owed = requestRemaining(requested);
+      const verified = await verifyPaymentEvidence({ ...evidence, amount: owed })
+        || (sellerShareOf(requested.id, owed) !== owed
+          && await verifyPaymentEvidence({ ...evidence, amount: sellerShareOf(requested.id, owed) }));
       if (!verified) return c.json({ error: "Payment is not verified on chain.", code: "PAYMENT_UNVERIFIED" }, 409);
     }
     if (body.status === "partial") {
@@ -2183,14 +2206,17 @@ api.post("/payment-requests/:id/mark", async (c) => {
       const payer = store.getUser(userId(c));
       const issuer = store.getUser(requested.userId);
       const { verifyPaymentEvidence } = await import("../services/payment-evidence.js");
-      const verified = await verifyPaymentEvidence({
+      const { sellerShareOf } = await import("../services/marketFee.js");
+      const evidence = {
         txHash: body.paidTxHash,
         sender: payer?.evmAddress || "",
         recipient: issuer?.evmAddress || "",
-        amount: instant,
         token: requested.token,
         notBefore: requested.createdAt,
-      });
+      };
+      const verified = await verifyPaymentEvidence({ ...evidence, amount: instant })
+        || (sellerShareOf(requested.id, instant) !== instant
+          && await verifyPaymentEvidence({ ...evidence, amount: sellerShareOf(requested.id, instant) }));
       if (!verified) return c.json({ error: "Payment is not verified on chain.", code: "PAYMENT_UNVERIFIED" }, 409);
     }
     if (body.status === "escrow") {
@@ -2216,13 +2242,14 @@ api.post("/payment-requests/:id/mark", async (c) => {
       const payer = store.getUser(userId(c));
       const issuer = store.getUser(requested.userId);
       const { readCreatedTransferId, readTransfer, escrowRecipientKey } = await import("../services/protectedEscrow.js");
+      const { sellerShareOf } = await import("../services/marketFee.js");
       const held = await readCreatedTransferId(escrowHash);
       const heldState = await readTransfer(held.transferId);
       const expectedKeys = [issuer?.email, issuer?.handle]
         .filter((value): value is string => Boolean(value))
         .map(value => escrowRecipientKey(value).key.toLowerCase());
       if (!payer?.evmAddress || held.sender.toLowerCase() !== payer.evmAddress.toLowerCase()
-        || units(held.amountUsdc) !== units(locked)
+        || (units(held.amountUsdc) !== units(locked) && units(held.amountUsdc) !== units(sellerShareOf(requested.id, locked)))
         || heldState.status !== "Pending" || heldState.expired
         || heldState.createdAt * 1000 + 60_000 < Date.parse(requested.createdAt)
         || !expectedKeys.includes(held.recipientKey.toLowerCase())) {
@@ -2231,10 +2258,12 @@ api.post("/payment-requests/:id/mark", async (c) => {
       if (structure === "split") {
         if (!body.paidTxHash) return c.json({ error: "paidTxHash is required for the instant portion", code: "PAYMENT_PROOF_REQUIRED" }, 409);
         const { verifyPaymentEvidence } = await import("../services/payment-evidence.js");
-        const direct = await verifyPaymentEvidence({ txHash: body.paidTxHash,
+        const half = { txHash: body.paidTxHash,
           sender: payer.evmAddress, recipient: issuer?.evmAddress || "",
-          amount: instant, token: requested.token,
-          notBefore: requested.createdAt });
+          token: requested.token, notBefore: requested.createdAt };
+        const direct = await verifyPaymentEvidence({ ...half, amount: instant })
+          || (sellerShareOf(requested.id, instant) !== instant
+            && await verifyPaymentEvidence({ ...half, amount: sellerShareOf(requested.id, instant) }));
         if (!direct) return c.json({ error: "Instant portion is not verified on chain", code: "PAYMENT_UNVERIFIED" }, 409);
       }
     }

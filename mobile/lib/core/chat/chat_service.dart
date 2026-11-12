@@ -1208,6 +1208,7 @@ class ChatService extends ChangeNotifier {
         amountUsdc: lockAmount,
         purpose: 'job',
         memo: description.isEmpty ? 'Chat payment request' : description,
+        paymentRequestId: requestId,
       );
       if (held['ok'] != true) {
         return {
@@ -1297,6 +1298,7 @@ class ChatService extends ChangeNotifier {
         memo: description.isEmpty
             ? 'Payment request (50% now)'
             : '$description (50% now)',
+        paymentRequestId: requestId,
       );
       if (res['ok'] != true) {
         return {
@@ -1407,6 +1409,7 @@ class ChatService extends ChangeNotifier {
         memo: description.isEmpty
             ? 'Payment request (rest)'
             : '$description (rest)',
+        paymentRequestId: requestId,
       );
       if (res['ok'] != true) {
         return {
@@ -1468,6 +1471,7 @@ class ChatService extends ChangeNotifier {
       amountUsdc: amount,
       token: token,
       memo: description.isEmpty ? 'Payment request' : description,
+      paymentRequestId: requestId,
     );
     if (res['ok'] == true) {
       final marked = await markRequestServer(

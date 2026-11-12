@@ -54,6 +54,8 @@ export async function runTickWork() {
     agentNames: await step(async () => ({ linked: await names.linkPendingAgentHandles() })),
     // Marketplace requests nobody answered in seven hours: tell five more sellers.
     marketPings: await step(async () => (await import("./marketPings.js")).widenMarketPings()),
+    // The marketplace's 1%: paid out or returned with the hold it rode beside.
+    marketFees: await step(async () => (await import("./marketFee.js")).runMarketFeeWork()),
   };
 }
 
@@ -77,6 +79,7 @@ export function tickWasBusy(r: Awaited<ReturnType<typeof runTickWork>>): boolean
     busy(r.payouts, ["paid", "errors"]) ||
     busy(r.agentIncome, ["credited", "errors"]) ||
     busy(r.agentNames, ["linked"]) ||
-    busy(r.marketPings, ["widened"])
+    busy(r.marketPings, ["widened"]) ||
+    busy(r.marketFees, ["taken", "returned", "errors"])
   );
 }

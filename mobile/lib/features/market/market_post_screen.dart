@@ -183,6 +183,7 @@ class _MarketPostScreenState extends State<MarketPostScreen> {
       suggestedUsd: post.priceUsd,
       deliveryDays: post.deliveryDays,
       buyerBudget: post.isWant,
+      feeBps: (_data?['marketFeeBps'] as num?)?.toInt() ?? 0,
     );
     if (!sent || !mounted) return;
     _snack('Invoice sent. It is in your chat for them to pay.');

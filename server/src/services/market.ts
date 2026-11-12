@@ -137,6 +137,12 @@ export type MarketDeal = {
   priceUsd: number;
   /** The payment request the buyer pays (services/payment-requests.ts). */
   requestId: string;
+  /**
+   * Evabob's share of this deal in basis points (100 = 1%), fixed when the
+   * deal was made and taken out of what the buyer pays (services/marketFee.ts).
+   * Absent on deals made before the fee, which pay the seller in full.
+   */
+  feeBps?: number;
   createdAt: string;
 };
 
@@ -1089,6 +1095,11 @@ export function recordDeal(input: Omit<MarketDeal, "id" | "createdAt">): MarketD
   return deal;
 }
 
+/** The deal a payment request belongs to, if it is a marketplace one. */
+export function dealByRequest(requestId: string): MarketDeal | undefined {
+  return data.deals.find((d) => d.requestId === requestId);
+}
+
 export function getDeal(id: string): MarketDeal | undefined {
   return data.deals.find((d) => d.id === id);
 }
@@ -1113,6 +1124,7 @@ export function dealView(deal: MarketDeal, viewerId: string) {
     title: deal.title,
     priceUsd: deal.priceUsd,
     requestId: deal.requestId,
+    feeBps: deal.feeBps ?? 0,
     payLink: `evabob://pay/${deal.requestId}`,
     role: iBought ? "buyer" : "seller",
     with: other?.handle ? `@${other.handle}` : other?.displayName ?? "Someone",

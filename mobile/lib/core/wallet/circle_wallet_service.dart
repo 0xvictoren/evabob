@@ -920,6 +920,10 @@ class CircleWalletService extends ChangeNotifier {
     String token = 'USDC',
     double? amountNgn,
     String? memo,
+
+    /// The request this pays. The server takes the marketplace's 1% out of
+    /// the amount when the request is a marketplace deal; otherwise ignored.
+    String? paymentRequestId,
   }) async =>
       _outIfOk(await _send(
         context: context,
@@ -928,6 +932,7 @@ class CircleWalletService extends ChangeNotifier {
         token: token,
         amountNgn: amountNgn,
         memo: memo,
+        paymentRequestId: paymentRequestId,
       ));
 
   Future<Map<String, dynamic>> _send({
@@ -937,6 +942,7 @@ class CircleWalletService extends ChangeNotifier {
     String token = 'USDC',
     double? amountNgn,
     String? memo,
+    String? paymentRequestId,
   }) async {
     _lastVerifiedTxHash = null;
     final dest = to.trim();
@@ -984,6 +990,7 @@ class CircleWalletService extends ChangeNotifier {
             : (token == 'CIRBTC' || token == 'CBTC' ? 'CIRBTC' : 'USDC'),
         if (amountNgn != null) 'amountNgn': amountNgn,
         if (memo != null) 'memo': memo,
+        if (paymentRequestId != null) 'paymentRequestId': paymentRequestId,
         'userId': _userId,
       });
       if (!context.mounted) return {'ok': false};
@@ -2325,6 +2332,10 @@ class CircleWalletService extends ChangeNotifier {
     /// Paying through a seller's hold link. The server takes the seller,
     /// price and delivery window from the link itself.
     String? holdLinkId,
+
+    /// The request this pays. For a marketplace deal the server holds the
+    /// marketplace's 1% beside the seller's part; otherwise ignored.
+    String? paymentRequestId,
   }) async =>
       _outIfOk(await _holdForRecipient(
         context: context,
@@ -2333,6 +2344,7 @@ class CircleWalletService extends ChangeNotifier {
         purpose: purpose,
         memo: memo,
         holdLinkId: holdLinkId,
+        paymentRequestId: paymentRequestId,
       ));
 
   Future<Map<String, dynamic>> _holdForRecipient({
@@ -2342,6 +2354,7 @@ class CircleWalletService extends ChangeNotifier {
     String purpose = 'claim_link',
     String? memo,
     String? holdLinkId,
+    String? paymentRequestId,
   }) async {
     if (!await ensureReady(context)) {
       return {'ok': false, 'error': 'Wallet not ready'};
@@ -2359,6 +2372,7 @@ class CircleWalletService extends ChangeNotifier {
         'purpose': purpose,
         if (memo != null && memo.isNotEmpty) 'memo': memo,
         if (holdLinkId != null) 'holdLinkId': holdLinkId,
+        if (paymentRequestId != null) 'paymentRequestId': paymentRequestId,
       });
       if (!context.mounted) return {'ok': false, 'error': 'Cancelled'};
 

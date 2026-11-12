@@ -370,6 +370,8 @@ circleWallets.post("/send", async (c) => {
       amountNgn: z.number().nonnegative().optional(),
       memo: z.string().optional(),
       userId: z.string().optional(),
+      /** The request this pays. A marketplace deal has its 1% taken out of the amount. */
+      paymentRequestId: z.string().min(8).max(64).optional(),
     })
     .parse(await c.req.json());
 
@@ -414,6 +416,18 @@ circleWallets.post("/send", async (c) => {
       const sendToken = body.token ?? "USDC";
       const sendDecimals = tokenDecimals(sendToken);
       const feeQuote = quotePlatformFee(body.amountUsdc, sendDecimals);
+      // A marketplace deal: the buyer pays the amount, the seller receives it
+      // less Evabob's 1%, and both legs go in the same batch.
+      const { marketFeeForPayment } = await import("../services/marketFee.js");
+      const marketFee = sendToken === "USDC"
+        ? marketFeeForPayment({
+            requestId: body.paymentRequestId,
+            payerId: fromId,
+            payeeUserId: peer?.id,
+            amountUsdc: body.amountUsdc,
+          })
+        : null;
+      const toPayee = marketFee ? marketFee.netUsdc : body.amountUsdc;
       const senderLabel =
         fromUser?.handle
           ? `@${fromUser.handle}`
@@ -435,14 +449,22 @@ circleWallets.post("/send", async (c) => {
             ? `Direct ${sendToken} send`
             : `Send ${sendToken} to Evabob user`,
         memo,
-        amountUsdc: sendToken === "USDC" ? -body.amountUsdc : 0,
-        amountNgnHint: body.amountNgn ? -body.amountNgn : undefined,
+        // What reached the payee. For a marketplace deal that is the amount
+        // less the 1%, which is counted with the fee instead.
+        amountUsdc: sendToken === "USDC" ? -toPayee : 0,
+        amountNgnHint: body.amountNgn && !marketFee ? -body.amountNgn : undefined,
         counterparty: destAddress,
         sender: senderLabel,
         receiver: receiverLabel,
         token: sendToken,
-        amountToken: body.amountUsdc,
+        amountToken: toPayee,
         ...feeActivityFields(feeQuote, sendToken, sendDecimals),
+        ...(marketFee
+          ? {
+              platformFee: Number((Number(feeQuote.fee) + marketFee.feeUsdc).toFixed(6)),
+              platformFeeToken: sendToken,
+            }
+          : {}),
         mode: mode === "direct_evm" ? "direct" : "direct_user",
         status: "pending",
       });
@@ -454,8 +476,11 @@ circleWallets.post("/send", async (c) => {
       const transferCall = erc20TransferCall(
         tokenAddress,
         destAddress as `0x${string}`,
-        feeQuote.amountUnits,
+        marketFee ? marketFee.netUnits : feeQuote.amountUnits,
       );
+      const marketFeeCall = marketFee
+        ? erc20TransferCall(tokenAddress, marketFee.account.address, marketFee.feeUnits)
+        : null;
       const memoId = memo ? memoIdFor(sendActivity.id) : undefined;
       const memoCall =
         memo && memoId
@@ -479,6 +504,7 @@ circleWallets.post("/send", async (c) => {
         token: sendToken,
         amount: body.amountUsdc,
         platformFee: feeQuote.fee,
+        ...(marketFee ? { marketFee: marketFee.feeUsdc, toPayee } : {}),
         amountNgn: body.amountNgn,
         memo,
         memoOnchain: Boolean(memoCall),
@@ -492,12 +518,13 @@ circleWallets.post("/send", async (c) => {
       // ONE wallet batch — one PIN, and none of them lands without the others.
       // App Kit's send has neither option, so this path takes priority.
       const feeCall = feeTransferCall(tokenAddress, feeQuote);
-      if (feeCall || memoCall) {
+      if (feeCall || memoCall || marketFeeCall) {
         const batch = await createWalletBatchChallenge({
           userToken: body.userToken,
           walletId: body.walletId,
           calls: [
             transferCall,
+            ...(marketFeeCall ? [marketFeeCall] : []),
             ...(feeCall ? [feeCall] : []),
             ...(memoCall ? [memoCall] : []),
           ],
@@ -1293,6 +1320,8 @@ circleWallets.post("/escrow/hold", async (c) => {
       expirySeconds: z.number().int().positive().optional(),
       /** Paying through a seller's hold link: the link sets who, how much and how long. */
       holdLinkId: z.string().min(6).max(40).optional(),
+      /** The request this pays. A marketplace deal has its 1% held beside the seller's part. */
+      paymentRequestId: z.string().min(8).max(64).optional(),
     })
     .parse(await c.req.json());
 
@@ -1353,13 +1382,33 @@ circleWallets.post("/escrow/hold", async (c) => {
       const short = await balanceShortfall({ userId: appUserId(c), token: "USDC", amount: body.amountUsdc });
       if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
     }
+    // A marketplace deal: 99% is held for the seller and 1% for Evabob, both
+    // under this one PIN. The 1% follows the seller's hold wherever it goes.
+    const { marketFeeForPayment } = await import("../services/marketFee.js");
+    const marketFee = body.purpose === "job" && !body.holdLinkId
+      ? marketFeeForPayment({
+          requestId: body.paymentRequestId,
+          payerId: appUserId(c),
+          payeeUserId: store.findUserByRecipient(body.recipient)?.id,
+          amountUsdc: body.amountUsdc,
+        })
+      : null;
     const plan = planProtectedEscrow({
       recipientId: body.recipient,
-      amountUsdc: body.amountUsdc,
+      amountUsdc: marketFee ? marketFee.netUsdc : body.amountUsdc,
       memo: body.memo,
       purpose: body.purpose,
       expirySeconds: body.expirySeconds,
     });
+    const feePlan = marketFee
+      ? planProtectedEscrow({
+          recipientId: `@${marketFee.account.handle}`,
+          amountUsdc: marketFee.feeUsdc,
+          memo: "Evabob marketplace fee",
+          purpose: "job",
+          expirySeconds: plan.expirySeconds,
+        })
+      : null;
 
     const planSummary = {
       recipientId: plan.recipientId,
@@ -1387,6 +1436,13 @@ circleWallets.post("/escrow/hold", async (c) => {
       calls: [
         { to: plan.steps[0]!.to as `0x${string}`, data: plan.steps[0]!.data },
         { to: plan.steps[1]!.to as `0x${string}`, data: plan.steps[1]!.data },
+        // Approve and lock the 1% after the seller's hold has used its approval.
+        ...(feePlan
+          ? [
+              { to: feePlan.steps[0]!.to as `0x${string}`, data: feePlan.steps[0]!.data },
+              { to: feePlan.steps[1]!.to as `0x${string}`, data: feePlan.steps[1]!.data },
+            ]
+          : []),
         ...(feeCall ? [feeCall] : []),
       ],
     });
@@ -1401,6 +1457,7 @@ circleWallets.post("/escrow/hold", async (c) => {
       ],
       createChallengeId: batch.challengeId,
       ...(feeCall ? { platformFee: feeQuote.fee } : {}),
+      ...(marketFee ? { marketFee: marketFee.feeUsdc, heldForPayee: marketFee.netUsdc } : {}),
       plan: planSummary,
     });
   } catch (e) {
