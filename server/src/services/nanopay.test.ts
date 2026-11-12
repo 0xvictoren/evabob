@@ -57,7 +57,7 @@ test("x402 policy rejects unsafe numeric encodings and excessive validity", () =
     /invalid atomic/,
   );
   assert.throws(
-    () => validateArcBatchRequirement({ ...validRequirement(), maxTimeoutSeconds: 604_901 }, 2),
+    () => validateArcBatchRequirement({ ...validRequirement(), maxTimeoutSeconds: 2_592_001 }, 2),
     /timeout/,
   );
 });

@@ -115,6 +115,14 @@ function settleReferenceFrom(headers: Record<string, string>): string | null {
   }
 }
 
+/**
+ * The longest a seller may keep a signed authorization before settling it.
+ * Gateway needs about a week; real sellers publish up to 30 days. Longer is
+ * safe for the wallet: the authorization is for one exact amount, usable
+ * once, and already counted against the allowance when it was signed.
+ */
+export const MAX_AUTH_VALIDITY_SECONDS = Math.max(GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS, 30 * 24 * 60 * 60);
+
 const ADDRESS = /^0x[a-fA-F0-9]{40}$/;
 const ZERO_ADDRESS = /^0x0{40}$/i;
 
@@ -144,7 +152,7 @@ export function validateArcBatchRequirement(
   }
   if (!Number.isSafeInteger(requirement.maxTimeoutSeconds) ||
       Number(requirement.maxTimeoutSeconds) <= 0 ||
-      Number(requirement.maxTimeoutSeconds) > GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS) {
+      Number(requirement.maxTimeoutSeconds) > MAX_AUTH_VALIDITY_SECONDS) {
     throw new Error("Payment authorization timeout is invalid");
   }
 
