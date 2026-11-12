@@ -40,6 +40,9 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
   String? _error;
   bool _busy = false;
 
+  /// How the payer chose to pay: "full", "split" or "escrow".
+  String _structure = 'full';
+
   @override
   void initState() {
     super.initState();
@@ -76,9 +79,16 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
         : <String, dynamic>{};
     final address = payee['address']?.toString() ?? '';
     final label = payee['label']?.toString() ?? 'Evabob user';
-    final amount = (invoice['total'] as num?)?.toDouble() ??
+    final whole = (invoice['total'] as num?)?.toDouble() ??
         (invoice['amount'] as num?)?.toDouble() ??
         0;
+    // Part paid already (half sent, the other half never set aside): only
+    // what is left is owed.
+    final amount = invoice['status'] == 'partial'
+        ? double.parse((whole -
+                ((invoice['instantPaidUsdc'] as num?)?.toDouble() ?? 0))
+            .toStringAsFixed(6))
+        : whole;
     final token = invoice['token']?.toString() == 'EURC' ? 'EURC' : 'USDC';
     if (!address.startsWith('0x') || amount <= 0) {
       setState(() => _error =
@@ -176,6 +186,151 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  /// Sets the money aside instead of sending it: all of it ("escrow"), or
+  /// half now and half set aside ("split"). The held part reaches the payee
+  /// when the work or the goods arrive; every step is checked on chain by
+  /// the server before the request is marked.
+  Future<void> _payHeld({required bool split}) async {
+    final invoice = _invoice;
+    if (invoice == null || _busy) return;
+    final payee = invoice['payee'] is Map
+        ? Map<String, dynamic>.from(invoice['payee'] as Map)
+        : <String, dynamic>{};
+    final address = payee['address']?.toString() ?? '';
+    final label = payee['label']?.toString() ?? 'Evabob user';
+    final handle = payee['handle']?.toString() ??
+        (label.startsWith('@') ? label : null);
+    final amount = (invoice['total'] as num?)?.toDouble() ?? 0;
+    if (handle == null || !address.startsWith('0x') || amount <= 0) {
+      setState(() => _error =
+          'Money can only be set aside for someone with an Evabob username.');
+      return;
+    }
+    double round6(double v) => double.parse(v.toStringAsFixed(6));
+    final locked = split ? round6(amount / 2) : amount;
+    final instant = round6(amount - locked);
+    final what = (invoice['description']?.toString().trim() ?? '');
+    final memo = (what.isEmpty ? 'Payment request' : what);
+    final approved = await confirmPayment(
+      context,
+      PaymentReview(
+        payee: label,
+        amount: amount,
+        action: split ? 'Pay half, hold half' : 'Set aside',
+        warning: split
+            ? 'Half reaches $label now and cannot be reversed. The other '
+                'half leaves your balance now and is set aside: it reaches '
+                '$label when the work is delivered, or 7 days after it is '
+                'marked delivered if you say nothing.'
+            : 'The money leaves your balance now and is set aside. It '
+                'reaches $label when the work is delivered, or 7 days after '
+                'it is marked delivered if you say nothing. You can cancel '
+                'before it is delivered.',
+        landedLabel: split ? 'Paid and set aside for $label' : 'Set aside for $label',
+      ),
+    );
+    if (!approved || !mounted) return;
+    if (!await passFamilyCheck(context, to: address, amount: amount) ||
+        !mounted) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final circle = context.read<CircleWalletService>();
+    final api = context.read<ApiClient>();
+    try {
+      String? paidTx;
+      if (split) {
+        final sent = await circle.send(
+          context: context,
+          to: address,
+          amountUsdc: instant,
+          memo: _clip('$memo (50% now)'),
+          paymentRequestId: widget.requestId,
+        );
+        if (!mounted) return;
+        if (sent['ok'] != true) {
+          throw Exception(sent['error']?.toString() ?? 'The first half was not sent');
+        }
+        paidTx = sent['txHash']?.toString() ??
+            sent['transactionHash']?.toString();
+        if (paidTx == null || !paidTx.startsWith('0x')) {
+          throw Exception(
+              'The first half is still confirming. Check Activity before retrying.');
+        }
+        // Recorded now, so the request stops asking for the whole amount
+        // even if setting the second half aside does not finish.
+        await api.post('/v1/payment-requests/${widget.requestId}/mark', body: {
+          'status': 'partial',
+          'paidTxHash': paidTx,
+          'chosenStructure': 'split',
+          'instantPaidUsdc': instant,
+        });
+        if (!mounted) return;
+      }
+      final held = await circle.holdForRecipient(
+        context: context,
+        recipient: handle,
+        amountUsdc: locked,
+        purpose: 'job',
+        memo: _clip(memo),
+        paymentRequestId: widget.requestId,
+      );
+      if (!mounted) return;
+      if (held['ok'] != true) {
+        final pending = held['pending'] == true;
+        throw Exception(split
+            ? (pending
+                ? 'The first half was sent. The other half is still being set aside — check Activity in a minute, and do not pay it again.'
+                : 'The first half was sent. The other half was not set aside — open this request again and tap "Pay the rest".')
+            : (pending
+                ? 'Your PIN went through and the money is being set aside. Check Activity in a minute — do not pay again.'
+                : held['error']?.toString() ?? 'The money was not set aside'));
+      }
+      await api.post('/v1/payment-requests/${widget.requestId}/mark', body: {
+        'status': 'escrow',
+        'chosenStructure': split ? 'split' : 'escrow',
+        'escrowTxHash': held['txHash'],
+        'escrowLockedUsdc': locked,
+        if (split) 'paidTxHash': paidTx,
+        if (split) 'instantPaidUsdc': instant,
+      });
+      if (!mounted) return;
+      await Future.wait([
+        context.read<ActivityService>().refresh(),
+        context.read<WalletService>().refreshBalances(
+              addressOverride: circle.address,
+            ),
+      ]);
+      if (!mounted) return;
+      showTopSnack(
+        context,
+        SnackBar(
+          content: Text(split
+              ? 'Half paid, half set aside. Release it in Activity when it arrives.'
+              : 'Set aside for $label. Release it in Activity when it arrives.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = friendlyError(
+            error,
+            fallback: 'The money was not set aside.',
+          ));
+      await _load();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// A hold's memo is at most 120 characters.
+  static String _clip(String text) =>
+      text.length <= 120 ? text : text.substring(0, 120);
 
   /// Pays by milestone: each line set aside on its own and paid to the
   /// sender as that part is delivered.
@@ -339,8 +494,20 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
     final first = fullName.startsWith('@')
         ? fullName.substring(1)
         : fullName.split(RegExp(r'\s+')).first;
-    final byMilestone = (invoice?['allowedStructures'] as List? ?? const [])
-        .contains('milestones');
+    final structures = [
+      for (final e in (invoice?['allowedStructures'] as List? ?? const []))
+        e.toString(),
+    ];
+    final byMilestone = structures.contains('milestones');
+    final partPaid = status == 'partial';
+    // Setting money aside needs dollars and a payee with a username.
+    final canHold = token == 'USDC' && handle != null;
+    final canSplit = open && canHold && structures.contains('split');
+    final canEscrow = open && canHold && structures.contains('escrow');
+    final structure = (_structure == 'split' && canSplit) ||
+            (_structure == 'escrow' && canEscrow)
+        ? _structure
+        : 'full';
     final dueAt = DateTime.tryParse(invoice?['dueAt']?.toString() ?? '');
     final askedAt =
         DateTime.tryParse(invoice?['createdAt']?.toString() ?? '')?.toLocal();
@@ -526,10 +693,71 @@ class _PaymentLinkScreenState extends State<PaymentLinkScreen> {
                           ),
                           const SizedBox(height: 8),
                         ],
+                        if (open && (canSplit || canEscrow)) ...[
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text('How do you want to pay?',
+                                style: Type.label.copyWith(
+                                    color: EvabobColors.inkTertiary)),
+                          ),
+                          const SizedBox(height: 8),
+                          _PayChoice(
+                            title: 'Pay it all now',
+                            detail: 'It reaches $first straight away and '
+                                'cannot be reversed.',
+                            selected: structure == 'full',
+                            onTap: () => setState(() => _structure = 'full'),
+                          ),
+                          if (canSplit)
+                            _PayChoice(
+                              title: 'Half now, half held',
+                              detail: 'Half reaches $first now. The other '
+                                  'half is set aside until it is delivered.',
+                              selected: structure == 'split',
+                              onTap: () =>
+                                  setState(() => _structure = 'split'),
+                            ),
+                          if (canEscrow)
+                            _PayChoice(
+                              title: 'Hold it all until delivered',
+                              detail: 'All of it is set aside. $first is '
+                                  'paid when it arrives; you can cancel '
+                                  'before then.',
+                              selected: structure == 'escrow',
+                              onTap: () =>
+                                  setState(() => _structure = 'escrow'),
+                            ),
+                          const SizedBox(height: 12),
+                        ],
+                        if (partPaid) ...[
+                          Text(
+                            'Half of this has been paid. The rest was not '
+                            'set aside.',
+                            textAlign: TextAlign.center,
+                            style: Type.label
+                                .copyWith(color: EvabobColors.inkTertiary),
+                          ),
+                          const SizedBox(height: 8),
+                          _BlueButton(
+                            label: 'Pay the rest',
+                            onPressed: !_busy ? _pay : null,
+                            busy: _busy,
+                          ),
+                        ],
                         if (open) ...[
                           _BlueButton(
-                            label: 'Pay $shown',
-                            onPressed: !_busy ? _pay : null,
+                            label: switch (structure) {
+                              'split' => 'Pay half, hold half',
+                              'escrow' => 'Set aside $shown',
+                              _ => 'Pay $shown',
+                            },
+                            onPressed: _busy
+                                ? null
+                                : switch (structure) {
+                                    'split' => () => _payHeld(split: true),
+                                    'escrow' => () => _payHeld(split: false),
+                                    _ => _pay,
+                                  },
                             busy: _busy,
                           ),
                           const SizedBox(height: 24),
@@ -616,6 +844,80 @@ class _FigmaHeader extends StatelessWidget {
 }
 
 /// The Figma primary button: blue, 56 tall, with a soft blue glow.
+/// One way to pay, as a row the payer picks.
+class _PayChoice extends StatelessWidget {
+  const _PayChoice({
+    required this.title,
+    required this.detail,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String detail;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: selected
+                  ? EvabobColors.primary.withValues(alpha: 0.08)
+                  : EvabobColors.sheet,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected ? EvabobColors.primary : EvabobColors.hairline,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Icon(
+                    selected
+                        ? Icons.radio_button_checked_rounded
+                        : Icons.radio_button_off_rounded,
+                    size: 18,
+                    color: selected
+                        ? EvabobColors.primary
+                        : EvabobColors.inkTertiary,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          style: Type.body.copyWith(color: EvabobColors.ink)),
+                      const SizedBox(height: 2),
+                      Text(detail,
+                          style: Type.label
+                              .copyWith(color: EvabobColors.inkTertiary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _BlueButton extends StatelessWidget {
   const _BlueButton({
     required this.label,

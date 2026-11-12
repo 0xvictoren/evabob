@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -44,6 +45,10 @@ class _MarketPostFormState extends State<MarketPostForm> {
   MapPoint? _point;
   bool _remote = false;
   int _days = 7;
+  final _units = TextEditingController(text: '1');
+  bool _installments = false;
+  int _installmentDays = 30;
+  bool _live = true;
   final List<String> _photos = [];
   bool _busy = false;
   bool _assisting = false;
@@ -58,7 +63,7 @@ class _MarketPostFormState extends State<MarketPostForm> {
 
   @override
   void dispose() {
-    for (final c in [_sentence, _title, _description, _price, _area]) {
+    for (final c in [_sentence, _title, _description, _price, _area, _units]) {
       c.dispose();
     }
     super.dispose();
@@ -144,6 +149,8 @@ class _MarketPostFormState extends State<MarketPostForm> {
       problem = _want ? 'Say how much you will pay.' : 'Set a price.';
     } else if ((_state ?? '').isEmpty && _area.text.trim().isEmpty) {
       problem = 'Say where you are, so people near you find this.';
+    } else if (!_want && (int.tryParse(_units.text.trim()) ?? 0) < 1) {
+      problem = 'Say how many you have to sell (at least 1).';
     }
     if (problem != null) {
       setState(() => _error = problem);
@@ -166,6 +173,10 @@ class _MarketPostFormState extends State<MarketPostForm> {
         place: DeviceLocation.place(state: _state, area: _area.text, point: _point),
         remote: _remote,
         deliveryDays: _days,
+        units: _want ? null : int.tryParse(_units.text.trim()),
+        live: _live,
+        installments: !_want && _installments,
+        installmentDays: _installmentDays,
       );
       if (mounted) Navigator.of(context).pop(made.post.id);
     } catch (e) {
@@ -441,6 +452,81 @@ class _MarketPostFormState extends State<MarketPostForm> {
                 ),
               ),
               const SizedBox(height: Space.lg),
+              Glass(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!_want) ...[
+                      Text('How many do you have?',
+                          style: Type.body.copyWith(color: EvabobColors.ink)),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Each one paid for comes off this number. At zero it '
+                        'shows as sold out until you add more.',
+                        style:
+                            Type.label.copyWith(color: EvabobColors.inkMuted),
+                      ),
+                      const SizedBox(height: Space.sm),
+                      TextField(
+                        controller: _units,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(6),
+                        ],
+                        decoration:
+                            const InputDecoration(hintText: 'Units available'),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _installments,
+                        onChanged: (v) => setState(() => _installments = v),
+                        title: const Text('Let buyers pay in parts'),
+                        subtitle: const Text(
+                            'Each part is set aside in a hold, not sent to '
+                            'you, and you are told as it comes in. If they do '
+                            'not finish in time, it all goes back to them.'),
+                      ),
+                      if (_installments)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text('Time to finish paying',
+                                  style: Type.body
+                                      .copyWith(color: EvabobColors.ink)),
+                            ),
+                            IconButton(
+                              onPressed: _installmentDays > 1
+                                  ? () => setState(() => _installmentDays--)
+                                  : null,
+                              icon: const Icon(Icons.remove_circle_outline),
+                            ),
+                            Text(
+                                '$_installmentDays ${_installmentDays == 1 ? 'day' : 'days'}',
+                                style: Type.body),
+                            IconButton(
+                              onPressed: _installmentDays < 80
+                                  ? () => setState(() => _installmentDays++)
+                                  : null,
+                              icon: const Icon(Icons.add_circle_outline),
+                            ),
+                          ],
+                        ),
+                    ],
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _live,
+                      onChanged: (v) => setState(() => _live = v),
+                      title: const Text('Make it live now'),
+                      subtitle: Text(_live
+                          ? 'Everyone on the market can see it.'
+                          : 'Saved under Owned. Only you see it until you '
+                              'make it live.'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: Space.lg),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: Space.md),
@@ -448,7 +534,11 @@ class _MarketPostFormState extends State<MarketPostForm> {
                       style: Type.body.copyWith(color: EvabobColors.alert)),
                 ),
               EvabobPrimaryButton(
-                label: _want ? 'Post and find sellers' : 'Post it',
+                label: !_live
+                    ? 'Save without posting'
+                    : _want
+                        ? 'Post and find sellers'
+                        : 'Post it',
                 busy: _busy,
                 onPressed: _submit,
               ),

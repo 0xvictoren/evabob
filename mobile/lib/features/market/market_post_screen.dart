@@ -19,6 +19,10 @@ import '../../core/chat/chat_models.dart';
 import '../../core/chat/chat_service.dart';
 import '../chat/chat_thread_screen.dart';
 import 'market_invoice_sheet.dart';
+import 'market_profile_screen.dart';
+import 'market_mine_screen.dart';
+import 'market_installment_sheet.dart';
+import 'package:intl/intl.dart';
 
 /// One post. What it shows depends on who is looking:
 ///
@@ -191,6 +195,116 @@ class _MarketPostScreenState extends State<MarketPostScreen> {
     if (mounted && threadId != null) await _openChat(threadId: threadId);
   }
 
+  /// Pay in parts: start (or pick up) the deal, then set one part aside.
+  Future<void> _payInParts() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    ({MarketDeal deal, String? recipient})? started;
+    try {
+      started = await _api.startInstallments(widget.postId);
+    } catch (e) {
+      if (mounted) _snack(friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (started == null || !mounted) return;
+    if (started.recipient == null) {
+      _snack('This seller cannot receive held payments yet.');
+      return;
+    }
+    final paid = await MarketInstallmentSheet.show(
+      context,
+      api: _api,
+      deal: started.deal,
+      recipient: started.recipient!,
+    );
+    if (!mounted) return;
+    if (paid) _snack('That part is set aside. The seller has been told.');
+    await _load();
+  }
+
+  /// The seller gives the buyer more time to finish paying, or less.
+  Future<void> _changeDeadline(MarketDeal deal) async {
+    final now = DateTime.now();
+    final current = deal.installmentDueAt?.toLocal() ?? now;
+    final day = await showDatePicker(
+      context: context,
+      initialDate: current.isBefore(now) ? now : current,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 80)),
+      helpText: 'Pay in full by',
+    );
+    if (day == null || !mounted) return;
+    // The end of the chosen day, so "by Friday" includes Friday.
+    final dueAt = DateTime(day.year, day.month, day.day, 23, 59);
+    await _run(() async {
+      await _api.setInstallmentDeadline(deal.id, dueAt);
+      if (mounted) _snack('Deadline changed. The buyer has been told.');
+      await _load();
+    });
+  }
+
+  Future<void> _rate(String dealId, MarketPost post) async {
+    final done = await MarketReviewSheet.show(
+      context,
+      api: _api,
+      deal: MarketDeal.fromJson({'id': dealId, 'title': post.title}),
+    );
+    if (done && mounted) {
+      _snack('Thank you. Your rating is on the product now.');
+      await _load();
+    }
+  }
+
+  /// The owner says how many are left to sell.
+  Future<void> _editUnits(MarketPost post) async {
+    final field = TextEditingController(text: '${post.unitsLeft ?? 1}');
+    final units = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('How many are left to sell?'),
+        content: TextField(
+          controller: field,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(6),
+          ],
+          decoration: const InputDecoration(hintText: 'Units available'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(ctx, int.tryParse(field.text.trim())),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (units == null || !mounted) return;
+    await _run(() async {
+      await _api.updateOffer(widget.postId, units: units);
+      await _load();
+    });
+  }
+
+  Future<void> _setInstallments(bool on) => _run(() async {
+        await _api.updateOffer(widget.postId, installments: on);
+        await _load();
+      });
+
+  void _openProfile(Map<String, dynamic> seller) {
+    final id = seller['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => MarketProfileScreen(person: id)),
+    );
+  }
+
   Future<void> _setActive(bool active) => _run(() async {
         await _api.setActive(widget.postId, active);
         await _load();
@@ -257,6 +371,16 @@ class _MarketPostScreenState extends State<MarketPostScreen> {
         ? Map<String, dynamic>.from(data['contact'] as Map)
         : null;
     final available = data['available'] == true;
+    final reviews = data['reviews'] is Map
+        ? Map<String, dynamic>.from(data['reviews'] as Map)
+        : const <String, dynamic>{};
+    final reviewItems = maps(reviews['items']);
+    final reviewDealId = data['reviewDealId']?.toString();
+    // The buyer's own part-payment deal on this, if they started one.
+    MarketDeal? myParts;
+    for (final d in deals) {
+      if (d.iAmBuyer && d.partsOpen) myParts = d;
+    }
     final pinged = (data['pinged'] as num?)?.toInt() ?? 0;
 
     return RefreshIndicator(
@@ -329,6 +453,44 @@ class _MarketPostScreenState extends State<MarketPostScreen> {
                   fx.secondary(post.priceUsd),
                   style: Type.label.copyWith(color: EvabobColors.inkMuted),
                 ),
+                if (!post.isWant &&
+                    (post.stockLabel.isNotEmpty || post.productReviews > 0))
+                  Padding(
+                    padding: const EdgeInsets.only(top: Space.sm),
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (post.stockLabel.isNotEmpty)
+                          Text(
+                            post.sold > 0 && !post.soldOut
+                                ? '${post.stockLabel} · ${post.sold} sold'
+                                : post.stockLabel,
+                            style: Type.label.copyWith(
+                              color: post.soldOut
+                                  ? EvabobColors.alert
+                                  : EvabobColors.emeraldDeep,
+                            ),
+                          ),
+                        if (post.productRating != null)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              StarRow(
+                                  stars: post.productRating!.round(), size: 14),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${post.productRating!.toStringAsFixed(1)} '
+                                '(${post.productReviews})',
+                                style: Type.label
+                                    .copyWith(color: EvabobColors.inkMuted),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
                 if (post.description.isNotEmpty) ...[
                   const SizedBox(height: Space.md),
                   Text(post.description,
@@ -353,10 +515,25 @@ class _MarketPostScreenState extends State<MarketPostScreen> {
           const SizedBox(height: Space.lg),
           if (!mine && !post.isWant) ...[
             EvabobPrimaryButton(
-              label: post.active ? 'Buy for ${fx.primary(post.priceUsd)}' : 'No longer available',
+              label: !post.active
+                  ? 'No longer available'
+                  : post.soldOut
+                      ? 'Sold out'
+                      : 'Buy for ${fx.primary(post.priceUsd)}',
               busy: _busy,
-              onPressed: post.active ? _buy : null,
+              onPressed: post.active && !post.soldOut ? _buy : null,
             ),
+            if (myParts != null ||
+                (post.installments && post.active && !post.soldOut)) ...[
+              const SizedBox(height: Space.sm),
+              _SecondaryAction(
+                icon: Icons.payments_outlined,
+                label: myParts != null
+                    ? 'Pay another part (${fx.primary(myParts.installmentLeftUsd)} to go)'
+                    : 'Pay in parts over ${post.installmentDays ?? 30} days',
+                onTap: _busy ? null : _payInParts,
+              ),
+            ],
             const SizedBox(height: Space.sm),
             _SecondaryAction(
               icon: Icons.chat_bubble_outline_rounded,
@@ -427,7 +604,12 @@ class _MarketPostScreenState extends State<MarketPostScreen> {
             EvabobSectionLabel(deals.length == 1 ? 'Invoice' : 'Invoices'),
             const SizedBox(height: Space.sm),
             for (final d in deals) ...[
-              _DealRow(deal: d, busy: _busy, onPay: () => _pay(d)),
+              _DealRow(
+                deal: d,
+                busy: _busy,
+                onPay: () => d.partsOpen ? _payInParts() : _pay(d),
+                onDeadline: () => _changeDeadline(d),
+              ),
               const SizedBox(height: Space.sm),
             ],
             const SizedBox(height: Space.md),
@@ -555,13 +737,118 @@ class _MarketPostScreenState extends State<MarketPostScreen> {
             EvabobSectionLabel(post.isWant ? 'Who is asking' : 'Who is selling'),
             const SizedBox(height: Space.sm),
             SellerCard(person: seller, onCopySocial: _copySocial),
+            if (!post.isWant) ...[
+              const SizedBox(height: Space.sm),
+              _SecondaryAction(
+                icon: Icons.storefront_outlined,
+                label: 'See everything they sell',
+                onTap: () => _openProfile(seller),
+              ),
+            ],
+          ],
+          if (!post.isWant) ...[
+            const SizedBox(height: Space.lg),
+            EvabobSectionLabel(
+                'Ratings from buyers (${(reviews['count'] as num?)?.toInt() ?? 0})'),
+            const SizedBox(height: Space.sm),
+            if (reviewDealId != null) ...[
+              EvabobPrimaryButton(
+                label: 'Rate what you bought',
+                busy: _busy,
+                onPressed: () => _rate(reviewDealId, post),
+              ),
+              const SizedBox(height: Space.sm),
+            ],
+            if (reviewItems.isEmpty)
+              Text(
+                'No ratings yet. Only people who bought this can rate it.',
+                style: Type.label.copyWith(color: EvabobColors.inkMuted),
+              ),
+            for (final r in reviewItems) ...[
+              Glass(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        StarRow(
+                            stars: (r['stars'] as num?)?.toInt() ?? 0,
+                            size: 14),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${r['by'] ?? 'A buyer'} · bought this',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Type.label
+                                .copyWith(color: EvabobColors.inkMuted),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if ((r['text']?.toString() ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(r['text'].toString(),
+                          style:
+                              Type.label.copyWith(color: EvabobColors.ink)),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: Space.sm),
+            ],
+          ],
+          if (mine && !post.isWant) ...[
+            const SizedBox(height: Space.md),
+            EvabobSectionLabel('Manage this sale'),
+            const SizedBox(height: Space.sm),
+            Glass(
+              child: Column(
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Units left to sell'),
+                    subtitle: Text(post.units == null
+                        ? 'Not counted. Set a number to track stock.'
+                        : '${post.unitsLeft ?? 0} left · ${post.sold} sold'),
+                    trailing: TextButton(
+                      onPressed: _busy ? null : () => _editUnits(post),
+                      child: const Text('Change'),
+                    ),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: post.installments,
+                    onChanged: _busy ? null : _setInstallments,
+                    title: const Text('Let buyers pay in parts'),
+                    subtitle: Text(post.installments
+                        ? 'They have ${post.installmentDays ?? 30} days to '
+                            'finish. Each part is held, and you are told '
+                            'as it comes in.'
+                        : 'Off. Buyers pay in one go: now, half and half, '
+                            'or all held.'),
+                  ),
+                ],
+              ),
+            ),
           ],
           if (mine) ...[
             const SizedBox(height: Space.md),
+            if (!post.active)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Space.sm),
+                child: Text(
+                  'This is not on the market. Nobody else can see it. It '
+                  'stays under Owned until you open it again.',
+                  style: Type.label.copyWith(color: EvabobColors.inkMuted),
+                ),
+              ),
             OutlinedButton.icon(
               onPressed: _busy ? null : () => _setActive(!post.active),
               icon: Icon(post.active ? Icons.pause_circle_outline : Icons.play_circle_outline),
-              label: Text(post.active ? 'Close this post' : 'Open it again'),
+              label: Text(post.active
+                  ? (post.isWant ? 'Close this request' : 'Close this sale')
+                  : 'Make it live'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(48),
                 shape: const StadiumBorder(),
@@ -731,11 +1018,19 @@ class _PersonCard extends StatelessWidget {
 
 /// An invoice between the two people on this post.
 class _DealRow extends StatelessWidget {
-  const _DealRow({required this.deal, required this.busy, required this.onPay});
+  const _DealRow({
+    required this.deal,
+    required this.busy,
+    required this.onPay,
+    this.onDeadline,
+  });
 
   final MarketDeal deal;
   final bool busy;
   final VoidCallback onPay;
+
+  /// The seller changes how long the buyer has to finish paying in parts.
+  final VoidCallback? onDeadline;
 
   @override
   Widget build(BuildContext context) {
@@ -753,15 +1048,32 @@ class _DealRow extends StatelessWidget {
                     style: Type.body.copyWith(color: EvabobColors.ink)),
                 const SizedBox(height: 2),
                 Text(
-                  '${buyer ? 'From' : 'To'} ${deal.withWhom} · ${deal.statusLabel}',
-                  maxLines: 1,
+                  deal.inParts
+                      ? '${buyer ? 'From' : 'To'} ${deal.withWhom} · ${switch (deal.installmentStatus) {
+                          'funded' => 'paid in parts, all set aside',
+                          'refunded' => 'not finished in time, money returned',
+                          _ => '${fx.primary(deal.installmentPaidUsd)} set aside so far'
+                              '${deal.installmentDueAt == null ? '' : ', finish by ${DateFormat('d MMM').format(deal.installmentDueAt!.toLocal())}'}',
+                        }}'
+                      : '${buyer ? 'From' : 'To'} ${deal.withWhom} · ${deal.statusLabel}',
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: Type.label.copyWith(color: EvabobColors.inkMuted),
                 ),
               ],
             ),
           ),
-          if (buyer && open)
+          if (!buyer && deal.partsOpen && onDeadline != null)
+            TextButton(
+              onPressed: busy ? null : onDeadline,
+              child: const Text('Deadline'),
+            ),
+          if (buyer && deal.partsOpen)
+            FilledButton(
+              onPressed: busy ? null : onPay,
+              child: const Text('Pay a part'),
+            )
+          else if (buyer && open)
             FilledButton(
               onPressed: busy ? null : onPay,
               child: const Text('Pay'),

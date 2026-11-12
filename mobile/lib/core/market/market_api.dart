@@ -115,6 +115,13 @@ class MarketPost {
     required this.why,
     required this.seller,
     this.offers = 0,
+    this.units,
+    this.unitsLeft,
+    this.sold = 0,
+    this.installments = false,
+    this.installmentDays,
+    this.productRating,
+    this.productReviews = 0,
   });
 
   factory MarketPost.fromJson(Map<String, dynamic> j) {
@@ -147,6 +154,13 @@ class MarketPost {
           ? Map<String, dynamic>.from(j['seller'] as Map)
           : const {}),
       offers: (j['offers'] as num?)?.toInt() ?? 0,
+      units: (j['units'] as num?)?.toInt(),
+      unitsLeft: (j['unitsLeft'] as num?)?.toInt(),
+      sold: (j['sold'] as num?)?.toInt() ?? 0,
+      installments: j['installments'] == true,
+      installmentDays: (j['installmentDays'] as num?)?.toInt(),
+      productRating: (j['productRating'] as num?)?.toDouble(),
+      productReviews: (j['productReviews'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -181,6 +195,32 @@ class MarketPost {
   /// Offers waiting on the person's own request.
   final int offers;
 
+  /// How many the seller listed; null on older posts, which never run out.
+  final int? units;
+
+  /// How many are left to buy; null when it never runs out.
+  final int? unitsLeft;
+
+  /// How many have been paid for.
+  final int sold;
+
+  /// The buyer may pay in parts into a hold, within [installmentDays].
+  final bool installments;
+  final int? installmentDays;
+
+  /// What buyers of this product rated it; null with no ratings yet.
+  final double? productRating;
+  final int productReviews;
+
+  bool get soldOut => unitsLeft == 0;
+
+  /// "3 left", "Sold out", or nothing for a post that never runs out.
+  String get stockLabel => unitsLeft == null
+      ? ''
+      : unitsLeft == 0
+          ? 'Sold out'
+          : '$unitsLeft left';
+
   bool get isWant => kind == 'want';
   String get placeLabel =>
       [area, state].where((s) => s.isNotEmpty).join(', ');
@@ -199,9 +239,20 @@ class MarketDeal {
     required this.paid,
     required this.canReview,
     this.reviewStars,
+    this.installmentStatus,
+    this.installmentDueAt,
+    this.installmentPaidUsd = 0,
+    this.installmentParts = 0,
   });
 
   factory MarketDeal.fromJson(Map<String, dynamic> j) => MarketDeal(
+        installmentStatus: (j['installments'] as Map?)?['status']?.toString(),
+        installmentDueAt: DateTime.tryParse(
+            (j['installments'] as Map?)?['dueAt']?.toString() ?? ''),
+        installmentPaidUsd:
+            ((j['installments'] as Map?)?['paidUsd'] as num?)?.toDouble() ?? 0,
+        installmentParts:
+            ((j['installments'] as Map?)?['parts'] as num?)?.toInt() ?? 0,
         id: j['id']?.toString() ?? '',
         postId: j['postId']?.toString() ?? '',
         title: j['title']?.toString() ?? '',
@@ -231,7 +282,17 @@ class MarketDeal {
   final bool canReview;
   final int? reviewStars;
 
+  /// Paying in parts: "open", "funded" or "refunded"; null for other deals.
+  final String? installmentStatus;
+  final DateTime? installmentDueAt;
+  final double installmentPaidUsd;
+  final int installmentParts;
+
   bool get iAmBuyer => role == 'buyer';
+  bool get inParts => installmentStatus != null;
+  bool get partsOpen => installmentStatus == 'open';
+  double get installmentLeftUsd =>
+      (priceUsd - installmentPaidUsd).clamp(0, priceUsd).toDouble();
 
   /// What to say about where the money is, in plain words.
   String get statusLabel => switch (status) {
@@ -294,8 +355,17 @@ class MarketApi {
     Map<String, dynamic>? place,
     bool remote = false,
     int deliveryDays = 7,
+    int? units,
+    bool live = true,
+    bool installments = false,
+    int? installmentDays,
   }) async {
     final res = await _api.post('/v1/market/posts', body: {
+      if (units != null) 'units': units,
+      'live': live,
+      if (installments) 'installments': true,
+      if (installments && installmentDays != null)
+        'installmentDays': installmentDays,
       'kind': kind,
       'type': type,
       if (category != null) 'category': category,
@@ -327,6 +397,62 @@ class MarketApi {
 
   Future<void> setActive(String id, bool active) =>
       _api.post('/v1/market/posts/$id/${active ? 'open' : 'close'}');
+
+  /// The owner changes how many are left, or whether it can be paid in parts.
+  Future<void> updateOffer(
+    String id, {
+    int? units,
+    bool? installments,
+    int? installmentDays,
+  }) =>
+      _api.post('/v1/market/posts/$id/update', body: {
+        if (units != null) 'units': units,
+        if (installments != null) 'installments': installments,
+        if (installmentDays != null) 'installmentDays': installmentDays,
+      });
+
+  /// Starts (or returns) the buyer's part-payment deal on an offer, and who
+  /// each part is locked for.
+  Future<({MarketDeal deal, String? recipient})> startInstallments(
+      String postId) async {
+    final res = await _api.post('/v1/market/posts/$postId/installments');
+    return (
+      deal: MarketDeal.fromJson(Map<String, dynamic>.from(res['deal'] as Map)),
+      recipient: res['recipient']?.toString(),
+    );
+  }
+
+  /// Counts a part the buyer has just locked. Returns whether that finished
+  /// paying.
+  Future<({MarketDeal deal, bool funded})> addInstallmentPart(
+      String dealId, String transferId) async {
+    final res = await _api.post('/v1/market/deals/$dealId/installments/part',
+        body: {'transferId': transferId});
+    return (
+      deal: MarketDeal.fromJson(Map<String, dynamic>.from(res['deal'] as Map)),
+      funded: res['funded'] == true,
+    );
+  }
+
+  /// The seller gives the buyer more time to finish paying, or less.
+  Future<void> setInstallmentDeadline(String dealId, DateTime dueAt) =>
+      _api.post('/v1/market/deals/$dealId/installments/deadline',
+          body: {'dueAt': dueAt.toUtc().toIso8601String()});
+
+  /// What the person paid for on the market, each with the product it was.
+  Future<List<({MarketDeal deal, MarketPost? post})>> bought() async {
+    final res = await _api.get('/v1/market/mine');
+    return [
+      for (final r in (res['bought'] as List?) ?? const [])
+        if (r is Map && r['deal'] is Map)
+          (
+            deal: MarketDeal.fromJson(Map<String, dynamic>.from(r['deal'] as Map)),
+            post: r['post'] is Map
+                ? MarketPost.fromJson(Map<String, dynamic>.from(r['post'] as Map))
+                : null,
+          ),
+    ];
+  }
 
   Future<({List<MarketPost> posts, List<MarketDeal> deals, List<Map<String, dynamic>> sent})>
       mine() async {

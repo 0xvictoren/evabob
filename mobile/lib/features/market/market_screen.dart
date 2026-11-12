@@ -17,6 +17,7 @@ import 'market_post_screen.dart';
 import 'market_widgets.dart';
 import '../../core/platform/locator.dart';
 import '../../core/widgets/top_snack.dart';
+import 'market_owned_view.dart';
 
 /// The marketplace: what people near you sell, and what people near you need.
 ///
@@ -37,12 +38,23 @@ class _MarketScreenState extends State<MarketScreen>
     with SingleTickerProviderStateMixin {
   late final MarketApi _api = MarketApi(context.read<ApiClient>());
   late final TabController _tabs = TabController(
-    length: 2,
+    length: 3,
     vsync: this,
-    initialIndex: widget.startOnWanted ? 1 : 0,
+    // Owned · For sale · Wanted. The market opens on what is for sale.
+    initialIndex: widget.startOnWanted ? 2 : 1,
   )..addListener(() {
-      if (!_tabs.indexIsChanging) _load();
+      if (_tabs.indexIsChanging) return;
+      if (_ownedTab) {
+        setState(() {});
+        _owned.currentState?.reload();
+      } else {
+        _load();
+      }
     });
+  final _owned = GlobalKey<MarketOwnedViewState>();
+
+  bool get _ownedTab => _tabs.index == 0;
+  bool get _wantTab => _tabs.index == 2;
   final _search = TextEditingController();
   Timer? _debounce;
 
@@ -54,7 +66,7 @@ class _MarketScreenState extends State<MarketScreen>
   String? _error;
   int _loadId = 0;
 
-  String get _kind => _tabs.index == 0 ? 'offer' : 'want';
+  String get _kind => _wantTab ? 'want' : 'offer';
 
   @override
   void initState() {
@@ -166,13 +178,14 @@ class _MarketScreenState extends State<MarketScreen>
       backgroundColor: EvabobColors.pageBg,
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'market-post',
-        onPressed: () => _post(want: _tabs.index == 1),
+        onPressed: () => _post(want: _wantTab),
         icon: const Icon(Icons.add_rounded),
-        label: Text(_tabs.index == 1 ? 'Post what you need' : 'Sell something'),
+        label: Text(_wantTab ? 'Post what you need' : 'Sell something'),
       ),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: _load,
+          onRefresh: () async =>
+              _ownedTab ? _owned.currentState?.reload() : _load(),
           child: CustomScrollView(
             slivers: [
               SliverPadding(
@@ -213,9 +226,14 @@ class _MarketScreenState extends State<MarketScreen>
                         labelStyle: Type.body,
                         unselectedLabelStyle: Type.body,
                         splashBorderRadius: Radii.all(Radii.pill),
-                        tabs: const [Tab(text: 'For sale'), Tab(text: 'Wanted')],
+                        tabs: const [
+                          Tab(text: 'Owned'),
+                          Tab(text: 'For sale'),
+                          Tab(text: 'Wanted'),
+                        ],
                       ),
                     ),
+                    if (!_ownedTab) ...[
                     const SizedBox(height: Space.md),
                     TextField(
                       controller: _search,
@@ -226,9 +244,9 @@ class _MarketScreenState extends State<MarketScreen>
                         filled: true,
                         fillColor: EvabobColors.sheet,
                         prefixIcon: const Icon(Icons.search_rounded),
-                        hintText: _tabs.index == 0
-                            ? 'Cleaner, cake, iPhone, tailor…'
-                            : 'What are people looking for?',
+                        hintText: _wantTab
+                            ? 'What are people looking for?'
+                            : 'Cleaner, cake, iPhone, tailor…',
                         border: OutlineInputBorder(
                           borderRadius: Radii.all(Radii.pill),
                           borderSide: BorderSide.none,
@@ -274,7 +292,7 @@ class _MarketScreenState extends State<MarketScreen>
                           child: Text(
                             items == null
                                 ? ''
-                                : '${items.length} ${_tabs.index == 0 ? 'for sale' : 'wanted'}',
+                                : '${items.length} ${_wantTab ? 'wanted' : 'for sale'}',
                             style: Type.label
                                 .copyWith(color: EvabobColors.inkMuted),
                           ),
@@ -354,10 +372,19 @@ class _MarketScreenState extends State<MarketScreen>
                         ),
                       ],
                     ),
+                    ],
                   ],
                 ),
               ),
-              if (items == null)
+              if (_ownedTab)
+                SliverToBoxAdapter(
+                  child: MarketOwnedView(
+                    key: _owned,
+                    api: _api,
+                    onSell: () => _post(want: false),
+                  ),
+                )
+              else if (items == null)
                 const SliverFillRemaining(
                   hasScrollBody: false,
                   child: Center(child: CircularProgressIndicator()),
@@ -367,8 +394,8 @@ class _MarketScreenState extends State<MarketScreen>
                   hasScrollBody: false,
                   child: _Empty(
                     error: _error,
-                    wanted: _tabs.index == 1,
-                    onPost: () => _post(want: _tabs.index == 1),
+                    wanted: _wantTab,
+                    onPost: () => _post(want: _wantTab),
                   ),
                 )
               else

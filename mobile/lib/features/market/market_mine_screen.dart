@@ -97,7 +97,7 @@ class _MarketMineScreenState extends State<MarketMineScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ReviewSheet(api: _api, deal: d),
+      builder: (_) => MarketReviewSheet(api: _api, deal: d),
     );
     if (done == true && mounted) {
       _snack('Thank you. It is on their profile now.');
@@ -586,17 +586,31 @@ class _SocialStatus extends StatelessWidget {
   }
 }
 
-class _ReviewSheet extends StatefulWidget {
-  const _ReviewSheet({required this.api, required this.deal});
+class MarketReviewSheet extends StatefulWidget {
+  const MarketReviewSheet({super.key, required this.api, required this.deal});
+
+  /// Asks for a rating. True once it was sent.
+  static Future<bool> show(
+    BuildContext context, {
+    required MarketApi api,
+    required MarketDeal deal,
+  }) async =>
+      await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => MarketReviewSheet(api: api, deal: deal),
+      ) ==
+      true;
 
   final MarketApi api;
   final MarketDeal deal;
 
   @override
-  State<_ReviewSheet> createState() => _ReviewSheetState();
+  State<MarketReviewSheet> createState() => _ReviewSheetState();
 }
 
-class _ReviewSheetState extends State<_ReviewSheet> {
+class _ReviewSheetState extends State<MarketReviewSheet> {
   int _stars = 0;
   final _text = TextEditingController();
   bool _busy = false;
