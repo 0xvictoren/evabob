@@ -89,6 +89,27 @@ export type MarketPost = {
   active: boolean;
   createdAt: string;
   closedAt?: string;
+  /** Sellers already told about this want, so a wider ping tells new ones. */
+  pinged?: string[];
+  lastPingAt?: string;
+  pingRounds?: number;
+};
+
+/** A seller told about a want says "I can do this". No price, no message. */
+export type MarketInterest = { postId: string; sellerId: string; createdAt: string };
+
+/**
+ * The buyer reached out to one seller about one post. Only a buyer starts
+ * this; it is what lets that seller send an invoice.
+ */
+export type MarketContact = {
+  id: string;
+  postId: string;
+  buyerId: string;
+  sellerId: string;
+  /** The chat they talk in. */
+  threadId?: string;
+  createdAt: string;
 };
 
 export type ProposalStatus = "sent" | "accepted" | "declined" | "withdrawn";
@@ -166,6 +187,8 @@ type MarketData = {
   deals: MarketDeal[];
   reviews: MarketReview[];
   profiles: MarketProfile[];
+  interests: MarketInterest[];
+  contacts: MarketContact[];
 };
 
 export class MarketError extends Error {
@@ -181,7 +204,9 @@ export const MAX_PHOTOS = 4;
 // ─── Storage ─────────────────────────────────────────────────────────────
 
 const DATA_PATH = dataPath("market.json");
-const empty = (): MarketData => ({ posts: [], proposals: [], deals: [], reviews: [], profiles: [] });
+const empty = (): MarketData => ({
+  posts: [], proposals: [], deals: [], reviews: [], profiles: [], interests: [], contacts: [],
+});
 let data: MarketData = load();
 
 function load(): MarketData {
@@ -786,6 +811,167 @@ export function sellersToTell(want: MarketPost, limit = 5): string[] {
   return [...new Set(matchWant(want, 20).map((r) => r.post.ownerId))].slice(0, limit);
 }
 
+// ─── Pings, availability and contact ─────────────────────────────────────
+//
+// A want is answered in three steps, and the buyer is the only one who can
+// start a conversation:
+//   1. the best five sellers are told (a ping);
+//   2. a seller who can do it taps "I'm available" — no price, no message;
+//   3. the buyer messages whoever they pick, and that seller may then send
+//      an invoice.
+// If nobody says they are available within seven hours, the next five are
+// told, up to four rounds.
+
+export const PING_BATCH = 5;
+export const PING_WIDEN_AFTER_MS = 7 * 60 * 60 * 1000;
+export const MAX_PING_ROUNDS = 4;
+
+/** The next sellers to tell about a want; records that they were told. */
+export function nextSellersToPing(want: MarketPost, now = Date.now()): string[] {
+  const told = new Set(want.pinged ?? []);
+  const next = [...new Set(matchWant(want, 60).map((r) => r.post.ownerId))]
+    .filter((id) => !told.has(id))
+    .slice(0, PING_BATCH);
+  want.pinged = [...told, ...next];
+  want.lastPingAt = new Date(now).toISOString();
+  want.pingRounds = (want.pingRounds ?? 0) + 1;
+  save();
+  return next;
+}
+
+/** Open wants that have gone seven hours with no seller available and nobody contacted. */
+export function wantsToWiden(now = Date.now()): MarketPost[] {
+  return data.posts.filter((p) =>
+    p.kind === "want" && p.active && p.lastPingAt != null &&
+    (p.pingRounds ?? 0) < MAX_PING_ROUNDS &&
+    now - Date.parse(p.lastPingAt) >= PING_WIDEN_AFTER_MS &&
+    !data.interests.some((i) => i.postId === p.id) &&
+    !data.contacts.some((c) => c.postId === p.id) &&
+    !data.deals.some((d) => d.postId === p.id));
+}
+
+/** A seller says they can do a want. True in `fresh` the first time only. */
+export function markAvailable(sellerId: string, postId: string): { interest: MarketInterest; fresh: boolean } {
+  const post = getPost(postId);
+  if (!post || post.kind !== "want") throw new MarketError("No such request.", 404);
+  if (!post.active) throw new MarketError("This request is closed.", 409);
+  if (post.ownerId === sellerId) throw new MarketError("This is your own request.", 403);
+  if (!store.getUser(sellerId)?.handle) throw new MarketError("Pick a username in Profile first.", 400, "HANDLE_REQUIRED");
+  const existing = data.interests.find((i) => i.postId === postId && i.sellerId === sellerId);
+  if (existing) return { interest: existing, fresh: false };
+  const interest: MarketInterest = { postId, sellerId, createdAt: new Date().toISOString() };
+  data.interests.push(interest);
+  save();
+  return { interest, fresh: true };
+}
+
+export function withdrawAvailable(sellerId: string, postId: string): void {
+  const before = data.interests.length;
+  data.interests = data.interests.filter((i) => !(i.postId === postId && i.sellerId === sellerId));
+  if (data.interests.length !== before) save();
+}
+
+export function isAvailable(postId: string, sellerId: string): boolean {
+  return data.interests.some((i) => i.postId === postId && i.sellerId === sellerId);
+}
+
+export function contactBetween(postId: string, buyerId: string, sellerId: string): MarketContact | undefined {
+  return data.contacts.find((c) => c.postId === postId && c.buyerId === buyerId && c.sellerId === sellerId);
+}
+
+/** The contact that lets this seller invoice on this post, if a buyer made one. */
+export function contactForSeller(postId: string, sellerId: string): MarketContact | undefined {
+  return data.contacts.find((c) => c.postId === postId && c.sellerId === sellerId);
+}
+
+/** Everyone who messaged about a post, newest first. */
+export function contactsOn(postId: string): MarketContact[] {
+  return data.contacts.filter((c) => c.postId === postId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function getContact(id: string): MarketContact | undefined {
+  return data.contacts.find((c) => c.id === id);
+}
+
+/**
+ * The buyer reaches out. On a want, the buyer is its owner and names the
+ * seller; on an offer, the buyer is anyone else and the seller is its owner.
+ * Asking twice returns the same contact.
+ */
+export function recordContact(buyerId: string, postId: string, sellerId?: string): MarketContact {
+  const post = getPost(postId);
+  if (!post) throw new MarketError("No such post.", 404);
+  if (!post.active) throw new MarketError(post.kind === "want" ? "This request is closed." : "This is no longer available.", 409);
+  let seller: string;
+  if (post.kind === "want") {
+    if (post.ownerId !== buyerId) throw new MarketError("Only the person who asked can message sellers.", 403);
+    if (!sellerId) throw new MarketError("Choose who to message.");
+    seller = sellerId;
+  } else {
+    if (post.ownerId === buyerId) throw new MarketError("This is your own post.", 403);
+    seller = post.ownerId;
+  }
+  if (seller === buyerId) throw new MarketError("That is you.", 403);
+  if (!store.getUser(seller)) throw new MarketError("No such person.", 404);
+  if (!store.getUser(buyerId)?.handle) throw new MarketError("Pick a username in Profile first.", 400, "HANDLE_REQUIRED");
+  const existing = contactBetween(postId, buyerId, seller);
+  if (existing) return existing;
+  const contact: MarketContact = {
+    id: newId("mc"),
+    postId,
+    buyerId,
+    sellerId: seller,
+    createdAt: new Date().toISOString(),
+  };
+  data.contacts.push(contact);
+  save();
+  return contact;
+}
+
+export function setContactThread(id: string, threadId: string): void {
+  const contact = getContact(id);
+  if (contact && contact.threadId !== threadId) {
+    contact.threadId = threadId;
+    save();
+  }
+}
+
+/**
+ * Who the buyer could pick for a want, best first: everyone who said they
+ * are available, plus sellers the agent found who already sell this. Being
+ * available counts, but a good record and being near count for more than
+ * being first to tap.
+ */
+export function candidatesFor(want: MarketPost) {
+  const offers = new Map<string, Ranked>();
+  for (const r of matchWant(want, 20)) {
+    if (!offers.has(r.post.ownerId)) offers.set(r.post.ownerId, r);
+  }
+  const available = new Set(data.interests.filter((i) => i.postId === want.id).map((i) => i.sellerId));
+  const ids = new Set([...available, ...offers.keys()]);
+  ids.delete(want.ownerId);
+  return [...ids]
+    .filter((id) => store.getUser(id))
+    .map((sellerId) => {
+      const offer = offers.get(sellerId);
+      const reputation = reputationOf(sellerId);
+      const near = nearness(want.place, placeOf(sellerId), offer?.post.remote ?? false);
+      const contact = contactBetween(want.id, want.ownerId, sellerId);
+      const isAvail = available.has(sellerId);
+      const score =
+        (reputation.score / 100) * 0.4 + near.score * 0.2 + (offer ? offer.fit * 0.15 : 0) + (isAvail ? 0.25 : 0);
+      const why: string[] = [];
+      if (isAvail) why.push("Says they are available");
+      if (reputation.record.delivered > 0) why.push(`${reputation.record.delivered} delivered`);
+      if (reputation.rating != null) why.push(`${reputation.rating.toFixed(1)} stars`);
+      if (near.label) why.push(near.label);
+      if (offer && offer.post.priceUsd <= want.priceUsd) why.push("Within your budget");
+      return { sellerId, available: isAvail, contact, offer, reputation, near, score, why };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 20);
+}
+
 // ─── Proposals ───────────────────────────────────────────────────────────
 
 export function sendProposal(
@@ -797,6 +983,9 @@ export function sendProposal(
   if (!post || post.kind !== "want") throw new MarketError("No such request.", 404);
   if (!post.active) throw new MarketError("This request is closed.", 409);
   if (post.ownerId === sellerId) throw new MarketError("This is your own request.", 403);
+  if (!contactForSeller(postId, sellerId)) {
+    throw new MarketError("The buyer has not messaged you yet. Say you are available and they can pick you.", 403, "NOT_CONTACTED");
+  }
   const seller = store.getUser(sellerId);
   if (!seller?.handle) throw new MarketError("Pick a username in Profile first.", 400, "HANDLE_REQUIRED");
   const price = Number(input.priceUsd);

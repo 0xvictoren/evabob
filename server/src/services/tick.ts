@@ -52,6 +52,8 @@ export async function runTickWork() {
     payouts: await step(() => paywalls.runPaywallPayouts()),
     agentIncome: await step(() => names.sweepAgentIncome()),
     agentNames: await step(async () => ({ linked: await names.linkPendingAgentHandles() })),
+    // Marketplace requests nobody answered in seven hours: tell five more sellers.
+    marketPings: await step(async () => (await import("./marketPings.js")).widenMarketPings()),
   };
 }
 
@@ -74,6 +76,7 @@ export function tickWasBusy(r: Awaited<ReturnType<typeof runTickWork>>): boolean
     busy(r.bookings, ["expired"]) ||
     busy(r.payouts, ["paid", "errors"]) ||
     busy(r.agentIncome, ["credited", "errors"]) ||
-    busy(r.agentNames, ["linked"])
+    busy(r.agentNames, ["linked"]) ||
+    busy(r.marketPings, ["widened"])
   );
 }

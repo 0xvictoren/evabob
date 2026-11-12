@@ -45,6 +45,7 @@ import { llmConfigured } from "../services/llm.js";
 import { memoOnchainEnabled } from "../services/memo.js";
 import { logPseudonym, safeError } from "../utils/safe-log.js";
 import { consumeNamedRateLimit } from "../middleware/rate-limit.js";
+import { announceChatMessage } from "../services/chatAnnounce.js";
 
 export const api = new Hono();
 // Writes need a signed-in person. Hono mounts this sub-app's middleware at
@@ -3361,41 +3362,6 @@ api.post("/chat/threads/:id/photo", async (c) => {
   await announceChatMessage(thread, uid, msg);
   return c.json({ message: msg });
 });
-
-/**
- * Tells everyone else in a chat that a message arrived: live in the open
- * thread, and on their own channel (and by push) so the Chat tab can show it
- * and a closed app still hears about it.
- */
-async function announceChatMessage(
-  thread: { id: string; members: string[] },
-  senderId: string,
-  msg: { id: string; text: string; kind: string; meta?: Record<string, unknown> },
-) {
-  try {
-    await pusherTrigger(`private-chat-${thread.id}`, "message", msg);
-  } catch (e) {
-    console.warn("pusher message", e);
-  }
-  const sender = store.getUser(senderId);
-  const name = sender?.displayName || (sender?.handle ? `@${sender.handle}` : "Someone");
-  const { alertUser } = await import("../services/notifyUser.js");
-  for (const member of thread.members) {
-    if (!member || member === senderId || member.startsWith("peer_") || member.endsWith("-agent")) continue;
-    alertUser(member, {
-      kind: "chat_message",
-      title: name,
-      body:
-        msg.meta?.type === "invoice_card"
-          ? `Sent you a request for ${msg.text.replace(/^Payment request · /, "")}`
-          : msg.meta?.type === "photo"
-            ? "Sent you a photo"
-            : msg.text.slice(0, 140),
-      link: `evabob://chat/${thread.id}`,
-      threadId: thread.id,
-    });
-  }
-}
 
 /**
  * Posts a payment request into a chat as a card the other person can pay or

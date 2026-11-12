@@ -393,6 +393,33 @@ class MarketApi {
   Future<Map<String, dynamic>> checkSocial(String platform) =>
       _api.post('/v1/market/me/socials/$platform/check');
 
+  /// A seller says they can do a request (or takes it back). No price and
+  /// no message: the buyer decides who to talk to.
+  Future<void> setAvailable(String postId, bool available) => _api.post(
+      '/v1/market/posts/$postId/${available ? 'available' : 'unavailable'}');
+
+  /// The buyer messages a seller about a post. Returns the chat to open.
+  Future<Map<String, dynamic>> contact(String postId, {String? sellerId}) =>
+      _api.post('/v1/market/posts/$postId/contact', body: {
+        if (sellerId != null) 'sellerId': sellerId,
+      });
+
+  /// The seller's invoice to a buyer who messaged them; it lands in their
+  /// chat as a request to pay.
+  Future<Map<String, dynamic>> sendInvoice(
+    String contactId, {
+    required List<Map<String, dynamic>> items,
+    String? note,
+    int? deliveryDays,
+    Map<String, dynamic>? display,
+  }) =>
+      _api.post('/v1/market/contacts/$contactId/invoice', body: {
+        'items': items,
+        if (note != null && note.isNotEmpty) 'note': note,
+        if (deliveryDays != null) 'deliveryDays': deliveryDays,
+        if (display != null) 'display': display,
+      });
+
   /// Operators only: outside accounts waiting for a person to look.
   Future<List<Map<String, dynamic>>> socialChecks() async {
     final res = await _api.get('/v1/operator/market/socials');

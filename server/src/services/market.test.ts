@@ -157,6 +157,9 @@ test("offers on a request: one live offer per seller, and only its people may se
   const want = market.createPost(buyer, { kind: "want", type: "service", title: "Fix my generator", priceUsd: 20 });
 
   assert.throws(() => market.sendProposal(buyer, want.id, { priceUsd: 10 }), /your own/);
+  // A seller cannot price a request until the buyer has messaged them.
+  assert.throws(() => market.sendProposal(seller, want.id, { priceUsd: 25 }), /has not messaged you/);
+  market.recordContact(buyer, want.id, seller);
   const first = market.sendProposal(seller, want.id, { priceUsd: 25, message: "Today" });
   const again = market.sendProposal(seller, want.id, { priceUsd: 18 });
   assert.equal(again.id, first.id, "sending again replaces the offer");
@@ -174,6 +177,8 @@ test("accepting an offer makes the deal, declines the rest and closes the reques
   const s1 = user("seller1", "Lekki");
   const s2 = user("seller2", "Ikeja");
   const want = market.createPost(buyer, { kind: "want", type: "service", title: "Paint a room", priceUsd: 40 });
+  market.recordContact(buyer, want.id, s1);
+  market.recordContact(buyer, want.id, s2);
   const p1 = market.sendProposal(s1, want.id, { priceUsd: 38 });
   const p2 = market.sendProposal(s2, want.id, { priceUsd: 30 });
 
@@ -202,6 +207,71 @@ test("accepting an offer makes the deal, declines the rest and closes the reques
   assert.equal(rep.rating, 4);
   assert.equal(rep.dealsPaid, 1);
   assert.notEqual(rep.tier, "new");
+});
+
+test("a request tells five sellers, then five more only after seven quiet hours", () => {
+  market.resetMarketForTests();
+  const buyer = user("pinger", "Lekki");
+  const sellers = Array.from({ length: 12 }, (_, i) => {
+    const id = user(`cleaner${i}`, "Lekki");
+    market.createPost(id, { kind: "offer", type: "service", title: "Home cleaning", priceUsd: 10 + i });
+    return id;
+  });
+  const want = market.createPost(buyer, { kind: "want", type: "service", title: "Home cleaning for my flat", priceUsd: 30 });
+  const t0 = Date.parse("2026-11-12T08:00:00Z");
+
+  const first = market.nextSellersToPing(want, t0);
+  assert.equal(first.length, 5);
+  assert.ok(first.every((id) => sellers.includes(id)));
+  assert.deepEqual(market.wantsToWiden(t0 + 6 * 3_600_000), [], "not yet: six hours");
+  assert.equal(market.wantsToWiden(t0 + 7 * 3_600_000)[0]?.id, want.id);
+
+  const second = market.nextSellersToPing(want, t0 + 7 * 3_600_000);
+  assert.equal(second.length, 5);
+  assert.ok(second.every((id) => !first.includes(id)), "nobody is told twice");
+
+  // Someone said they are available: no more widening.
+  market.markAvailable(second[0]!, want.id);
+  assert.deepEqual(market.wantsToWiden(t0 + 30 * 3_600_000), []);
+  market.withdrawAvailable(second[0]!, want.id);
+  assert.equal(market.wantsToWiden(t0 + 30 * 3_600_000).length, 1);
+
+  // Four rounds at most, however quiet it stays.
+  market.nextSellersToPing(want, t0 + 14 * 3_600_000);
+  market.nextSellersToPing(want, t0 + 21 * 3_600_000);
+  assert.deepEqual(market.wantsToWiden(t0 + 90 * 3_600_000), []);
+});
+
+test("only the buyer starts a conversation; available sellers rank by record, not by speed", () => {
+  market.resetMarketForTests();
+  const buyer = user("chooser", "Lekki");
+  const quick = user("quick_new", "Lekki");
+  const lister = user("lister", "Lekki");
+  market.createPost(lister, { kind: "offer", type: "service", title: "Generator repair", priceUsd: 15 });
+  const want = market.createPost(buyer, { kind: "want", type: "service", title: "Generator repair today", priceUsd: 20 });
+
+  assert.throws(() => market.markAvailable(buyer, want.id), /your own/);
+  assert.equal(market.markAvailable(quick, want.id).fresh, true);
+  assert.equal(market.markAvailable(quick, want.id).fresh, false, "saying it twice tells the buyer once");
+
+  const people = market.candidatesFor(want);
+  assert.deepEqual(people.map((p) => p.sellerId).sort(), [lister, quick].sort());
+  assert.equal(people.find((p) => p.sellerId === quick)!.available, true);
+  assert.match(people.find((p) => p.sellerId === quick)!.why[0]!, /available/);
+  assert.equal(people.find((p) => p.sellerId === lister)!.offer!.post.title, "Generator repair");
+
+  // A seller cannot open the conversation on a want; the buyer can, once.
+  assert.throws(() => market.recordContact(quick, want.id, buyer), /Only the person who asked/);
+  assert.throws(() => market.recordContact(buyer, want.id), /Choose who/);
+  const contact = market.recordContact(buyer, want.id, quick);
+  assert.equal(market.recordContact(buyer, want.id, quick).id, contact.id);
+  assert.equal(market.candidatesFor(want).find((p) => p.sellerId === quick)!.contact!.id, contact.id);
+  assert.equal(market.contactForSeller(want.id, lister), undefined);
+
+  // On something for sale, any buyer may message its seller; the seller is the owner.
+  const offer = market.postsBy(lister)[0]!;
+  assert.throws(() => market.recordContact(lister, offer.id), /your own/);
+  assert.equal(market.recordContact(buyer, offer.id).sellerId, lister);
 });
 
 test("outside accounts: a handle is cleaned, checked by code, and a changed handle starts over", () => {

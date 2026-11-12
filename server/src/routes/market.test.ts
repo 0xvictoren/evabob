@@ -104,7 +104,59 @@ describe("the marketplace", () => {
     assert.equal(again.body.deal.requestId, request.id);
   });
 
-  it("answers a request with the agent's shortlist, takes offers, and accepts one", async () => {
+  it("a request: sellers say they are available, the buyer messages one, and the invoice lands in their chat", async () => {
+    const want = await call("POST", "/v1/market/posts", BUYER, {
+      kind: "want", type: "service", title: "Deep cleaning after a party", priceUsd: 20,
+    });
+    const wantId = want.body.post.id;
+
+    // The seller cannot price it or open a chat; they can only say they are available.
+    assert.equal((await call("POST", `/v1/market/posts/${wantId}/offers`, SELLER, { priceUsd: 14 })).status, 403);
+    assert.equal((await call("POST", `/v1/market/posts/${wantId}/contact`, SELLER, { sellerId: BUYER })).status, 403);
+    assert.equal((await call("POST", `/v1/market/posts/${wantId}/available`, SELLER)).body.available, true);
+    const asSeller = await call("GET", `/v1/market/posts/${wantId}`, SELLER);
+    assert.equal(asSeller.body.available, true);
+    assert.equal(asSeller.body.contact, null);
+
+    const asBuyer = await call("GET", `/v1/market/posts/${wantId}`, BUYER);
+    assert.equal(asBuyer.body.people.length, 1);
+    assert.equal(asBuyer.body.people[0].available, true);
+    assert.equal(asBuyer.body.people[0].seller.handle, "@sparkle");
+    assert.equal(asBuyer.body.pinged, 1);
+
+    const contact = await call("POST", `/v1/market/posts/${wantId}/contact`, BUYER, { sellerId: SELLER });
+    assert.equal(contact.status, 201);
+    const threadId = contact.body.contact.threadId;
+    assert.ok(threadId);
+    const thread = store.listThreads().find((t) => t.id === threadId)!;
+    assert.equal(thread.state, "accepted");
+    assert.match(store.messagesFor(threadId)[0]!.text, /Deep cleaning after a party/);
+    // Messaging again reuses the chat and does not repeat the opening line.
+    const again = await call("POST", `/v1/market/posts/${wantId}/contact`, BUYER, { sellerId: SELLER });
+    assert.equal(again.body.contact.threadId, threadId);
+    assert.equal(store.messagesFor(threadId).length, 1);
+
+    // Only the seller invoices, and the invoice is a card in that chat.
+    const items = [{ description: "Deep clean, 3 rooms", amount: 15 }, { description: "Cleaning supplies", amount: 3.5 }];
+    assert.equal((await call("POST", `/v1/market/contacts/${contact.body.contact.id}/invoice`, BUYER, { items })).status, 403);
+    const invoice = await call("POST", `/v1/market/contacts/${contact.body.contact.id}/invoice`, SELLER, { items, deliveryDays: 2, note: "Saturday morning" });
+    assert.equal(invoice.status, 201);
+    const request = getPaymentRequest(invoice.body.deal.requestId)!;
+    assert.equal(request.total, 18.5);
+    assert.equal(request.items.length, 2);
+    assert.equal(request.receiverId, BUYER);
+    assert.equal(request.threadId, threadId);
+    assert.match(request.note ?? "", /Delivery within 2 days\. Saturday morning/);
+    assert.deepEqual([...request.allowedStructures].sort(), ["escrow", "full", "split"]);
+    const card = store.messagesFor(threadId).at(-1)!;
+    assert.equal(card.meta?.type, "invoice_card");
+    assert.equal(card.meta?.requestId, request.id);
+    const after = await call("GET", `/v1/market/posts/${wantId}`, BUYER);
+    assert.equal(after.body.deals.length, 1);
+    assert.equal(after.body.people[0].contacted, true);
+  });
+
+  it("the older offer-and-accept path still settles for a seller the buyer messaged", async () => {
     const want = await call("POST", "/v1/market/posts", BUYER, {
       kind: "want", type: "service", title: "I need home cleaning this Saturday", priceUsd: 15,
     });
@@ -112,6 +164,7 @@ describe("the marketplace", () => {
     assert.equal(want.body.matches[0].id, offerId);
     const wantId = want.body.post.id;
 
+    await call("POST", `/v1/market/posts/${wantId}/contact`, BUYER, { sellerId: SELLER });
     const offer = await call("POST", `/v1/market/posts/${wantId}/offers`, SELLER, { priceUsd: 14, message: "Free on Saturday" });
     assert.equal(offer.status, 201);
     const seen = await call("GET", `/v1/market/posts/${wantId}`, BUYER);
@@ -125,7 +178,7 @@ describe("the marketplace", () => {
     assert.equal(getPaymentRequest(accepted.body.deal.requestId)!.total, 14);
     const mine = await call("GET", "/v1/market/mine", BUYER);
     assert.equal(mine.body.posts.find((p: any) => p.id === wantId).active, false);
-    assert.equal(mine.body.deals.length, 2);
+    assert.equal(mine.body.deals.length, 3);
   });
 
   it("keeps the operator queue to operators and the public view to the post", async () => {

@@ -17,7 +17,8 @@ import { requireOperator } from "../middleware/authorization.js";
 import { store } from "../store/db.js";
 import * as market from "../services/market.js";
 import { alertUser } from "../services/notifyUser.js";
-import { createInvoice, getPaymentRequest } from "../services/payment-requests.js";
+import { pingSellers } from "../services/marketPings.js";
+import { createInvoice, getPaymentRequest, invoiceCardMeta, requestAmountLabel } from "../services/payment-requests.js";
 import { flushPrimaryStore } from "../services/primary-store.js";
 
 export const marketRoutes = new Hono();
@@ -117,11 +118,37 @@ marketRoutes.get("/market/posts/:id", (c) => {
         seller: market.personCard(r.proposal.sellerId, post.place),
       }));
       body.matches = market.matchWant(post).map(market.postCard);
+      // Who they could pick, best first; they message whoever they choose.
+      body.people = market.candidatesFor(post).map((p) => ({
+        available: p.available,
+        contacted: Boolean(p.contact),
+        threadId: p.contact?.threadId ?? null,
+        why: p.why,
+        near: p.near.label,
+        offer: p.offer ? { id: p.offer.post.id, title: p.offer.post.title, priceUsd: p.offer.post.priceUsd } : null,
+        seller: market.personCard(p.sellerId, post.place),
+      }));
+      body.pinged = post.pinged?.length ?? 0;
     } else {
       const own = market.proposalsFor(post.id).find((p) => p.sellerId === uid && p.status !== "withdrawn");
       body.myOffer = own ?? null;
+      body.available = market.isAvailable(post.id, uid);
+      const contact = market.contactForSeller(post.id, uid);
+      body.contact = contact ? { id: contact.id, threadId: contact.threadId ?? null } : null;
     }
+  } else if (!mine) {
+    const contact = market.contactBetween(post.id, uid, post.ownerId);
+    body.contact = contact ? { id: contact.id, threadId: contact.threadId ?? null } : null;
+  } else {
+    // The seller's side of an offer: buyers who messaged about it.
+    body.contacts = market.contactsOn(post.id).map((x) => ({
+      id: x.id,
+      threadId: x.threadId ?? null,
+      buyer: market.personCard(x.buyerId).name,
+    }));
   }
+  // Invoices already sent between this viewer and the other side of this post.
+  body.deals = market.dealsFor(uid).filter((d) => d.postId === post.id).map((d) => market.dealView(d, uid));
   return c.json(body);
 });
 
@@ -150,15 +177,7 @@ marketRoutes.post("/market/posts", async (c) => {
     if (post.kind === "want") {
       // The agent's first pass: who already sells this, and who should hear.
       matches = market.matchWant(post).map(market.postCard);
-      const asker = store.getUser(uid);
-      for (const sellerId of market.sellersToTell(post)) {
-        alertUser(sellerId, {
-          kind: "market_match",
-          title: "Someone near you needs what you sell",
-          body: `${asker?.handle ? `@${asker.handle}` : "Someone"} wants "${post.title}" and will pay up to ${money(post.priceUsd)}. Send your price.`,
-          link: `evabob://market/${post.id}`,
-        });
-      }
+      pingSellers(post);
     }
     return { post: market.cardFor(post, uid), matches };
   }, 201);
@@ -286,6 +305,145 @@ marketRoutes.post("/market/offers/:id/decline", (c) =>
 
 marketRoutes.post("/market/offers/:id/withdraw", (c) =>
   act(c, () => ({ offer: market.setProposalStatus(userId(c), c.req.param("id"), "withdrawn") })));
+
+// ─── Availability and contact ────────────────────────────────────────────
+
+/** A seller says "I can do this". The buyer is told once per seller. */
+marketRoutes.post("/market/posts/:id/available", (c) => {
+  const uid = userId(c);
+  return act(c, () => {
+    const { interest, fresh } = market.markAvailable(uid, c.req.param("id"));
+    if (fresh) {
+      const post = market.getPost(interest.postId)!;
+      const seller = store.getUser(uid);
+      const rep = market.reputationOf(uid);
+      alertUser(post.ownerId, {
+        kind: "market_offer",
+        title: "A seller is available",
+        body: `${seller?.handle ? `@${seller.handle}` : "A seller"} (${rep.tierLabel}) can do "${post.title}". Open it to see their record and message them.`,
+        link: `evabob://market/${post.id}`,
+      });
+    }
+    return { available: true };
+  });
+});
+
+marketRoutes.post("/market/posts/:id/unavailable", (c) =>
+  act(c, () => {
+    market.withdrawAvailable(userId(c), c.req.param("id"));
+    return { available: false };
+  }));
+
+/**
+ * The buyer messages a seller about a post. Opens (or reuses) the chat
+ * between them, already accepted — a seller on the market has asked to hear
+ * from buyers — and puts a first line in it saying what it is about.
+ */
+marketRoutes.post("/market/posts/:id/contact", async (c) => {
+  const uid = userId(c);
+  const body = z.object({ sellerId: z.string().max(80).optional() }).parse(await c.req.json().catch(() => ({})));
+  return act(c, async () => {
+    const post = market.getPost(c.req.param("id"));
+    if (!post) throw new market.MarketError("No such post.", 404);
+    const sellerId = post.kind === "want" ? body.sellerId : post.ownerId;
+    const existing = sellerId ? store.findThreadBetween(uid, sellerId) : null;
+    if (existing?.state === "blocked") throw new market.MarketError("You cannot message this person.", 403);
+    const contact = market.recordContact(uid, post.id, sellerId);
+    const seller = store.getUser(contact.sellerId)!;
+    let thread = existing ?? store.addThread({
+      members: [uid, seller.id],
+      title: seller.displayName || seller.handle || "Seller",
+      subtitle: "About the marketplace",
+      handle: seller.handle,
+      state: "accepted",
+      invitedBy: uid,
+    });
+    if (thread.state === "pending") {
+      // Accepted on behalf of whoever had not answered the invitation.
+      const other = thread.invitedBy === uid ? seller.id : uid;
+      thread = store.acceptThread(thread.id, other) ?? thread;
+    }
+    const first = !contact.threadId;
+    market.setContactThread(contact.id, thread.id);
+    if (first) {
+      const msg = store.addMessage({
+        threadId: thread.id,
+        senderId: uid,
+        kind: "text",
+        text: post.kind === "want"
+          ? `Hi, I posted "${post.title}" on the marketplace (budget ${money(post.priceUsd)}). Are you available?`
+          : `Hi, I am interested in "${post.title}" on the marketplace.`,
+        meta: { type: "market_contact", postId: post.id, contactId: contact.id, link: `evabob://market/${post.id}` },
+      });
+      const { announceChatMessage } = await import("../services/chatAnnounce.js");
+      await announceChatMessage(thread, uid, msg);
+    }
+    return { contact: { id: contact.id, threadId: thread.id }, thread: store.threadForViewer(thread, uid) };
+  }, 201);
+});
+
+/**
+ * The seller's invoice to a buyer who messaged them: priced lines, a delivery
+ * time and a note. It is a payment request like any other, posted into their
+ * chat as a card, and the buyer pays it there — all held, half held, or all
+ * now.
+ */
+marketRoutes.post("/market/contacts/:id/invoice", async (c) => {
+  const uid = userId(c);
+  const body = z
+    .object({
+      items: z
+        .array(z.object({ description: z.string().min(1).max(200), amount: z.number().positive().max(market.MAX_MARKET_AMOUNT) }))
+        .min(1)
+        .max(10),
+      note: z.string().max(600).optional(),
+      deliveryDays: z.number().int().min(1).max(60).optional(),
+      display: z.object({ currency: z.string().regex(/^[A-Z]{3}$/), amount: z.number().positive() }).optional(),
+    })
+    .parse(await c.req.json());
+  return act(c, async () => {
+    const contact = market.getContact(c.req.param("id"));
+    const post = contact ? market.getPost(contact.postId) : undefined;
+    if (!contact || !post) throw new market.MarketError("No such conversation.", 404);
+    if (contact.sellerId !== uid) throw new market.MarketError("Only the seller sends the invoice.", 403);
+    const total = body.items.reduce((s, i) => s + i.amount, 0);
+    if (total > market.MAX_MARKET_AMOUNT) throw new market.MarketError("That is more than one marketplace invoice can be.");
+    const thread = contact.threadId ? store.listThreads().find((t) => t.id === contact.threadId) : undefined;
+    if (!thread || thread.state === "blocked") throw new market.MarketError("This chat is closed.", 409);
+    const buyer = store.getUser(contact.buyerId);
+    const days = body.deliveryDays ?? post.deliveryDays;
+    const request = createInvoice({
+      userId: uid,
+      items: body.items,
+      description: post.title,
+      note: [`Delivery within ${days} ${days === 1 ? "day" : "days"}.`, body.note?.trim()].filter(Boolean).join(" "),
+      threadId: thread.id,
+      receiverId: contact.buyerId,
+      receiverHandle: buyer?.handle,
+      allowedStructures: ["escrow", "split", "full"],
+      expiresInMs: 7 * 24 * 60 * 60 * 1000,
+      display: body.display,
+    });
+    const deal = market.recordDeal({
+      postId: post.id,
+      sellerId: uid,
+      buyerId: contact.buyerId,
+      title: post.title,
+      priceUsd: request.total,
+      requestId: request.id,
+    });
+    const msg = store.addMessage({
+      threadId: thread.id,
+      senderId: uid,
+      kind: "receipt",
+      text: `Payment request · ${requestAmountLabel(request)} · ${post.title}`,
+      meta: invoiceCardMeta(request),
+    });
+    const { announceChatMessage } = await import("../services/chatAnnounce.js");
+    await announceChatMessage(thread, uid, msg);
+    return { deal: market.dealView(deal, uid), threadId: thread.id };
+  }, 201);
+});
 
 // ─── Deals ───────────────────────────────────────────────────────────────
 
