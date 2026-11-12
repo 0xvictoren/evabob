@@ -79,7 +79,7 @@ export type MarketPost = {
   /** Dollars. The price of an offer, or the most a want will pay. */
   priceUsd: number;
   /** The amount as typed, in the poster's own currency. */
-  display?: { currency: "NGN" | "USD"; amount: number };
+  display?: { currency: string; amount: number };
   photos: string[];
   place: MarketPlace;
   /** Can be done or sent from anywhere (design work, a parcel by courier). */
@@ -583,7 +583,7 @@ export function createPost(
     title: string;
     description?: string;
     priceUsd: number;
-    display?: { currency: "NGN" | "USD"; amount: number };
+    display?: { currency: string; amount: number };
     photos?: string[];
     place?: Partial<MarketPlace>;
     remote?: boolean;

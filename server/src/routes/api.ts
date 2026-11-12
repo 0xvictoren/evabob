@@ -287,7 +287,10 @@ api.get("/health", async (c) => {
     gatewayApi: config.gatewayApiBase,
     synthraConfigured: Boolean(config.synthra.apiKey),
     fxConfigured: true,
-    fixedUsdToNgn: 1390,
+    fx: await import("../services/fx.js").then((m) => {
+      const r = m.getCachedFx();
+      return { source: r.source, updatedAt: r.updatedAt, usdToNgn: r.ngn };
+    }),
     mongoConfigured: Boolean(config.mongo.uri),
     primaryStore: primaryStoreHealth(),
     operatorsConfigured: config.auth.operatorUserIds.length > 0,
@@ -359,7 +362,7 @@ api.post("/notify/test-email", async (c) => {
   });
 });
 
-/** Fixed display rates: 1 USDC ≈ 1 USD = ₦1,390. */
+/** Display rates for one dollar, refreshed hourly from a public feed. */
 api.get("/fx/rates", async (c) => {
   const { fetchUsdRates, fxConfigured } = await import("../services/fx.js");
   const rates = await fetchUsdRates();
@@ -371,12 +374,9 @@ api.get("/fx/rates", async (c) => {
     usdc: 1,
     ngn: rates.ngn,
     eur: rates.eur,
-    rates: {
-      USD: 1,
-      USDC: 1,
-      NGN: rates.ngn,
-      EUR: rates.eur,
-    },
+    rates: rates.rates,
+    /** The currencies a person can choose as their own. */
+    currencies: (await import("../services/fx.js")).CURRENCIES,
     source: rates.source,
     updatedAt: rates.updatedAt,
   });
@@ -711,7 +711,8 @@ api.get("/users/me", (c) => {
 
 /** Naira or dollars: what every amount is shown and typed in for this person. */
 api.post("/users/me/currency", async (c) => {
-  const body = z.object({ currency: z.enum(["NGN", "USD"]) }).parse(await c.req.json());
+  const { CURRENCY_CODES } = await import("../services/fx.js");
+  const body = z.object({ currency: z.enum(CURRENCY_CODES) }).parse(await c.req.json());
   const user = store.setCurrency(userId(c), body.currency);
   if (!user) return c.json({ error: "account_not_found" }, 404);
   return c.json({ currency: user.currency });
@@ -1941,7 +1942,7 @@ api.post("/payment-requests", async (c) => {
       payer: z.string().max(120).optional(),
       /** The total as typed, in the creator's own currency. */
       display: z
-        .object({ currency: z.enum(["NGN", "USD"]), amount: z.number().positive() })
+        .object({ currency: z.string().regex(/^[A-Z]{3}$/), amount: z.number().positive() })
         .optional(),
     })
     .refine((b) => b.amount != null || (b.items && b.items.length > 0), {

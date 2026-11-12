@@ -86,7 +86,10 @@ class EvabobServices {
 
   factory EvabobServices.production() {
     final api = ApiClient(baseUrl: Env.resolveApiBaseUrl());
-    final fx = FxService()..start();
+    final fx = FxService()
+      // Today's rates from the server; the last known ones until it answers.
+      ..attach(() => api.get('/v1/fx/rates'))
+      ..start();
     final auth = EvabobAuth(api: api)..init();
     final notify = SectionNotify();
     final pusher = PusherService()..init();
@@ -326,6 +329,7 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
         _features.refresh();
         // Naira or dollars, as chosen on this account — on any phone.
         _fx.adoptServerCurrency(_auth.serverCurrency);
+        _fx.refresh();
         // Prefer live Circle address once ready; fall back to the SCA the
         // server rebound for this email so Home isn't stuck at $0.
         _circle.hydrateDisplayAddress(_auth.user?.smartAccount);

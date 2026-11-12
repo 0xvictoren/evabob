@@ -562,7 +562,7 @@ class _OfferSheetState extends State<_OfferSheet> {
     final fx = context.read<FxService>();
     final usd = (widget.existing?['priceUsd'] as num?)?.toDouble() ??
         widget.post.priceUsd;
-    _price.text = fx.fromUsd(usd).toStringAsFixed(fx.isNaira ? 0 : 2);
+    _price.text = fx.fromUsd(usd).toStringAsFixed(fx.inputDecimals);
   }
 
   @override
@@ -631,8 +631,8 @@ class _OfferSheetState extends State<_OfferSheet> {
                     const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: const [AmountInputFormatter()],
                 decoration: InputDecoration(
-                  labelText: 'Price in ${fx.isNaira ? 'naira' : 'dollars'}',
-                  prefixText: fx.isNaira ? '₦ ' : '\$ ',
+                  labelText: 'Price in ${fx.dominant.plural}',
+                  prefixText: '${fx.dominant.symbol} ',
                 ),
               ),
               const SizedBox(height: Space.md),

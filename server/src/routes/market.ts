@@ -134,7 +134,7 @@ const postBody = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(3_000).optional(),
   priceUsd: z.number().positive(),
-  display: z.object({ currency: z.enum(["NGN", "USD"]), amount: z.number().positive() }).optional(),
+  display: z.object({ currency: z.string().regex(/^[A-Z]{3}$/), amount: z.number().positive() }).optional(),
   photos: z.array(z.string().max(120)).max(market.MAX_PHOTOS).optional(),
   place: placeBody.optional(),
   remote: z.boolean().optional(),

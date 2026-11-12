@@ -481,9 +481,9 @@ class _Hero extends StatelessWidget {
                                     child: CountUp(
                                       shown,
                                       builder: (_, value) {
-                                        final formatted = fx.isNaira
-                                            ? formatNgn(value)
-                                            : formatUsd(value);
+                                        final formatted = fx.isDollar
+                                            ? formatUsd(value)
+                                            : fx.format(value);
                                         final dot = formatted.lastIndexOf('.');
                                         return FittedBox(
                                           fit: BoxFit.scaleDown,

@@ -232,6 +232,8 @@ List<String> _strings(Object? v) =>
 String _safe(String? s) {
   final text = (s ?? '')
       .replaceAll('₦', 'NGN ')
+      .replaceAll('GH₵', 'GHS ')
+      .replaceAll('₹', 'INR ')
       .replaceAll('€', 'EUR ')
       .replaceAll(RegExp('[‘’]'), "'")
       .replaceAll(RegExp('[“”]'), '"')

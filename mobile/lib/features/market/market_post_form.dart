@@ -161,7 +161,7 @@ class _MarketPostFormState extends State<MarketPostForm> {
         title: _title.text.trim(),
         description: _description.text.trim(),
         priceUsd: fx.toUsd(typed!),
-        display: {'currency': fx.isNaira ? 'NGN' : 'USD', 'amount': typed},
+        display: {'currency': fx.dominant.code, 'amount': typed},
         photos: _photos,
         place: DeviceLocation.place(state: _state, area: _area.text, point: _point),
         remote: _remote,
@@ -321,9 +321,9 @@ class _MarketPostFormState extends State<MarketPostForm> {
                       inputFormatters: const [AmountInputFormatter()],
                       decoration: InputDecoration(
                         labelText: _want
-                            ? 'The most you will pay (${fx.isNaira ? 'naira' : 'dollars'})'
-                            : 'Price (${fx.isNaira ? 'naira' : 'dollars'})',
-                        prefixText: fx.isNaira ? '₦ ' : '\$ ',
+                            ? 'The most you will pay (${fx.dominant.plural})'
+                            : 'Price (${fx.dominant.plural})',
+                        prefixText: '${fx.dominant.symbol} ',
                       ),
                     ),
                     const SizedBox(height: Space.md),

@@ -58,7 +58,7 @@ export type UserRecord = {
    * The currency this person thinks in: every amount in the app is shown and
    * typed in it. Money still moves as USDC underneath. Absent means naira.
    */
-  currency?: "NGN" | "USD";
+  currency?: string;
   /**
    * Highest Arc block already scanned for inbound transfers to this wallet.
    * Absent means the wallet has never been scanned, and scanning starts from
@@ -1470,7 +1470,7 @@ export const store = {
     return thread;
   },
 
-  setCurrency(userId: string, currency: "NGN" | "USD") {
+  setCurrency(userId: string, currency: string) {
     const user = this.getUser(userId);
     if (!user) return null;
     user.currency = currency;

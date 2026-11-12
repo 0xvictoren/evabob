@@ -11,6 +11,7 @@ import { dirname } from "node:path";
 import { config } from "../config.js";
 import { dataPath } from "../utils/data-path.js";
 import { markPrimaryStoreDirty } from "./primary-store.js";
+import { currencyOf } from "./fx.js";
 
 export type InvoiceItem = {
   id: string;
@@ -95,13 +96,15 @@ export type PaymentRequest = {
   display?: RequestDisplay;
 };
 
-export type RequestDisplay = { currency: "NGN" | "USD"; amount: number };
+export type RequestDisplay = { currency: string; amount: number };
 
 /** "₦2,500.00" when it was asked for in naira, else "$1.80" / "€1.80". */
 export function requestAmountLabel(inv: Pick<PaymentRequest, "display" | "total" | "token">): string {
   const two = (n: number) =>
     n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (inv.display?.currency === "NGN") return `₦${two(inv.display.amount)}`;
+  // Asked for in the creator's own currency: say it the way they typed it.
+  const own = inv.display && inv.display.currency !== "USD" ? currencyOf(inv.display.currency) : undefined;
+  if (own && inv.display) return `${own.symbol}${two(inv.display.amount)}`;
   const symbol = (inv.token || "USDC").toUpperCase() === "EURC" ? "€" : "$";
   return `${symbol}${two(inv.total)}`;
 }

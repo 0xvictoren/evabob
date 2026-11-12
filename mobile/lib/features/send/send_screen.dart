@@ -129,7 +129,7 @@ class _SendScreenState extends State<SendScreen> {
   /// Dollars are typed in the person's main currency: ₦2,000 in the amount
   /// sends the dollar equivalent. Euros are a balance of their own and are
   /// typed as euros.
-  bool _typesInNaira(FxService fx) => _token == 'USDC' && fx.isNaira;
+  bool _typesInOwn(FxService fx) => _token == 'USDC' && !fx.isDollar;
 
   double _tokenAmount(FxService fx) {
     final v = _calc.value ?? 0.0;
@@ -159,7 +159,7 @@ class _SendScreenState extends State<SendScreen> {
   /// The amount, typed with the phone's number keyboard: a currency sign and
   /// digits with at most two decimals.
   Widget _amountField(FxService fx, bool tooMuch) {
-    final sign = _token == 'EURC' ? '€' : (_typesInNaira(fx) ? '₦' : r'$');
+    final sign = _token == 'EURC' ? '€' : (_typesInOwn(fx) ? fx.dominant.symbol : r'$');
     final style = EvabobTheme.amountDisplay.copyWith(
       color: tooMuch ? EvabobColors.alert : null,
     );
@@ -207,15 +207,14 @@ class _SendScreenState extends State<SendScreen> {
   }
 
   /// Quick amounts in whatever the amount is typed in.
-  List<String> _quickAmounts(FxService fx) => _typesInNaira(fx)
-      ? const ['1000', '5000', '10000']
-      : const ['20', '50', '100'];
+  List<String> _quickAmounts(FxService fx) =>
+      _typesInOwn(fx) ? fx.quickAmounts : const ['20', '50', '100'];
 
   /// Whole amounts without ".00" — a chip is a quarter of the row, and
   /// "₦10,000.00" does not fit in it.
   String _quickLabel(FxService fx, String q) {
     final v = double.parse(q);
-    final sign = _token == 'EURC' ? '€' : (_typesInNaira(fx) ? '₦' : r'$');
+    final sign = _token == 'EURC' ? '€' : (_typesInOwn(fx) ? fx.dominant.symbol : r'$');
     return '$sign${NumberFormat.decimalPattern('en_US').format(v)}';
   }
 

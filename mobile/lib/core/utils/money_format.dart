@@ -30,12 +30,28 @@ String formatNgn(double v, {bool compactSign = false}) {
 
 String formatUsd(double v) => _usd.format(v);
 
-/// Naira per dollar when the person's main currency is naira, else null.
+final _plain = NumberFormat('#,##0.00', 'en_US');
+final _whole = NumberFormat('#,##0', 'en_US');
+
+/// An amount with any currency's symbol: "GH₵1,250.00", "KSh300.00".
+String formatCurrency(double v, String symbol) {
+  final s = '$symbol${_plain.format(v.abs())}';
+  return v < 0 ? '−$s' : s;
+}
+
+/// A number with thousands separators and no decimals: "1,432".
+String formatWhole(double v) => _whole.format(v);
+
+/// Units of the person's main currency for one dollar, or null when their
+/// main currency is the dollar itself.
 ///
-/// Set by [FxService] when the choice changes. Every dollar amount shown
-/// through [formatMoney] follows it, so the whole app switches at once rather
-/// than screen by screen.
-double? moneyDisplayNgnRate;
+/// Set by [FxService] when the choice or the rate changes. Every dollar
+/// amount shown through [formatMoney] follows it, so the whole app switches
+/// at once rather than screen by screen.
+double? moneyDisplayRate;
+
+/// The symbol that goes with [moneyDisplayRate].
+String moneyDisplaySymbol = '₦';
 String formatEur(double v) => _eur.format(v);
 
 /// An amount the way a person reads one: a currency symbol and two decimals.
@@ -51,8 +67,10 @@ String formatMoney(double v, [String token = 'USDC']) {
     case 'CIRBTC':
       return '₿${v.toStringAsFixed(6)}';
     default:
-      final rate = moneyDisplayNgnRate;
-      return rate != null ? formatNgn(v * rate) : _usd.format(v);
+      final rate = moneyDisplayRate;
+      return rate != null
+          ? formatCurrency(v * rate, moneyDisplaySymbol)
+          : _usd.format(v);
   }
 }
 

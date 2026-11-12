@@ -578,7 +578,11 @@ class _InvoiceTabState extends State<_InvoiceTab> {
                           Text(
                             c == 'EURC'
                                 ? 'Euros'
-                                : (fx.isNaira ? 'Naira' : 'Dollars'),
+                                : (fx.isNaira
+                                    ? 'Naira'
+                                    : fx.isDollar
+                                        ? 'Dollars'
+                                        : fx.dominant.code),
                             style: Type.body.copyWith(
                               color: _currency == c
                                   ? EvabobColors.white
@@ -689,7 +693,7 @@ class _InvoiceTabState extends State<_InvoiceTab> {
                   Text(
                     _currency == 'EURC'
                         ? formatEur(_total)
-                        : (fx.isNaira ? formatNgn(_total) : formatUsd(_total)),
+                        : (fx.isDollar ? formatUsd(_total) : fx.format(_total)),
                     style: Type.title.copyWith(color: EvabobColors.nearBlack),
                   ),
                   if (_total > 0)

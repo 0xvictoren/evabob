@@ -719,9 +719,9 @@ class ProfileScreen extends StatelessWidget {
                     return _tile(
                       Icons.currency_exchange_rounded,
                       'Main currency',
-                      fx.isNaira
-                          ? 'Naira (₦) · amounts shown and typed in naira'
-                          : r'Dollar ($) · amounts shown and typed in dollars',
+                      '${fx.dominant.name} (${fx.dominant.symbol.trim()}) · '
+                          'amounts shown and typed in ${fx.dominant.plural}'
+                          '${fx.isDollar ? '' : ' · ${fx.liveRateLine()}'}',
                       () => _pickCurrency(context),
                     );
                   },
@@ -942,29 +942,42 @@ class ProfileScreen extends StatelessWidget {
     final api = context.read<ApiClient>();
     final picked = await showModalBottomSheet<DominantCurrency>(
       context: context,
+      isScrollControlled: true,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final c in DominantCurrency.values)
-              ListTile(
-                leading: Text(
-                  c.symbol,
-                  style:
-                      const TextStyle(fontSize: 20, color: EvabobColors.navy),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text(
+                  'Every amount is shown and typed in the currency you '
+                  'choose, at today\'s rate. Money still moves as dollars.',
+                  style: TextStyle(fontSize: 12, color: EvabobColors.navyMuted),
                 ),
-                title: Text(c == DominantCurrency.ngn ? 'Naira' : 'Dollar'),
-                subtitle: Text(
-                  c == DominantCurrency.ngn
-                      ? r'Type ₦2,000 and the dollar amount is sent'
-                      : r'Amounts in dollars, naira underneath',
-                ),
-                trailing: fx.dominant == c
-                    ? Icon(Icons.check_rounded, color: EvabobColors.blue)
-                    : null,
-                onTap: () => Navigator.pop(ctx, c),
               ),
-          ],
+              for (final c in DominantCurrency.values)
+                ListTile(
+                  leading: SizedBox(
+                    width: 44,
+                    child: Text(
+                      c.symbol.trim(),
+                      style: const TextStyle(
+                          fontSize: 16, color: EvabobColors.navy),
+                    ),
+                  ),
+                  title: Text(c.name),
+                  subtitle: Text(c.code),
+                  trailing: fx.dominant == c
+                      ? Icon(Icons.check_rounded, color: EvabobColors.blue)
+                      : null,
+                  onTap: () => Navigator.pop(ctx, c),
+                ),
+            ],
+          ),
         ),
       ),
     );
