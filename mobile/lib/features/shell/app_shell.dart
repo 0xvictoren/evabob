@@ -34,6 +34,10 @@ import '../send/send_screen.dart';
 import '../wallet/circle_onboard_sheet.dart';
 import '../agent_tasks/agent_tasks_screen.dart';
 import '../paywalls/paywalls_screen.dart';
+import '../market/market_mine_screen.dart';
+import '../market/market_post_screen.dart';
+import '../market/market_screen.dart';
+import '../../core/platform/web_phone_frame.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -111,7 +115,7 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  bool get _showNav => _overlay == null;
+  bool get _showNav => _overlay == null && !WebLayout.hasSidebar(context);
 
   void _consumeAppLink(AppLinkService links) {
     final uri = links.take();
@@ -173,6 +177,21 @@ class _AppShellState extends State<AppShell> {
       );
       return;
     }
+    // The marketplace: a post (from a match, an offer or a shared link), the
+    // person's own market, or the market itself.
+    if (parts.isNotEmpty && parts.first.toLowerCase() == 'market') {
+      final rest = parts.length >= 2 ? parts[1] : null;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => rest == null
+              ? const MarketScreen()
+              : rest == 'me'
+                  ? const MarketMineScreen(startOnProfile: true)
+                  : MarketPostScreen(postId: rest),
+        ),
+      );
+      return;
+    }
     // A seller's hold link: pay into a hold until the order arrives.
     if (parts.length >= 2 && parts.first.toLowerCase() == 'hold') {
       Navigator.of(context).push(
@@ -215,6 +234,33 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     // After login, create/link spendable wallet automatically (PIN if needed).
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapWallet());
+    ShellNav.request.addListener(_onSidebar);
+  }
+
+  @override
+  void dispose() {
+    ShellNav.request.removeListener(_onSidebar);
+    super.dispose();
+  }
+
+  /// The website's sidebar asked to go somewhere.
+  void _onSidebar() {
+    final to = ShellNav.request.value;
+    if (to == null || !mounted) return;
+    ShellNav.request.value = null;
+    if (to.startsWith('tab:')) {
+      setState(() {
+        _overlay = null;
+        _tab = int.tryParse(to.substring(4)) ?? 0;
+      });
+      if (_tab == 1) context.read<ChatService>().refreshThreads();
+      return;
+    }
+    if (to == 'market') {
+      setState(() => _overlay = 'market');
+      return;
+    }
+    _open(to);
   }
 
   Future<void> _bootstrapWallet() async {
@@ -300,6 +346,9 @@ class _AppShellState extends State<AppShell> {
       );
     }
     switch (_overlay) {
+      // The website opens the market in place, beside the sidebar.
+      case 'market':
+        return const MarketScreen(key: ValueKey('market'));
       case 'send':
         return SendScreen(key: const ValueKey('send'), onBack: _close);
       // Fund / Top-up / unified balance (App Kit deposit under the hood).

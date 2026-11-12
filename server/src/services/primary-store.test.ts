@@ -22,6 +22,7 @@ const valid = {
   agentEvidence: [],
   paywalls: [],
   agentTasks: [],
+  market: [],
 };
 
 test("accepts a complete primary-store snapshot", () => {
@@ -40,6 +41,7 @@ test("loads a snapshot written before bridge jobs and devices were included", ()
     agentEvidence: _evidence,
     paywalls: _paywalls,
     agentTasks: _tasks,
+    market: _market,
     ...older
   } = valid;
   assert.deepEqual(validatePrimaryDatasets(older), valid);

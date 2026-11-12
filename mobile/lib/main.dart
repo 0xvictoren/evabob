@@ -451,8 +451,21 @@ class _EvabobAppState extends State<EvabobApp> with WidgetsBindingObserver {
                 maxScaleFactor: 2.0,
                 child: Builder(builder: (_) => body),
               );
-              // Web-app on a laptop: phone width, centred.
-              return kIsWeb ? WebPhoneFrame(child: app) : app;
+              // In a browser: a website with a sidebar on a laptop, the
+              // app at phone width on a medium window, edge to edge on a
+              // phone.
+              if (!kIsWeb) return app;
+              return WebPhoneFrame(
+                // Watched, so the sidebar appears on sign-in and goes on
+                // sign-out without waiting for something else to rebuild.
+                signedIn: context.watch<EvabobAuth>().isReady &&
+                    context.watch<EvabobAuth>().isSignedIn &&
+                    !context.watch<AppLockService>().needsUnlock,
+                // Close whatever is open on top before the shell moves.
+                onNavigate: () => _navigatorKey.currentState
+                    ?.popUntil((route) => route.isFirst),
+                child: app,
+              );
             },
             home: Consumer2<EvabobAuth, AppLockService>(
               builder: (context, auth, lock, _) {

@@ -48,6 +48,7 @@ export type PrimaryStoreDatasets = {
   paywalls?: unknown;
   /** Tasks agents hire people for. Optional for the same reason. */
   agentTasks?: unknown;
+  market?: unknown;
 };
 
 /**

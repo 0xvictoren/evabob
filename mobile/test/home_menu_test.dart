@@ -38,6 +38,7 @@ void main() {
 
   // The order the product owner fixed, read across each row of the grid.
   const order = [
+    'Marketplace',
     'Request',
     'Sell with a link',
     'Circles and collections',

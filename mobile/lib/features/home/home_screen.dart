@@ -31,6 +31,7 @@ import '../paywalls/paywalls_screen.dart';
 import 'action_row.dart';
 import 'home_menu.dart';
 import 'income_card.dart';
+import '../market/market_screen.dart';
 
 /// Figma Home frame (`2:2`) with the live wallet and activity services wired in.
 class HomeScreen extends StatefulWidget {
@@ -174,6 +175,10 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (choice) {
       case HomeMenuAction.request:
         (widget.onRequest ?? widget.onSend)();
+      case HomeMenuAction.market:
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const MarketScreen()),
+        );
       case HomeMenuAction.sellWithLink:
         Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const HoldLinksScreen()),

@@ -206,7 +206,7 @@ app.use("/v1/circle/prepare-pin", rateLimit(ONBOARDING));
  * instance's disk as a fallback for local development without Mongo. Only
  * the avatar filename shape is served, so nothing else on disk is reachable.
  */
-const AVATAR_FILE = /^avatar_[a-f0-9]{32}\.(jpg|png|webp)$/;
+const AVATAR_FILE = /^(avatar|market)_[a-f0-9]{32}\.(jpg|png|webp)$/;
 // Review evidence and chat photos: random names, reachable only by those
 // given the path.
 const EVIDENCE_FILE = /^evidence_[a-f0-9]{32}\.(jpg|png|webp)$/;
@@ -330,6 +330,10 @@ const [
 app.route("/v1", api);
 app.route("/v1", agentCommerceRoutes);
 app.route("/v1/agent-api", agentApiRoutes);
+{
+  const { marketRoutes } = await import("./routes/market.js");
+  app.route("/v1", marketRoutes);
+}
 {
   const { agentGuideRoutes, agentMcpRoutes } = await import("./routes/agentConnect.js");
   app.route("/v1", agentGuideRoutes);

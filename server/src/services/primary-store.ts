@@ -27,6 +27,7 @@ const paths = {
   agentEvidence: dataPath("agent-evidence.json"),
   paywalls: dataPath("paywalls.json"),
   agentTasks: dataPath("agent-tasks.json"),
+  market: dataPath("market.json"),
 } as const;
 
 /** Datasets added after the first snapshot: absent means "none yet". */
@@ -39,6 +40,7 @@ const LATER_DATASETS = [
   "agentEvidence",
   "paywalls",
   "agentTasks",
+  "market",
 ] as const;
 
 const emptyApp = {

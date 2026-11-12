@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 /// "Move money", Unified is "Your Gateway Account". A person should not have to know what a
 /// bridge is to move their own money.
 enum HomeMenuAction {
+  market,
   request,
   sellWithLink,
   paywalls,
@@ -56,6 +57,12 @@ class _Menu extends StatelessWidget {
   // The order is the product owner's. Keep it when adding or moving items.
   static const List<_MenuItem> _items = [
     (
+      action: HomeMenuAction.market,
+      icon: Icons.storefront_rounded,
+      label: 'Marketplace',
+      hint: 'Buy, sell, or post what you need and get offers from people near you',
+    ),
+    (
       action: HomeMenuAction.request,
       icon: Icons.request_quote_rounded,
       label: 'Request',
@@ -63,7 +70,7 @@ class _Menu extends StatelessWidget {
     ),
     (
       action: HomeMenuAction.sellWithLink,
-      icon: Icons.storefront_rounded,
+      icon: Icons.add_link_rounded,
       label: 'Sell with a link',
       hint: "Buyers' money is set aside until their order arrives",
     ),
@@ -116,6 +123,7 @@ class _Menu extends StatelessWidget {
     final features = context.watch<AppFeatures>();
     final visible = _items.where((item) {
       return switch (item.action) {
+        HomeMenuAction.market => true,
         HomeMenuAction.request => features.requests,
         HomeMenuAction.sellWithLink => true,
         HomeMenuAction.paywalls => true,

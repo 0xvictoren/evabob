@@ -177,8 +177,12 @@ class EvabobTheme {
         backgroundColor: EvabobColors.creamDeep,
         side: BorderSide.none,
         shape: const StadiumBorder(),
-        labelStyle: Type.body.copyWith(color: EvabobColors.nearBlack),
-        secondaryLabelStyle: const TextStyle(color: EvabobColors.onPrimary),
+        // Chips do not inherit the app font, so it is named here; without
+        // it every chip was drawn in the phone's own typeface.
+        labelStyle: Type.body
+            .copyWith(color: EvabobColors.nearBlack, fontFamily: 'Numans'),
+        secondaryLabelStyle: const TextStyle(
+            color: EvabobColors.onPrimary, fontFamily: 'Numans'),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: EvabobColors.creamDeep,

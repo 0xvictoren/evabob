@@ -23,6 +23,7 @@ import 'package:evabob_mobile/core/notifications/money_alerts.dart';
 import 'package:evabob_mobile/core/contacts/contacts_service.dart';
 import 'package:evabob_mobile/core/fx/fx_service.dart';
 import 'package:evabob_mobile/core/notify/section_notify.dart';
+import 'package:evabob_mobile/core/platform/web_phone_frame.dart';
 import 'package:evabob_mobile/core/security/app_lock_service.dart';
 import 'package:evabob_mobile/core/theme/evabob_theme.dart';
 import 'package:evabob_mobile/core/theme/theme_controller.dart';
@@ -40,6 +41,9 @@ import 'package:evabob_mobile/features/groups/groups_screen.dart';
 import 'package:evabob_mobile/features/hold_links/hold_links_screen.dart';
 import 'package:evabob_mobile/features/home/home_menu.dart';
 import 'package:evabob_mobile/features/home/home_screen.dart';
+import 'package:evabob_mobile/features/market/market_mine_screen.dart';
+import 'package:evabob_mobile/features/market/market_post_form.dart';
+import 'package:evabob_mobile/features/market/market_screen.dart';
 import 'package:evabob_mobile/features/notifications/notifications_screen.dart';
 import 'package:evabob_mobile/features/paywalls/paywalls_screen.dart';
 import 'package:evabob_mobile/features/profile/profile_screen.dart';
@@ -169,6 +173,9 @@ void main() {
     'send': () => const SendScreen(),
     'gateway': () => const GatewayScreen(),
     'notifications': () => NotificationsScreen(onBack: noop),
+    'market': () => const MarketScreen(),
+    'market_post_form': () => const MarketPostForm(want: true),
+    'market_mine': () => const MarketMineScreen(),
   };
 
   for (final entry in screens.entries) {
@@ -190,6 +197,50 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
     });
   }
+
+  testWidgets('the website layout: a sidebar and a wide market on a laptop',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(app(Builder(
+      builder: (context) => WebPhoneFrame(
+        signedIn: true,
+        child: Navigator(
+          onGenerateRoute: (_) => MaterialPageRoute<void>(
+            builder: (_) => const Material(
+              color: Color(0xFFF0FAFF),
+              child: MarketScreen(),
+            ),
+          ),
+        ),
+      ),
+    )));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    await shoot(tester, 'website_market');
+    expect(tester.takeException(), isNull);
+    expect(find.text('Send money'), findsOneWidget);
+    // The screen is given the column's width, not the window's.
+    expect(tester.getSize(find.byType(MarketScreen)).width, 880);
+    // A sidebar destination is passed to the shell.
+    await tester.tap(find.text('Wallet'));
+    expect(ShellNav.current.value, 'tab:4');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('a phone-sized browser window gets no sidebar', (tester) async {
+    tester.view.physicalSize = const Size(390, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const MaterialApp(
+      home: WebPhoneFrame(signedIn: true, child: Text('app')),
+    ));
+    expect(find.text('Send money'), findsNothing);
+    expect(find.text('app'), findsOneWidget);
+  });
 
   testWidgets('home menu lays out on a small phone', (tester) async {
     tester.view.physicalSize = const Size(360, 780);

@@ -67,6 +67,7 @@ const PUBLIC_PREFIXES = [
   "/v1/public/agents/",
   "/v1/public/paywalls/",
   "/v1/public/tasks/",
+  "/v1/public/market/",
 ] as const;
 
 /**

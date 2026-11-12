@@ -31,6 +31,24 @@ and other public testnets. Do not read "live" below as "in production" — it me
 
 ---
 
+## Marketplace and website layout — 2026-11-12
+
+Server 493 tests, Flutter 99 tests, typecheck and analyze clean. Not run on a
+phone or in a browser; nothing has been posted or paid through it yet.
+
+| Area | What was built |
+|------|----------------|
+| Marketplace | `services/market.ts`, `routes/market.ts`, app screens under `features/market/`. Two kinds of post: **For sale** (goods or a service at a price) and **Wanted** (what someone needs and the most they will pay). A seller answers a Wanted post with a price; the poster accepts one. 14 categories; up to 4 photos. Home menu → Marketplace. |
+| Paying | A deal is an ordinary payment request from the seller to the buyer, so the buyer chooses what they can choose anywhere else: hold it all until delivered, pay half and hold half, or pay it all. Held money follows the job-hold rules (`docs/HELD_PAYMENTS.md`). No new contract and no new way for money to move. |
+| The agent | Posting a Wanted request returns a shortlist of people who already sell it and tells the best-matching sellers (up to 5) so they can send a price. A sentence can be turned into the fields of a post (`/v1/market/assist`: DeepSeek, or word rules without it). It does not negotiate or pay on anyone's behalf. |
+| Ranking | Every list: fit to the words (40%), nearness (25%), the seller's record (25%), price against budget (10%). Each result carries its reasons. |
+| Nearness | State and area, compared by name: same area, same state, elsewhere. A latitude/longitude is used when both people have one, rounded to about a kilometre; the app does not collect one yet. Only the area is ever shown. |
+| Reputation | A 0–100 score from facts on Evabob: holds delivered and paid (up to 45), ratings from buyers who paid (up to 30), outside accounts that were checked (up to 15), time on Evabob (up to 10), less 12 per refund a reviewer ordered and 4 per order never delivered. Tiers: New here, Building a record, Trusted, Top seller. Only the buyer of a paid deal can rate, once. |
+| Outside accounts | Instagram, X, TikTok, Facebook, WhatsApp, website. The person is given a code to put in that bio. A website is read by the server at once; the others wait for an operator (`/v1/operator/market/socials`) because those sites do not let software read a profile. **There is no operator screen in the app yet** — the queue is API only. |
+| Website layout | In a browser 1000px or wider, signed in: a sidebar (Home, Marketplace, Chat, Activity, Wallet, Get paid, Send money, Profile) that stays put, and screens in a column up to 880px, where the market shows two columns. Narrower windows keep the phone-width frame; phones are unchanged. Same code as the phones (`core/platform/web_phone_frame.dart`). |
+
+---
+
 ## Agent payments to outside sellers, menu grid — 2026-11-11
 
 Server 477 tests, Flutter 76 tests, typecheck and analyze clean. Not yet run

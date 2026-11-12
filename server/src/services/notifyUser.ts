@@ -80,6 +80,14 @@ export type UserAlert = {
     | "paywall_sale"
     /** Software asked to book this person's time; accept or decline. */
     | "paywall_booking"
+    /** A request on the marketplace matches what this person sells. */
+    | "market_match"
+    /** A seller answered this person's request with a price. */
+    | "market_offer"
+    /** A buyer started paying for something this person posted. */
+    | "market_deal"
+    /** A buyer left a rating, or an outside account was checked. */
+    | "market_review"
     /** A new Dynamic subject requested explicit access to an older account. */
     | "account_recovery";
   title: string;
