@@ -287,6 +287,7 @@ api.get("/health", async (c) => {
       .catch(() => null),
     gatewayApi: config.gatewayApiBase,
     synthraConfigured: Boolean(config.synthra.apiKey),
+    synthraBridge: await import("../services/synthraBridge.js").then((m) => m.synthraBridgeHealth()),
     fxConfigured: true,
     fx: await import("../services/fx.js").then((m) => {
       const r = m.getCachedFx();

@@ -1543,6 +1543,177 @@ circleWallets.post("/escrow/hold-milestones", async (c) => {
   }
 });
 
+// ─── Bridging through Synthra ────────────────────────────────────────────
+// Off unless SYNTHRA_BRIDGE=true and Synthra serves this network (it serves
+// mainnets only, so never on Arc Testnet). See services/synthraBridge.ts.
+
+circleWallets.get("/synthra-bridge/destinations", async (c) => {
+  const { synthraBridgeDestinations } = await import("../services/synthraBridge.js");
+  const destinations = await synthraBridgeDestinations();
+  return c.json({ enabled: destinations.length > 0, destinations });
+});
+
+const synthraBridgeBody = {
+  toChainId: z.number().int().positive(),
+  amountUsdc: z.number().positive().max(1_000_000),
+  /** Where it lands; the person's own address on the other network by default. */
+  toAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  slippageBps: z.number().int().min(1).max(500).optional(),
+};
+
+/** A price, with nothing signed: what arrives and by when to accept it. */
+circleWallets.post("/synthra-bridge/quote", async (c) => {
+  const body = z.object(synthraBridgeBody).parse(await c.req.json());
+  const user = store.getUser(appUserId(c));
+  if (!user?.evmAddress) return c.json({ error: "Set up your wallet first" }, 400);
+  const { quoteBridge, SynthraBridgeError } = await import("../services/synthraBridge.js");
+  const { toUnits } = await import("../services/platformFee.js");
+  try {
+    const plan = await quoteBridge({
+      user: user.evmAddress,
+      recipient: body.toAddress ?? user.evmAddress,
+      destinationChainId: body.toChainId,
+      amountUnits: toUnits(body.amountUsdc, 6),
+      slippageBps: body.slippageBps,
+    });
+    return c.json({
+      amountUsdc: body.amountUsdc,
+      arrivesUsdc: Number(formatUnits(plan.amountOutUnits, 6)),
+      atLeastUsdc: Number(formatUnits(plan.minimumOutUnits, 6)),
+      expiresAt: new Date(plan.expiresAt).toISOString(),
+      route: plan.route,
+      platformFee: quotePlatformFee(body.amountUsdc, 6).fee,
+    });
+  } catch (e) {
+    if (e instanceof SynthraBridgeError) return c.json({ error: e.message, code: e.code }, e.status);
+    throw e;
+  }
+});
+
+/**
+ * Starts a bridge: a fresh price, checked step by step, then every step and
+ * the Evabob fee in ONE wallet batch — one PIN, all of it or none of it.
+ */
+circleWallets.post("/synthra-bridge/start", async (c) => {
+  const body = z
+    .object({ userToken: z.string().min(10), walletId: z.string().min(1), ...synthraBridgeBody })
+    .parse(await c.req.json());
+  const uid = appUserId(c);
+  const user = store.getUser(uid);
+  if (!user?.evmAddress) return c.json({ error: "Set up your wallet first" }, 400);
+  {
+    const { balanceShortfall } = await import("../services/balanceGuard.js");
+    const short = await balanceShortfall({ userId: uid, token: "USDC", amount: body.amountUsdc });
+    if (short) return c.json({ error: short, code: "INSUFFICIENT_BALANCE" }, 400);
+  }
+  const { quoteBridge, SynthraBridgeError, USDC_BY_CHAIN } = await import("../services/synthraBridge.js");
+  const { toUnits } = await import("../services/platformFee.js");
+  try {
+    const recipient = body.toAddress ?? user.evmAddress;
+    const plan = await quoteBridge({
+      user: user.evmAddress,
+      recipient,
+      destinationChainId: body.toChainId,
+      amountUnits: toUnits(body.amountUsdc, 6),
+      slippageBps: body.slippageBps,
+    });
+    const feeQuote = quotePlatformFee(body.amountUsdc, 6);
+    const feeCall = feeTransferCall(config.arc.usdc as `0x${string}`, feeQuote);
+    const where = USDC_BY_CHAIN[body.toChainId]?.label ?? `network ${body.toChainId}`;
+    const activity = store.addActivity({
+      userId: uid,
+      kind: "bridge",
+      title: `Arc → ${where}`,
+      description: `Moving ${body.amountUsdc} USDC to ${where}`,
+      amountUsdc: -body.amountUsdc,
+      token: "USDC",
+      amountToken: body.amountUsdc,
+      counterparty: recipient,
+      ...(plan.steps.some((s) => s.value > 0n) ? {} : feeActivityFields(feeQuote, "USDC", 6)),
+      mode: "synthra_bridge",
+      // Where to ask how it went. Not a multi-recipient batch.
+      batchId: `synthra:${plan.requestId}`,
+      status: "pending",
+    });
+    // A step that carries native value cannot ride in the wallet batch
+    // (Circle takes that amount as a field of its own), so such a route is
+    // confirmed step by step, in order, and the Evabob fee is not added to
+    // it rather than taken in a separate transaction that could land alone.
+    const carriesValue = plan.steps.some((s) => s.value > 0n);
+    let appId: string | undefined;
+    const challenges: Array<{ step: string; challengeId: string; description: string }> = [];
+    if (carriesValue) {
+      for (const [i, s] of plan.steps.entries()) {
+        const { createCalldataChallenge } = await import("../services/circle-ucw.js");
+        const one = await createCalldataChallenge({
+          userToken: body.userToken,
+          walletId: body.walletId,
+          contractAddress: s.to,
+          callData: s.data,
+          ...(s.value > 0n ? { amount: formatUnits(s.value, 18) } : {}),
+        });
+        appId = one.appId;
+        challenges.push({ step: `bridge_${i + 1}`, challengeId: String(one.challengeId ?? ""), description: s.description });
+      }
+    } else {
+      const batch = await createWalletBatchChallenge({
+        userToken: body.userToken,
+        walletId: body.walletId,
+        walletAddress: user.evmAddress,
+        calls: [
+          ...plan.steps.map((s) => ({ to: s.to, data: s.data })),
+          ...(feeCall ? [feeCall] : []),
+        ],
+      });
+      appId = batch.appId;
+      challenges.push({ step: "bridge", challengeId: String(batch.challengeId ?? ""), description: `Move to ${where}` });
+    }
+    if (challenges.some((ch) => !ch.challengeId)) {
+      store.updateActivity(activity.id, { status: "failed" });
+      return c.json({ error: "The bridge could not be prepared. Nothing moved." }, 400);
+    }
+    return c.json({
+      appId,
+      challenges,
+      activityId: activity.id,
+      requestId: plan.requestId,
+      arrivesUsdc: Number(formatUnits(plan.amountOutUnits, 6)),
+      atLeastUsdc: Number(formatUnits(plan.minimumOutUnits, 6)),
+      expiresAt: new Date(plan.expiresAt).toISOString(),
+      ...(feeCall && !carriesValue ? { platformFee: feeQuote.fee } : {}),
+    });
+  } catch (e) {
+    if (e instanceof SynthraBridgeError) return c.json({ error: e.message, code: e.code }, e.status);
+    return c.json({ error: clientError(e, "The bridge could not start") }, 400);
+  }
+});
+
+/** How one bridge is going. Marks the activity row when it ends. */
+circleWallets.get("/synthra-bridge/status", async (c) => {
+  const q = z
+    .object({ activityId: z.string().min(1).max(80), txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional() })
+    .parse(c.req.query());
+  const row = store.getActivity(q.activityId);
+  if (!row || row.userId !== appUserId(c) || !row.batchId?.startsWith("synthra:")) {
+    return c.json({ error: "No such bridge" }, 404);
+  }
+  const { bridgeStatus, SynthraBridgeError } = await import("../services/synthraBridge.js");
+  try {
+    const status = await bridgeStatus(row.batchId.slice("synthra:".length));
+    if (q.txHash && !row.txHash) store.updateActivity(row.id, { txHash: q.txHash });
+    if (status.final && row.status === "pending") {
+      store.updateActivity(row.id, {
+        status: status.state === "arrived" ? "completed" : "failed",
+        ...(status.state === "returned" ? { description: `${row.description} · returned to you` } : {}),
+      });
+    }
+    return c.json(status);
+  } catch (e) {
+    if (e instanceof SynthraBridgeError) return c.json({ error: e.message, code: e.code }, e.status);
+    throw e;
+  }
+});
+
 // ─── Money circles and group pots ────────────────────────────────────────
 // Each route builds one wallet batch (one PIN). The app confirms with the
 // resulting transaction on /v1/groups/…, which reads the chain.

@@ -2104,6 +2104,151 @@ class CircleWalletService extends ChangeNotifier {
     }
   }
 
+  /// Circle's network number → the network's own id, for the mainnets
+  /// Synthra bridges to.
+  static const _mainnetChainForDomain = <int, int>{
+    0: 1, // Ethereum
+    1: 43114, // Avalanche
+    2: 10, // Optimism
+    3: 42161, // Arbitrum
+    6: 8453, // Base
+    7: 137, // Polygon
+  };
+
+  /// Moves dollars out of Arc through Synthra.
+  ///
+  /// Returns null when Synthra does not serve this route (always the case on
+  /// testnet), and a result with `notStarted` when it failed before any PIN
+  /// was asked for; in both cases the caller may use another rail. Once a
+  /// PIN has been asked for, the result is final: the money may be moving.
+  Future<Map<String, dynamic>?> _synthraBridge({
+    required BuildContext context,
+    required int destinationDomain,
+    required double amountUsdc,
+    required String toAddress,
+    required void Function(String stage, String label) stage,
+  }) async {
+    final toChainId = _mainnetChainForDomain[destinationDomain];
+    if (toChainId == null) return null;
+    try {
+      final where = await _api.get('/v1/circle/synthra-bridge/destinations');
+      final offered = ((where['destinations'] as List?) ?? const [])
+          .whereType<Map>()
+          .any((d) => (d['chainId'] as num?)?.toInt() == toChainId);
+      if (where['enabled'] != true || !offered) return null;
+    } catch (_) {
+      return null;
+    }
+
+    Map<String, dynamic> res;
+    try {
+      res = await _api.post('/v1/circle/synthra-bridge/start', body: {
+        'userToken': userToken,
+        'walletId': walletId,
+        'toChainId': toChainId,
+        'amountUsdc': double.parse(amountUsdc.toStringAsFixed(6)),
+        if (RegExp(r'^0x[a-fA-F0-9]{40}$').hasMatch(toAddress))
+          'toAddress': toAddress,
+      });
+    } catch (e) {
+      final msg =
+          e.toString().replaceFirst(RegExp(r'^ApiException\(\d+\):\s*'), '');
+      return {'ok': false, 'error': msg, 'notStarted': true};
+    }
+    final challengeIds = _challengeIdsFrom(res);
+    if (challengeIds.isEmpty) {
+      return {
+        'ok': false,
+        'error': res['error']?.toString() ?? 'The bridge could not start',
+        'notStarted': true,
+      };
+    }
+    if (!context.mounted) {
+      return {'ok': false, 'error': 'Cancelled', 'stage': 'cancelled'};
+    }
+
+    final activityId = res['activityId']?.toString();
+    stage('pin', 'Confirm bridge with PIN…');
+    final pinOk =
+        await executeChallengeResponse(context, res, title: 'Confirm bridge');
+    if (!pinOk) {
+      await _confirmActivity(activityId: activityId, ok: false);
+      return {
+        'ok': false,
+        'error': 'PIN cancelled — no funds moved',
+        'stage': 'cancelled',
+        'rail': 'synthra',
+      };
+    }
+
+    stage('resolving', 'Sending from Arc…');
+    final verified = await verifyChallengesAndHash(
+      challengeIds: challengeIds,
+      resolveTxHash: true,
+    );
+    final txHash = verified['txHash']?.toString();
+    if (verified['ok'] != true) {
+      // Not confirmed either way: say so, and leave the row to be checked.
+      return {
+        'ok': false,
+        'pending': true,
+        'error': 'The bridge was submitted but has not confirmed yet. Check '
+            'Activity in a moment — do not send it again.',
+        'stage': 'resolving',
+        'rail': 'synthra',
+        'activityId': activityId,
+      };
+    }
+
+    // Followed for about three minutes; after that it carries on by itself
+    // and Activity shows where it stands.
+    stage('attesting', 'On its way…');
+    for (var i = 0; i < 36; i++) {
+      await Future<void>.delayed(const Duration(seconds: 5));
+      try {
+        final st = await _api.get('/v1/circle/synthra-bridge/status', query: {
+          'activityId': activityId ?? '',
+          if (txHash != null && txHash.startsWith('0x')) 'txHash': txHash,
+        });
+        final state = st['state']?.toString();
+        if (state == 'arrived') {
+          stage('minted', 'Arrived');
+          return {
+            'ok': true,
+            'stage': 'minted',
+            'rail': 'synthra',
+            'txHash': txHash,
+            'destinationTx': st['destinationTx'],
+            'activityId': activityId,
+            'arrivesUsdc': res['arrivesUsdc'],
+          };
+        }
+        if (state == 'failed' || state == 'returned') {
+          return {
+            'ok': false,
+            'error': state == 'returned'
+                ? 'The bridge did not go through and the money was returned to you.'
+                : 'The bridge did not go through.',
+            'stage': 'failed',
+            'rail': 'synthra',
+            'activityId': activityId,
+          };
+        }
+      } catch (_) {
+        // A missed check is not a failed bridge; ask again.
+      }
+    }
+    return {
+      'ok': false,
+      'pending': true,
+      'error': 'Still on its way. It will show as arrived in Activity.',
+      'stage': 'attesting',
+      'rail': 'synthra',
+      'txHash': txHash,
+      'activityId': activityId,
+    };
+  }
+
   /// Map CCTP domain → App Kit chain (product-supported only).
   static String? appKitChainForDomain(int domain) {
     switch (domain) {
@@ -2159,6 +2304,25 @@ class CircleWalletService extends ChangeNotifier {
             'Could not refresh wallet session — try Profile → wallet setup',
         'stage': 'session',
       };
+    }
+
+    // Synthra first, where it serves this network (mainnets only, so never
+    // on Arc Testnet). Only out of Arc, and only if nothing was signed may
+    // another rail try afterwards.
+    if (sourceDomain == 26 && token == 'USDC') {
+      final viaSynthra = await _synthraBridge(
+        context: context,
+        destinationDomain: destinationDomain,
+        amountUsdc: amountUsdc,
+        toAddress: mintRecipient,
+        stage: stage,
+      );
+      if (viaSynthra != null && viaSynthra['notStarted'] != true) {
+        return viaSynthra;
+      }
+      if (!context.mounted) {
+        return {'ok': false, 'error': 'Cancelled', 'stage': 'cancelled'};
+      }
     }
 
     // App Kit path (product chains only) — supports bidirectional routes.

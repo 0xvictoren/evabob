@@ -169,6 +169,11 @@ services:
       # once-a-day endpoint is used.
       - key: EXCHANGERATE_API_KEY
         sync: false
+      # Bridging through Synthra. Leave "false" on testnet: Synthra's
+      # cross-chain service serves mainnets only, and this path has not moved
+      # real money yet (docs/STATUS.md).
+      - key: SYNTHRA_BRIDGE
+        value: "false"
       # The Evabob @handle that collects the 1% marketplace fee.
       - key: MARKET_FEE_ACCOUNT
         sync: false
