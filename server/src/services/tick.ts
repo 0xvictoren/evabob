@@ -55,6 +55,9 @@ export async function runTickWork() {
     // Marketplace requests nobody answered in seven hours: tell five more sellers.
     marketPings: await step(async () => (await import("./marketPings.js")).widenMarketPings()),
     // The marketplace's 1%: paid out or returned with the hold it rode beside.
+    // Part payments past their deadline without the total in: all returned.
+    // Before the fee step, so a returned part's 1% follows in the same tick.
+    marketInstallments: await step(async () => (await import("./marketInstallments.js")).runInstallmentWork()),
     marketFees: await step(async () => (await import("./marketFee.js")).runMarketFeeWork()),
   };
 }
@@ -80,6 +83,7 @@ export function tickWasBusy(r: Awaited<ReturnType<typeof runTickWork>>): boolean
     busy(r.agentIncome, ["credited", "errors"]) ||
     busy(r.agentNames, ["linked"]) ||
     busy(r.marketPings, ["widened"]) ||
-    busy(r.marketFees, ["taken", "returned", "errors"])
+    busy(r.marketFees, ["taken", "returned", "errors"]) ||
+    busy(r.marketInstallments, ["refunded", "errors"])
   );
 }

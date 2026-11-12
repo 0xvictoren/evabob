@@ -290,7 +290,7 @@ api.get("/health", async (c) => {
     fxConfigured: true,
     fx: await import("../services/fx.js").then((m) => {
       const r = m.getCachedFx();
-      return { source: r.source, updatedAt: r.updatedAt, usdToNgn: r.ngn };
+      return { source: r.source, provider: m.fxProvider(), updatedAt: r.updatedAt, usdToNgn: r.ngn };
     }),
     mongoConfigured: Boolean(config.mongo.uri),
     primaryStore: primaryStoreHealth(),

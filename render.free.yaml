@@ -165,6 +165,13 @@ services:
         value: deepseek-flash
       - key: DEEPSEEK_API_KEY
         sync: false
+      # ExchangeRate-API key (app.exchangerate-api.com). Without it the open,
+      # once-a-day endpoint is used.
+      - key: EXCHANGERATE_API_KEY
+        sync: false
+      # The Evabob @handle that collects the 1% marketplace fee.
+      - key: MARKET_FEE_ACCOUNT
+        sync: false
       - key: SYNTHRA_API_KEY
         sync: false
       - key: PUSHER_APP_ID

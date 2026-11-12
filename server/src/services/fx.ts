@@ -60,7 +60,26 @@ const FALLBACK: Record<string, number> = {
   TZS: 2500, RWF: 1450, EGP: 48, GBP: 0.75, EUR: 0.87, CAD: 1.38, AED: 3.6725, INR: 88,
 };
 
-const FEED_URL = process.env.FX_RATES_URL?.trim() || "https://open.er-api.com/v6/latest/USD";
+/**
+ * Where rates come from. With EXCHANGERATE_API_KEY set, ExchangeRate-API's
+ * keyed endpoint (the account on app.exchangerate-api.com); without it, the
+ * same provider's open endpoint, which needs no key and updates once a day.
+ * The key is part of the address, so the address is never logged.
+ */
+function feedUrl(): string {
+  const override = process.env.FX_RATES_URL?.trim();
+  if (override) return override;
+  const key = process.env.EXCHANGERATE_API_KEY?.trim();
+  return key && /^[A-Za-z0-9]{16,64}$/.test(key)
+    ? `https://v6.exchangerate-api.com/v6/${key}/latest/USD`
+    : "https://open.er-api.com/v6/latest/USD";
+}
+
+/** "exchangerate-api" with a key, "open" without: shown on the health page. */
+export function fxProvider(): "exchangerate-api" | "open" | "custom" {
+  if (process.env.FX_RATES_URL?.trim()) return "custom";
+  return /^[A-Za-z0-9]{16,64}$/.test(process.env.EXCHANGERATE_API_KEY?.trim() ?? "") ? "exchangerate-api" : "open";
+}
 const FRESH_MS = 60 * 60 * 1000;
 const FEED_TIMEOUT_MS = 6_000;
 
@@ -98,12 +117,15 @@ export function parseFeed(body: unknown): { rates: Record<string, number>; at: D
 
 async function load(): Promise<FxRates> {
   try {
-    const res = await fetch(FEED_URL, {
+    const res = await fetch(feedUrl(), {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`rates feed answered ${res.status}`);
-    const parsed = parseFeed(await res.json());
+    const body = (await res.json()) as Record<string, unknown>;
+    // The keyed endpoint answers 200 with result "error" for a bad or spent key.
+    if (body?.result === "error") throw new Error(`rates feed refused: ${String(body["error-type"] ?? "error")}`);
+    const parsed = parseFeed(body);
     if (!parsed) throw new Error("rates feed returned nothing usable");
     current = shape(parsed.rates, "live", parsed.at);
     fetchedAt = Date.now();

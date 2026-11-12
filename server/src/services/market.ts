@@ -89,6 +89,15 @@ export type MarketPost = {
   active: boolean;
   createdAt: string;
   closedAt?: string;
+  /**
+   * How many the seller has to sell. Each paid deal takes one. Absent on
+   * posts made before units existed, which never run out.
+   */
+  units?: number;
+  /** The buyer may pay in parts into a hold, by a deadline. */
+  installments?: boolean;
+  /** Days the buyer has to finish paying, from their first part. */
+  installmentDays?: number;
   /** Sellers already told about this want, so a wider ping tells new ones. */
   pinged?: string[];
   lastPingAt?: string;
@@ -143,7 +152,24 @@ export type MarketDeal = {
    * Absent on deals made before the fee, which pay the seller in full.
    */
   feeBps?: number;
+  /** Paying in parts: each part is its own hold for the seller. */
+  installments?: InstallmentPlan;
   createdAt: string;
+};
+
+export type InstallmentPart = { transferId: string; amountUsdc: number; at: string };
+
+/**
+ * A deal paid part by part. Every part is locked in a hold for the seller.
+ * Paid in full by `dueAt`, the holds stand and the deal goes ahead like any
+ * held deal. Not paid in full by then, every part goes back to the buyer.
+ * The seller may move `dueAt` earlier or later while it is open.
+ */
+export type InstallmentPlan = {
+  dueAt: string;
+  parts: InstallmentPart[];
+  status: "open" | "funded" | "refunded";
+  settledAt?: string;
 };
 
 export type MarketReview = {
@@ -476,6 +502,8 @@ const TIER_LABEL: Record<Reputation["tier"], string> = {
 };
 
 function dealPaid(deal: MarketDeal, statusOf: (requestId: string) => string | undefined): boolean {
+  // Paid in parts: paid once every part is in, whatever the request says.
+  if (deal.installments) return deal.installments.status === "funded";
   const s = statusOf(deal.requestId);
   return s === "paid" || s === "partial" || s === "escrow" || s === "released";
 }
@@ -619,6 +647,12 @@ export function createPost(
     place?: Partial<MarketPlace>;
     remote?: boolean;
     deliveryDays?: number;
+    /** How many there are to sell (offers). */
+    units?: number;
+    /** False keeps the post to its owner until they make it live. */
+    live?: boolean;
+    installments?: boolean;
+    installmentDays?: number;
   },
 ): MarketPost {
   const owner = store.getUser(ownerId);
@@ -660,7 +694,11 @@ export function createPost(
     place,
     remote: Boolean(input.remote),
     deliveryDays: Number.isFinite(days) ? Math.min(60, Math.max(1, days)) : 7,
-    active: true,
+    active: input.live !== false,
+    ...(input.kind === "offer" ? { units: cleanUnits(input.units) } : {}),
+    ...(input.kind === "offer" && input.installments
+      ? { installments: true, installmentDays: cleanInstallmentDays(input.installmentDays) }
+      : {}),
     createdAt: new Date().toISOString(),
   };
   data.posts.unshift(post);
@@ -668,6 +706,58 @@ export function createPost(
   if (!placeOf(ownerId)) ensureProfile(ownerId).place = place;
   save();
   return post;
+}
+
+export const MAX_UNITS = 100_000;
+export const MAX_INSTALLMENT_DAYS = 80;
+
+function cleanUnits(raw: number | undefined): number {
+  const n = Math.round(Number(raw ?? 1));
+  return Number.isFinite(n) ? Math.min(MAX_UNITS, Math.max(1, n)) : 1;
+}
+
+function cleanInstallmentDays(raw: number | undefined): number {
+  const n = Math.round(Number(raw ?? 30));
+  return Number.isFinite(n) ? Math.min(MAX_INSTALLMENT_DAYS, Math.max(1, n)) : 30;
+}
+
+/** How many have been paid for. */
+export function unitsSold(postId: string): number {
+  return data.deals.filter((d) => d.postId === postId && dealPaid(d, requestStatus)).length;
+}
+
+/** How many are left to buy; null for a post that never runs out. */
+export function unitsLeft(post: MarketPost): number | null {
+  if (post.kind !== "offer" || post.units == null) return null;
+  return Math.max(0, post.units - unitsSold(post.id));
+}
+
+/** The owner changes how many they have, or how it may be paid for. */
+export function updateOffer(
+  ownerId: string,
+  id: string,
+  input: { units?: number; installments?: boolean; installmentDays?: number },
+): MarketPost {
+  const post = getPost(id);
+  if (!post || post.ownerId !== ownerId || post.kind !== "offer") throw new MarketError("No such post.", 404);
+  if (input.units != null) {
+    // Units are what is left to sell from now, on top of what already sold.
+    post.units = Math.min(MAX_UNITS, unitsSold(post.id) + Math.max(0, Math.round(Number(input.units)) || 0));
+  }
+  if (input.installments != null) {
+    post.installments = Boolean(input.installments);
+    if (post.installments) post.installmentDays = cleanInstallmentDays(input.installmentDays ?? post.installmentDays);
+  } else if (input.installmentDays != null && post.installments) {
+    post.installmentDays = cleanInstallmentDays(input.installmentDays);
+  }
+  save();
+  return post;
+}
+
+/** Whether someone may look at a post: live, their own, or one they dealt on. */
+export function canSee(post: MarketPost, viewerId: string | undefined): boolean {
+  if (post.active || post.ownerId === viewerId) return true;
+  return Boolean(viewerId) && data.deals.some((d) => d.postId === post.id && d.buyerId === viewerId);
 }
 
 export function getPost(id: string): MarketPost | undefined {
@@ -782,7 +872,7 @@ export function browse(input: {
   limit?: number;
 }): Ranked[] {
   const posts = data.posts.filter((p) =>
-    p.active && p.kind === input.kind &&
+    p.active && p.kind === input.kind && unitsLeft(p) !== 0 &&
     (!input.type || p.type === input.type) &&
     (!input.category || p.category === input.category));
   return rankPosts({ posts, query: input.query, viewerPlace: placeOf(input.viewerId), sort: input.sort })
@@ -798,7 +888,7 @@ export function browse(input: {
  */
 export function matchWant(want: MarketPost, limit = 8): Ranked[] {
   const candidates = data.posts.filter((p) =>
-    p.active && p.kind === "offer" && p.ownerId !== want.ownerId &&
+    p.active && p.kind === "offer" && p.ownerId !== want.ownerId && unitsLeft(p) !== 0 &&
     (p.type === want.type || p.category === want.category));
   const query = `${want.title} ${want.description}`;
   const ranked = rankPosts({ posts: candidates, query, viewerPlace: want.place, budgetUsd: want.priceUsd });
@@ -1110,7 +1200,8 @@ export function dealsFor(userId: string): MarketDeal[] {
 
 /** An open deal the buyer already started on this post, to reuse rather than repeat. */
 export function openDealFor(buyerId: string, postId: string): MarketDeal | undefined {
-  return data.deals.find((d) => d.buyerId === buyerId && d.postId === postId && requestStatus(d.requestId) === "open");
+  return data.deals.find((d) =>
+    d.buyerId === buyerId && d.postId === postId && !d.installments && requestStatus(d.requestId) === "open");
 }
 
 export function dealView(deal: MarketDeal, viewerId: string) {
@@ -1128,7 +1219,17 @@ export function dealView(deal: MarketDeal, viewerId: string) {
     payLink: `evabob://pay/${deal.requestId}`,
     role: iBought ? "buyer" : "seller",
     with: other?.handle ? `@${other.handle}` : other?.displayName ?? "Someone",
-    status,
+    status: deal.installments
+      ? deal.installments.status === "funded" ? "escrow" : deal.installments.status === "refunded" ? "cancelled" : "open"
+      : status,
+    installments: deal.installments
+      ? {
+          status: deal.installments.status,
+          dueAt: deal.installments.dueAt,
+          paidUsd: installmentPaid(deal),
+          parts: deal.installments.parts.length,
+        }
+      : null,
     paid: dealPaid(deal, requestStatus),
     canReview: iBought && dealPaid(deal, requestStatus) && !review,
     review: review ? { stars: review.stars, text: review.text } : null,
@@ -1136,7 +1237,123 @@ export function dealView(deal: MarketDeal, viewerId: string) {
   };
 }
 
+// ─── Paying in parts ─────────────────────────────────────────────────────
+
+const round6 = (n: number) => Number(n.toFixed(6));
+
+export function installmentPaid(deal: MarketDeal): number {
+  return round6((deal.installments?.parts ?? []).reduce((s, p) => s + p.amountUsdc, 0));
+}
+
+/** The buyer's open part-payment deal on a post, if they started one. */
+export function installmentDealFor(buyerId: string, postId: string): MarketDeal | undefined {
+  return data.deals.find((d) => d.buyerId === buyerId && d.postId === postId && d.installments?.status === "open");
+}
+
+/** Starts the clock on a deal the buyer will pay in parts. */
+export function startInstallments(dealId: string, now = Date.now()): MarketDeal {
+  const deal = getDeal(dealId);
+  const post = deal ? getPost(deal.postId) : undefined;
+  if (!deal || !post) throw new MarketError("No such deal.", 404);
+  if (!post.installments) throw new MarketError("The seller does not take part payments for this.", 409);
+  if (!deal.installments) {
+    deal.installments = {
+      dueAt: new Date(now + (post.installmentDays ?? 30) * 86_400_000).toISOString(),
+      parts: [],
+      status: "open",
+    };
+    save();
+  }
+  return deal;
+}
+
+/**
+ * Records one part: a hold the buyer has just locked for the seller. The
+ * route proves the hold is real before calling this. `amountUsdc` is what
+ * left the buyer for it, the marketplace's share included.
+ */
+export function addInstallmentPart(
+  buyerId: string,
+  dealId: string,
+  part: { transferId: string; amountUsdc: number },
+  now = Date.now(),
+): { deal: MarketDeal; funded: boolean } {
+  const deal = getDeal(dealId);
+  if (!deal || deal.buyerId !== buyerId || !deal.installments) throw new MarketError("No such deal.", 404);
+  const plan = deal.installments;
+  if (plan.status !== "open") throw new MarketError(plan.status === "funded" ? "This is already paid in full." : "The time to pay ran out and your money was returned.", 409);
+  if (data.deals.some((d) => d.installments?.parts.some((p) => p.transferId === part.transferId))) {
+    throw new MarketError("That payment is already counted.", 409);
+  }
+  if (!(part.amountUsdc > 0)) throw new MarketError("That payment is empty.");
+  plan.parts.push({ transferId: part.transferId, amountUsdc: round6(part.amountUsdc), at: new Date(now).toISOString() });
+  // A cent of slack: amounts are typed in other currencies and converted.
+  const funded = installmentPaid(deal) >= deal.priceUsd - 0.01;
+  if (funded) {
+    plan.status = "funded";
+    plan.settledAt = new Date(now).toISOString();
+  }
+  save();
+  return { deal, funded };
+}
+
+/** The seller gives the buyer more time, or less. Never a time already past. */
+export function setInstallmentDeadline(sellerId: string, dealId: string, dueAtMs: number, now = Date.now()): MarketDeal {
+  const deal = getDeal(dealId);
+  if (!deal || deal.sellerId !== sellerId || !deal.installments) throw new MarketError("No such deal.", 404);
+  if (deal.installments.status !== "open") throw new MarketError("This is no longer being paid in parts.", 409);
+  const latest = Date.parse(deal.createdAt) + MAX_INSTALLMENT_DAYS * 86_400_000;
+  if (!Number.isFinite(dueAtMs) || dueAtMs < now + 3_600_000) throw new MarketError("Give them at least an hour from now.");
+  if (dueAtMs > latest) throw new MarketError(`The longest a part payment can run is ${MAX_INSTALLMENT_DAYS} days from when it started.`);
+  deal.installments.dueAt = new Date(dueAtMs).toISOString();
+  save();
+  return deal;
+}
+
+/** Part-payment deals whose time ran out before the full amount was in. */
+export function installmentsOverdue(now = Date.now()): MarketDeal[] {
+  return data.deals.filter((d) => d.installments?.status === "open" && Date.parse(d.installments.dueAt) <= now);
+}
+
+export function markInstallmentsRefunded(dealId: string, now = Date.now()): void {
+  const deal = getDeal(dealId);
+  if (!deal?.installments) return;
+  deal.installments.status = "refunded";
+  deal.installments.settledAt = new Date(now).toISOString();
+  save();
+}
+
 // ─── Reviews ─────────────────────────────────────────────────────────────
+
+/** What buyers said about one product: only people who paid for it can. */
+export function reviewsForPost(postId: string) {
+  const dealIds = new Set(data.deals.filter((d) => d.postId === postId).map((d) => d.id));
+  const rows = data.reviews
+    .filter((r) => dealIds.has(r.dealId))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return {
+    count: rows.length,
+    rating: rows.length ? Number((rows.reduce((s, r) => s + r.stars, 0) / rows.length).toFixed(1)) : null,
+    items: rows.slice(0, 30).map((r) => ({
+      stars: r.stars,
+      text: r.text,
+      at: r.createdAt,
+      by: store.getUser(r.buyerId)?.handle ? `@${store.getUser(r.buyerId)!.handle}` : "A buyer",
+    })),
+  };
+}
+
+/** The viewer's paid deal on a post that they have not reviewed yet. */
+export function reviewableDeal(buyerId: string, postId: string): MarketDeal | undefined {
+  return data.deals.find((d) =>
+    d.postId === postId && d.buyerId === buyerId && dealPaid(d, requestStatus) &&
+    !data.reviews.some((r) => r.dealId === d.id));
+}
+
+/** Everything a person paid for on the market, newest first. */
+export function boughtBy(buyerId: string): MarketDeal[] {
+  return data.deals.filter((d) => d.buyerId === buyerId && dealPaid(d, requestStatus));
+}
 
 /** Only the buyer of a deal that was paid can review it, once. */
 export function leaveReview(buyerId: string, dealId: string, input: { stars: number; text?: string }): MarketReview {
@@ -1182,6 +1399,13 @@ export function postCard(r: Ranked) {
     remote: r.post.remote,
     deliveryDays: r.post.deliveryDays,
     active: r.post.active,
+    units: r.post.units ?? null,
+    unitsLeft: unitsLeft(r.post),
+    sold: r.post.kind === "offer" ? unitsSold(r.post.id) : 0,
+    installments: Boolean(r.post.installments),
+    installmentDays: r.post.installments ? r.post.installmentDays ?? 30 : null,
+    productRating: r.post.kind === "offer" ? reviewsForPost(r.post.id).rating : null,
+    productReviews: r.post.kind === "offer" ? reviewsForPost(r.post.id).count : 0,
     createdAt: r.post.createdAt,
     near: r.near.label,
     why: r.why,

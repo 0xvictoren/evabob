@@ -88,9 +88,15 @@ marketRoutes.get("/market/mine", (c) => {
     const post = market.getPost(p.postId);
     return post ? [{ ...p, postTitle: post.title, budgetUsd: post.priceUsd }] : [];
   });
+  // What this person paid for, with the product it was, to rate or reopen.
+  const bought = market.boughtBy(uid).map((d) => {
+    const post = market.getPost(d.postId);
+    return { deal: market.dealView(d, uid), post: post ? market.cardFor(post, uid) : null };
+  });
   return c.json({
     posts,
     sent,
+    bought,
     deals: market.dealsFor(uid).map((d) => market.dealView(d, uid)),
   });
 });
@@ -98,11 +104,19 @@ marketRoutes.get("/market/mine", (c) => {
 marketRoutes.get("/market/posts/:id", (c) => {
   const uid = userId(c);
   const post = market.getPost(c.req.param("id"));
-  if (!post) return c.json({ error: "No such post." }, 404);
+  // A closed post is gone for everyone but its owner and people who bought it.
+  if (!post || !market.canSee(post, uid)) return c.json({ error: "No such post." }, 404);
   const mine = post.ownerId === uid;
   const body: Record<string, unknown> = {
     post: market.cardFor(post, uid),
     mine,
+    ...(post.kind === "offer"
+      ? {
+          reviews: market.reviewsForPost(post.id),
+          // Only someone who paid for this may rate it, once per purchase.
+          reviewDealId: market.reviewableDeal(uid, post.id)?.id ?? null,
+        }
+      : {}),
     seller: market.personCard(post.ownerId, market.placeOf(uid)),
   };
   if (post.kind === "want") {
@@ -169,6 +183,10 @@ const postBody = z.object({
   place: placeBody.optional(),
   remote: z.boolean().optional(),
   deliveryDays: z.number().int().min(1).max(60).optional(),
+  units: z.number().int().min(1).max(market.MAX_UNITS).optional(),
+  live: z.boolean().optional(),
+  installments: z.boolean().optional(),
+  installmentDays: z.number().int().min(1).max(market.MAX_INSTALLMENT_DAYS).optional(),
 });
 
 marketRoutes.post("/market/posts", async (c) => {
@@ -191,6 +209,19 @@ marketRoutes.post("/market/posts/:id/close", (c) =>
 
 marketRoutes.post("/market/posts/:id/open", (c) =>
   act(c, () => ({ post: market.cardFor(market.setPostActive(userId(c), c.req.param("id"), true), userId(c)) })));
+
+/** The owner changes how many are left, or whether it can be paid in parts. */
+marketRoutes.post("/market/posts/:id/update", async (c) => {
+  const uid = userId(c);
+  const body = z
+    .object({
+      units: z.number().int().min(0).max(market.MAX_UNITS).optional(),
+      installments: z.boolean().optional(),
+      installmentDays: z.number().int().min(1).max(market.MAX_INSTALLMENT_DAYS).optional(),
+    })
+    .parse(await c.req.json());
+  return act(c, () => ({ post: market.cardFor(market.updateOffer(uid, c.req.param("id"), body), uid) }));
+});
 
 /** One photo for a post, stored like profile photos. Returns its path. */
 marketRoutes.post("/market/photos", async (c) => {
@@ -488,9 +519,67 @@ marketRoutes.post("/market/posts/:id/order", (c) => {
     if (!post.active) throw new market.MarketError("This is no longer available.", 409);
     if (post.ownerId === uid) throw new market.MarketError("This is your own post.", 403);
     const existing = market.openDealFor(uid, post.id);
+    if (!existing && market.unitsLeft(post) === 0) throw new market.MarketError("This has sold out.", 409, "SOLD_OUT");
     const deal = existing ?? openDeal({ postId: post.id, sellerId: post.ownerId, buyerId: uid, title: post.title, priceUsd: post.priceUsd });
     return { deal: market.dealView(deal, uid) };
   }, 201);
+});
+
+// ─── Paying in parts ─────────────────────────────────────────────────────
+
+/**
+ * The buyer chooses to pay for an offer in parts. Makes (or returns) the
+ * deal and says who to lock each part for; the clock starts now.
+ */
+marketRoutes.post("/market/posts/:id/installments", (c) => {
+  const uid = userId(c);
+  return act(c, () => {
+    const post = market.getPost(c.req.param("id"));
+    if (!post || post.kind !== "offer") throw new market.MarketError("No such post.", 404);
+    if (post.ownerId === uid) throw new market.MarketError("This is your own post.", 403);
+    if (!post.installments) throw new market.MarketError("The seller does not take part payments for this.", 409);
+    let deal = market.installmentDealFor(uid, post.id);
+    if (!deal) {
+      if (!post.active) throw new market.MarketError("This is no longer available.", 409);
+      if (market.unitsLeft(post) === 0) throw new market.MarketError("This has sold out.", 409, "SOLD_OUT");
+      deal = market.startInstallments(
+        openDeal({ postId: post.id, sellerId: post.ownerId, buyerId: uid, title: post.title, priceUsd: post.priceUsd }).id,
+      );
+    }
+    const seller = store.getUser(post.ownerId);
+    return { deal: market.dealView(deal, uid), recipient: seller?.handle ? `@${seller.handle}` : null };
+  }, 201);
+});
+
+/** One part, after the buyer has locked it: the hold is checked, then counted. */
+marketRoutes.post("/market/deals/:id/installments/part", async (c) => {
+  const uid = userId(c);
+  const body = z.object({ transferId: z.string().regex(/^\d{1,20}$/) }).parse(await c.req.json());
+  return act(c, async () => {
+    const found = market.getDeal(c.req.param("id"));
+    if (!found || found.buyerId !== uid) throw new market.MarketError("No such deal.", 404);
+    const { provePart, announcePart } = await import("../services/marketInstallments.js");
+    const amountUsdc = await provePart({ deal: found, buyerId: uid, transferId: body.transferId });
+    const { deal, funded } = market.addInstallmentPart(uid, found.id, { transferId: body.transferId, amountUsdc });
+    announcePart(deal, amountUsdc, funded);
+    return { deal: market.dealView(deal, uid), funded };
+  }, 201);
+});
+
+/** The seller gives the buyer more time to finish paying, or less. */
+marketRoutes.post("/market/deals/:id/installments/deadline", async (c) => {
+  const uid = userId(c);
+  const body = z.object({ dueAt: z.string().datetime() }).parse(await c.req.json());
+  return act(c, () => {
+    const deal = market.setInstallmentDeadline(uid, c.req.param("id"), Date.parse(body.dueAt));
+    alertUser(deal.buyerId, {
+      kind: "market_deal",
+      title: "Your time to finish paying changed",
+      body: `For "${deal.title}", pay the rest by ${new Date(deal.installments!.dueAt).toUTCString().slice(5, 22)} UTC.`,
+      link: `evabob://market/${deal.postId}`,
+    });
+    return { deal: market.dealView(deal, uid) };
+  });
 });
 
 /** The poster of a request accepts one seller's offer. */
@@ -563,8 +652,14 @@ marketRoutes.get("/market/people/:id", (c) => {
   const user = store.getUser(raw) ?? store.findUserByHandle(raw.replace(/^@/, ""));
   if (!user) return c.json({ error: "No such person." }, 404);
   const uid = userId(c);
-  const offers = market.postsBy(user.id).filter((p) => p.active && p.kind === "offer").map((p) => market.cardFor(p, uid));
-  return c.json({ person: market.personCard(user.id, market.placeOf(uid)), offers });
+  const offers = market.postsBy(user.id)
+    .filter((p) => p.active && p.kind === "offer" && market.unitsLeft(p) !== 0)
+    .map((p) => market.cardFor(p, uid));
+  // Their shop, shelf by shelf: what they sell, grouped by category.
+  const shelves = market.MARKET_CATEGORIES
+    .map((cat) => ({ id: cat.id, label: cat.label, items: offers.filter((o) => o.category === cat.id) }))
+    .filter((s) => s.items.length > 0);
+  return c.json({ person: market.personCard(user.id, market.placeOf(uid)), offers, shelves });
 });
 
 /**
@@ -649,7 +744,8 @@ marketRoutes.post("/operator/market/socials", async (c) => {
 /** A post as its shared link shows it: no viewer, so no distance. */
 marketRoutes.get("/public/market/posts/:id", (c) => {
   const post = market.getPost(c.req.param("id"));
-  if (!post) return c.json({ error: "No such post." }, 404);
+  // A closed post has no public page.
+  if (!post || !post.active) return c.json({ error: "No such post." }, 404);
   const card = market.postCard(market.rankPosts({ posts: [post] })[0]!);
   return c.json({ post: card, deepLink: `evabob://market/${post.id}` });
 });

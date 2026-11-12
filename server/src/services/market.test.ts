@@ -312,3 +312,134 @@ test("what others see of a person never includes their wallet, email or exact po
   assert.ok(!card.includes("0x5555"));
   assert.ok(!card.includes("6.45"));
 });
+
+test("units: each paid deal takes one, a sold-out post leaves the market, the owner can restock", () => {
+  market.resetMarketForTests();
+  const seller = user("stockist", "Lekki");
+  const b1 = user("buyer_one", "Lekki");
+  const b2 = user("buyer_two", "Lekki");
+  const post = market.createPost(seller, { kind: "offer", type: "goods", title: "Ankara fabric, 6 yards", priceUsd: 12, units: 2 });
+  assert.equal(market.unitsLeft(post), 2);
+  // A request has no units.
+  assert.equal(market.unitsLeft(market.createPost(b1, { kind: "want", type: "goods", title: "Ankara wanted", priceUsd: 10 })), null);
+
+  // An unpaid order holds nothing back.
+  market.recordDeal({ postId: post.id, sellerId: seller, buyerId: b1, title: post.title, priceUsd: 12, requestId: "u-1" });
+  statuses.set("u-1", "open");
+  assert.equal(market.unitsLeft(post), 2);
+  statuses.set("u-1", "paid");
+  assert.equal(market.unitsLeft(post), 1);
+  market.recordDeal({ postId: post.id, sellerId: seller, buyerId: b2, title: post.title, priceUsd: 12, requestId: "u-2" });
+  statuses.set("u-2", "escrow");
+  assert.equal(market.unitsLeft(post), 0);
+  assert.equal(market.browse({ viewerId: b1, kind: "offer" }).some((r) => r.post.id === post.id), false, "sold out is not offered");
+  assert.equal(market.postCard(market.rankPosts({ posts: [post] })[0]!).sold, 2);
+
+  // Restocking sets what is left to sell from now.
+  assert.throws(() => market.updateOffer(b1, post.id, { units: 5 }), /No such post/);
+  market.updateOffer(seller, post.id, { units: 5 });
+  assert.equal(market.unitsLeft(post), 5);
+  assert.equal(market.browse({ viewerId: b1, kind: "offer" }).some((r) => r.post.id === post.id), true);
+});
+
+test("a post can wait unseen until its owner makes it live; closed, only its owner and buyers see it", () => {
+  market.resetMarketForTests();
+  const seller = user("drafter", "Lekki");
+  const buyer = user("looker", "Lekki");
+  const stranger = user("passerby", "Lekki");
+  const draft = market.createPost(seller, { kind: "offer", type: "goods", title: "Leather sandals", priceUsd: 9, live: false });
+  assert.equal(draft.active, false);
+  assert.equal(market.canSee(draft, seller), true);
+  assert.equal(market.canSee(draft, stranger), false);
+  assert.equal(market.browse({ viewerId: buyer, kind: "offer" }).length, 0);
+
+  market.setPostActive(seller, draft.id, true);
+  assert.equal(market.browse({ viewerId: buyer, kind: "offer" }).length, 1);
+  market.recordDeal({ postId: draft.id, sellerId: seller, buyerId: buyer, title: draft.title, priceUsd: 9, requestId: "v-1" });
+  statuses.set("v-1", "paid");
+
+  market.setPostActive(seller, draft.id, false);
+  assert.equal(market.canSee(draft, stranger), false, "closed: gone for everyone else");
+  assert.equal(market.canSee(draft, undefined), false);
+  assert.equal(market.canSee(draft, buyer), true, "someone who bought it still has it");
+  assert.equal(market.boughtBy(buyer).length, 1);
+  assert.equal(market.boughtBy(stranger).length, 0);
+});
+
+test("a product is rated only by people who paid for it, once per purchase", () => {
+  market.resetMarketForTests();
+  const seller = user("baker", "Lekki");
+  const buyer = user("eater", "Lekki");
+  const stranger = user("window_shopper", "Lekki");
+  const cake = market.createPost(seller, { kind: "offer", type: "goods", title: "Chocolate cake", priceUsd: 15, units: 10 });
+  const bread = market.createPost(seller, { kind: "offer", type: "goods", title: "Agege bread", priceUsd: 2, units: 10 });
+  const deal = market.recordDeal({ postId: cake.id, sellerId: seller, buyerId: buyer, title: cake.title, priceUsd: 15, requestId: "r-1" });
+
+  statuses.set("r-1", "open");
+  assert.equal(market.reviewableDeal(buyer, cake.id), undefined, "not paid yet");
+  statuses.set("r-1", "paid");
+  assert.equal(market.reviewableDeal(buyer, cake.id)?.id, deal.id);
+  assert.equal(market.reviewableDeal(stranger, cake.id), undefined);
+  assert.equal(market.reviewableDeal(buyer, bread.id), undefined, "bought the cake, not the bread");
+
+  market.leaveReview(buyer, deal.id, { stars: 5, text: "Moist" });
+  assert.equal(market.reviewableDeal(buyer, cake.id), undefined, "once per purchase");
+  const reviews = market.reviewsForPost(cake.id);
+  assert.equal(reviews.count, 1);
+  assert.equal(reviews.rating, 5);
+  assert.equal(reviews.items[0]!.by, "@eater");
+  assert.equal(market.reviewsForPost(bread.id).count, 0, "a rating belongs to the product it was for");
+});
+
+test("paying in parts: counted as they land, paid when the total is in, refundable past the deadline", () => {
+  market.resetMarketForTests();
+  const seller = user("phone_shop", "Lekki");
+  const buyer = user("saver", "Lekki");
+  const plain = market.createPost(seller, { kind: "offer", type: "goods", title: "Phone case", priceUsd: 5 });
+  const phone = market.createPost(seller, { kind: "offer", type: "goods", title: "Used iPhone 12", priceUsd: 100, units: 1, installments: true, installmentDays: 10 });
+  const t0 = Date.parse("2026-11-12T08:00:00Z");
+
+  const noParts = market.recordDeal({ postId: plain.id, sellerId: seller, buyerId: buyer, title: plain.title, priceUsd: 5, requestId: "i-0" });
+  assert.throws(() => market.startInstallments(noParts.id, t0), /does not take part payments/);
+
+  const deal = market.startInstallments(
+    market.recordDeal({ postId: phone.id, sellerId: seller, buyerId: buyer, title: phone.title, priceUsd: 100, requestId: "i-1" }).id, t0);
+  assert.equal(deal.installments!.dueAt, new Date(t0 + 10 * 86_400_000).toISOString());
+  assert.equal(market.installmentDealFor(buyer, phone.id)?.id, deal.id);
+  assert.equal(market.unitsLeft(phone), 1, "not sold until it is paid in full");
+
+  assert.throws(() => market.addInstallmentPart(seller, deal.id, { transferId: "1", amountUsdc: 40 }), /No such deal/);
+  assert.equal(market.addInstallmentPart(buyer, deal.id, { transferId: "1", amountUsdc: 40 }, t0).funded, false);
+  assert.throws(() => market.addInstallmentPart(buyer, deal.id, { transferId: "1", amountUsdc: 40 }), /already counted/);
+  assert.equal(market.dealView(deal, buyer).installments!.paidUsd, 40);
+  assert.equal(market.dealView(deal, buyer).paid, false);
+
+  // The seller moves the deadline, within limits; the buyer cannot.
+  assert.throws(() => market.setInstallmentDeadline(buyer, deal.id, t0 + 86_400_000, t0), /No such deal/);
+  assert.throws(() => market.setInstallmentDeadline(seller, deal.id, t0 + 60_000, t0), /at least an hour/);
+  assert.throws(() => market.setInstallmentDeadline(seller, deal.id, Date.now() + 200 * 86_400_000, t0), /longest/);
+  market.setInstallmentDeadline(seller, deal.id, t0 + 3 * 86_400_000, t0);
+  assert.deepEqual(market.installmentsOverdue(t0 + 2 * 86_400_000), []);
+  assert.equal(market.installmentsOverdue(t0 + 3 * 86_400_000)[0]?.id, deal.id);
+
+  // The rest arrives in time: paid, the unit is gone.
+  assert.equal(market.addInstallmentPart(buyer, deal.id, { transferId: "2", amountUsdc: 60 }, t0 + 86_400_000).funded, true);
+  assert.equal(market.dealView(deal, buyer).paid, true);
+  assert.equal(market.dealView(deal, buyer).status, "escrow");
+  assert.equal(market.unitsLeft(phone), 0);
+  assert.deepEqual(market.installmentsOverdue(t0 + 30 * 86_400_000), [], "paid in full is never refunded for lateness");
+  assert.throws(() => market.addInstallmentPart(buyer, deal.id, { transferId: "3", amountUsdc: 1 }), /already paid in full/);
+  assert.throws(() => market.setInstallmentDeadline(seller, deal.id, t0 + 5 * 86_400_000, t0), /no longer/);
+
+  // Another buyer runs out of time: marked returned, and it takes no unit.
+  market.updateOffer(seller, phone.id, { units: 1 });
+  const late = user("latecomer", "Lekki");
+  const slow = market.startInstallments(
+    market.recordDeal({ postId: phone.id, sellerId: seller, buyerId: late, title: phone.title, priceUsd: 100, requestId: "i-2" }).id, t0);
+  market.addInstallmentPart(late, slow.id, { transferId: "9", amountUsdc: 30 }, t0);
+  assert.equal(market.installmentsOverdue(t0 + 11 * 86_400_000)[0]?.id, slow.id);
+  market.markInstallmentsRefunded(slow.id);
+  assert.equal(market.dealView(slow, late).status, "cancelled");
+  assert.equal(market.unitsLeft(phone), 1);
+  assert.throws(() => market.addInstallmentPart(late, slow.id, { transferId: "10", amountUsdc: 70 }), /ran out/);
+});
