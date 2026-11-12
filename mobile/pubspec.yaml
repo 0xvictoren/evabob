@@ -17,7 +17,7 @@ dependencies:
   shared_preferences: ^2.3.3
   flutter_svg: ^2.0.10+1
   webview_flutter: ^4.14.1
-  webview_flutter_android: ^4.13.0
+  webview_flutter_android: ^4.14.1
   pusher_channels_flutter: ^2.6.0
   flutter_local_notifications: ^19.4.2
   image_picker: ^1.1.2
